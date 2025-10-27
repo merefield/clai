@@ -20,7 +20,8 @@ UNIX_NAME=$(uname -srp)
 if [ -x "$(command -v lsb_release)" ]; then
 	DISTRO_INFO=$(lsb_release -ds | sed 's/^"//;s/"$//')
 elif [ -f "/etc/os-release" ]; then
-	DISTRO_INFO=$(grep -oP '(?<=^PRETTY_NAME=").+(?="$)' /etc/os-release)
+	# Avoid GNU grep -P which is unavailable on macOS; use sed to extract value.
+	DISTRO_INFO=$(grep '^PRETTY_NAME=' /etc/os-release | head -n1 | sed 's/^PRETTY_NAME="\?//;s/"$//')
 fi
 # If we failed to fetch distro info, we'll mark it as unknown
 if [ ${#DISTRO_INFO} -le 1 ]; then
@@ -103,8 +104,102 @@ if [ ! -d "$TOOLS_PATH" ]; then
 fi
 echo "" > /tmp/bai_tool_output.txt
 
-# Declare an associative array to store function names and script paths
-declare -A TOOL_MAP
+# -------------------------------------------------------------
+# Cross-shell compatibility helpers (Bash <4, zsh support)
+# -------------------------------------------------------------
+
+# Bash <4 (macOS default) does not support associative arrays (declare -A).
+# zsh does support them (typeset -A) but this script is executed by Bash via
+# the she-bang.  We therefore provide a thin abstraction layer that offers a
+# handful of helper functions so the rest of the script can **pretend** an
+# associative array exists no matter which shell/version is executing.  If the
+# current shell supports real associative arrays we will use one, otherwise we
+# fall back to two parallel indexed arrays.
+
+# Determine associative-array support
+HAS_ASSOC_ARRAY=false
+
+# Bash ≥4 or any zsh support associative arrays.  We attempt a silent test that
+# works for both.
+if (unset TEST 2>/dev/null; declare -A TEST 2>/dev/null); then
+    HAS_ASSOC_ARRAY=true
+fi
+
+if [ "$HAS_ASSOC_ARRAY" = true ]; then
+    # Native implementation
+    declare -A TOOL_MAP
+else
+    # Fallback implementation using two parallel indexed arrays
+    TOOL_MAP_KEYS=()
+    TOOL_MAP_VALS=()
+fi
+
+# --- helper wrappers -------------------------------------------------------
+# tool_map_exists  <key>
+# tool_map_get     <key>   -> echoes value (empty string if missing)
+# tool_map_set     <key> <value>  (fails silently if duplicate)
+# tool_map_keys    -> echoes all keys separated by spaces
+# tool_map_size    -> echoes number of stored pairs
+
+tool_map_exists() {
+    local k="$1"
+    if [ "$HAS_ASSOC_ARRAY" = true ]; then
+        [[ -n "${TOOL_MAP[$k]+x}" ]]
+    else
+        local i
+        for i in "${!TOOL_MAP_KEYS[@]}"; do
+            [ "${TOOL_MAP_KEYS[$i]}" = "$k" ] && return 0
+        done
+        return 1
+    fi
+}
+
+tool_map_get() {
+    local k="$1"
+    if [ "$HAS_ASSOC_ARRAY" = true ]; then
+        echo "${TOOL_MAP[$k]}"
+    else
+        local i
+        for i in "${!TOOL_MAP_KEYS[@]}"; do
+            if [ "${TOOL_MAP_KEYS[$i]}" = "$k" ]; then
+                echo "${TOOL_MAP_VALS[$i]}"
+                return 0
+            fi
+        done
+    fi
+}
+
+tool_map_set() {
+    local k="$1"; local v="$2"
+    # Do nothing if key already exists (caller prints error).
+    if tool_map_exists "$k"; then
+        return 1
+    fi
+
+    if [ "$HAS_ASSOC_ARRAY" = true ]; then
+        TOOL_MAP[$k]="$v"
+    else
+        TOOL_MAP_KEYS+=("$k")
+        TOOL_MAP_VALS+=("$v")
+    fi
+    return 0
+}
+
+tool_map_keys() {
+    if [ "$HAS_ASSOC_ARRAY" = true ]; then
+        echo "${!TOOL_MAP[@]}"
+    else
+        echo "${TOOL_MAP_KEYS[@]}"
+    fi
+}
+
+tool_map_size() {
+    if [ "$HAS_ASSOC_ARRAY" = true ]; then
+        echo "${#TOOL_MAP[@]}"
+    else
+        echo "${#TOOL_MAP_KEYS[@]}"
+    fi
+}
 
 # Iterate over all files in the tools directory
 for tool in "$TOOLS_PATH"/*.sh
@@ -134,7 +229,7 @@ do
 					function_name=$(echo "$pretty_json" | jq -r '.function.name')
 					
 					# Check if the function name already exists in the map
-					if [ -n "${TOOL_MAP[$function_name]}" ]; then
+					if tool_map_exists "$function_name"; then
 						echo "ERROR: $tool tried to claim function name \"$function_name\" which is already claimed"
 						exit 1
 					else
@@ -151,7 +246,7 @@ do
 						# Add tool_reason to the required array
 						pretty_json=$(echo "$pretty_json" | jq --arg new_param "tool_reason" '.function.parameters.required += [$new_param]')
 						
-						TOOL_MAP["$function_name"]="$tool"
+						tool_map_set "$function_name" "$tool"
 						OPENAI_TOOLS+="$pretty_json,"
 					fi
 				else
@@ -166,8 +261,8 @@ done
 OPENAI_TOOLS="${OPENAI_TOOLS%,}"
 
 # Hide the cursor while we're working
-trap 'echo -ne "$SHOW_CURSOR"' EXIT # Make sure the cursor is shown when the script exits
-echo -e "$HIDE_CURSOR"
+trap 'printf "%b" "$SHOW_CURSOR"' EXIT # Make sure the cursor is shown when the script exits
+printf "%b" "$HIDE_CURSOR"
 
 # Check for configuration file existence
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -192,51 +287,59 @@ fi
 # Read configuration file
 config=$(cat "$CONFIG_FILE")
 
+# Helper to extract values from config without using GNU grep -P
+cfg_val() {
+    # $1 -> key name
+    # outputs the value (may be empty)
+    local key="$1"
+    echo "$config" | grep -E "^${key}=" | head -n1 | cut -d'=' -f2-
+}
+
 # API Key
-OPENAI_KEY=$(echo "${config[@]}" | grep -oP '(?<=^key=).+')
+OPENAI_KEY=$(cfg_val "key")
 if [ -z "$OPENAI_KEY" ]; then
 	 # Prompt user to input OpenAI key if not found
 	echo "To use Bash AI, please input your OpenAI key into the config file located at $CONFIG_FILE"
-	echo -ne "$SHOW_CURSOR"
+	printf "%b" "$SHOW_CURSOR"
 	exit 1
 fi
 
 # Extract OpenAI URL from configuration
-OPENAI_URL=$(echo "${config[@]}" | grep -oP '(?<=^api=).+')
+OPENAI_URL=$(cfg_val "api")
 
 # Extract OpenAI model from configuration
-OPENAI_MODEL=$(echo "${config[@]}" | grep -oP '(?<=^model=).+')
+OPENAI_MODEL=$(cfg_val "model")
 
 # Extract OpenAI temperature from configuration
-OPENAI_TEMP=$(echo "${config[@]}" | grep -oP '(?<=^temp=).+')
+OPENAI_TEMP=$(cfg_val "temp")
 
 # Extract OpenAI system execution query from configuration
-OPENAI_EXEC_QUERY=$(echo "${config[@]}" | grep -oP '(?<=^exec_query=).+')
+OPENAI_EXEC_QUERY=$(cfg_val "exec_query")
 
 # Extract OpenAI system question query from configuration
-OPENAI_QUESTION_QUERY=$(echo "${config[@]}" | grep -oP '(?<=^question_query=).+')
+OPENAI_QUESTION_QUERY=$(cfg_val "question_query")
 
 # Extract OpenAI system error query from configuration
-OPENAI_ERROR_QUERY=$(echo "${config[@]}" | grep -oP '(?<=^error_query=).+')
+OPENAI_ERROR_QUERY=$(cfg_val "error_query")
 
 # Extract maximum token count from configuration
-OPENAI_TOKENS=$(echo "${config[@]}" | grep -oP '(?<=^tokens=).+')
+OPENAI_TOKENS=$(cfg_val "tokens")
 #GLOBAL_QUERY+=" All your messages must be less than \"$OPENAI_TOKENS\" tokens."
 
 # Test if high contrast mode is set in configuration
-HI_CONTRAST=$(echo "${config[@]}" | grep -oP '(?<=^hi_contrast=).+')
+HI_CONTRAST=$(cfg_val "hi_contrast")
 if [ "$HI_CONTRAST" = true ]; then
 	INFO_TEXT_COLOR="$RESET_COLOR"
 fi
 
 # Test if we should expose current dir
-EXPOSE_CURRENT_DIR=$(echo "${config[@]}" | grep -oP '(?<=^expose_current_dir=).+')
+EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 
 # Extract maximum history message count from configuration
-MAX_HISTORY_COUNT=$(echo "${config[@]}" | grep -oP '(?<=^max_history=).+')
+MAX_HISTORY_COUNT=$(cfg_val "max_history")
 
 # Test if GPT JSON mode is set in configuration
-JSON_MODE=$(echo "${config[@]}" | grep -oP '(?<=^json_mode=).+')
+JSON_MODE=$(cfg_val "json_mode")
 if [ "$JSON_MODE" = true ]; then
 	JSON_MODE="\"response_format\": { \"type\": \"json_object\" },"
 else
@@ -256,61 +359,59 @@ fi
 
 # Helper functions
 print_info() {
-	# Return if there's no text
-	if [ ${#1} -le 0 ]; then
-		return
-	fi
-	echo -ne "${PRE_TEXT}${INFO_TEXT_COLOR}"
-	echo -n "$1"
-	echo -e "${RESET_COLOR}"
-	echo
+	[ -z "$1" ] && return
+	printf "%b%s%b\n\n" "${PRE_TEXT}${INFO_TEXT_COLOR}" "$1" "${RESET_COLOR}"
 }
 
 print_ok() {
-	# Return if there's no text
-	if [ ${#1} -le 0 ]; then
-		return
-	fi
-	echo -e "${OK_TEXT_COLOR}$1${RESET_COLOR}"
-	echo
+	[ -z "$1" ] && return
+	printf "%b%s%b\n\n" "${OK_TEXT_COLOR}" "$1" "${RESET_COLOR}"
 }
 
 print_error() {
-	# Return if there's no text
-	if [ ${#1} -le 0 ]; then
-		return
-	fi
-	echo -e "${ERROR_TEXT_COLOR}$1${RESET_COLOR}"
-	echo
+	[ -z "$1" ] && return
+	printf "%b%s%b\n\n" "${ERROR_TEXT_COLOR}" "$1" "${RESET_COLOR}"
 }
 
 print_cancel() {
-	# Return if there's no text
-	if [ ${#1} -le 0 ]; then
-		return
-	fi
-	echo -e "${CANCEL_TEXT_COLOR}$1${RESET_COLOR}"
-	echo
+	[ -z "$1" ] && return
+	printf "%b%s%b\n\n" "${CANCEL_TEXT_COLOR}" "$1" "${RESET_COLOR}"
 }
 
 print_cmd() {
-	# Return if there's no text
-	if [ ${#1} -le 0 ]; then
-		return
-	fi
-	echo -ne "${PRE_TEXT}${CMD_BG_COLOR}${CMD_TEXT_COLOR}"
-	echo -n " $1 "
-	echo -e "${RESET_COLOR}"
-	echo
+	[ -z "$1" ] && return
+	printf "%b %s %b\n\n" "${PRE_TEXT}${CMD_BG_COLOR}${CMD_TEXT_COLOR}" "$1" "${RESET_COLOR}"
 }
 
 print() {
-	echo -e "${PRE_TEXT}$1"
+	printf "%b%b%b\n" "${PRE_TEXT}" "$1" "${RESET_COLOR}"
 }
 
 json_safe() {
-	# FIX this is a bad way of doing this, and it misses many unsafe characters
-	echo "$1" | perl -pe 's/\\/\\\\/g; s/"/\\"/g; s/\033/\\\\033/g; s/\n/ /g; s/\r/\\r/g; s/\t/\\t/g'
+        # FIX this is a bad way of doing this, and it misses many unsafe characters
+        echo "$1" | perl -pe 's/\\/\\\\/g; s/"/\\"/g; s/\033/\\\\033/g; s/\n/ /g; s/\r/\\r/g; s/\t/\\t/g'
+}
+
+repair_truncated_json() {
+        local reply="$1"
+        local repaired="$reply"
+
+        # Ensure we have an even number of double quotes by appending a closing quote
+        if (( $(tr -cd '"' <<< "$repaired" | wc -c) % 2 != 0 )); then
+                repaired+="\""
+        fi
+
+        # Ensure that opening braces have matching closing braces
+        while [[ $(tr -cd '{' <<< "$repaired" | wc -c) -gt $(tr -cd '}' <<< "$repaired" | wc -c) ]]; do
+                repaired+="}"
+        done
+
+        # Only use the repaired string if it parses as valid JSON
+        if echo "$repaired" | jq -e . >/dev/null 2>&1; then
+                echo "$repaired"
+        else
+                echo "$reply"
+        fi
 }
 
 run_cmd() {
@@ -331,7 +432,7 @@ run_cmd() {
 		if [ ${#LAST_ERROR} -gt 1 ]; then
 			print_error "[error]"
 			echo -n "${PRE_TEXT}examine error? [y/N]: "
-			echo -ne "$SHOW_CURSOR"
+			printf "%b" "$SHOW_CURSOR"
 			read -n 1 -r -s answer
 			
 			# Did the user want to examine the error?
@@ -358,11 +459,11 @@ run_tool() {
 	TOOL_OUTPUT=""
 	
 	# Get the function TOOL_NAME from TOOL_MAP IF IT EXISTS!
-	if [ -z "${TOOL_MAP[$TOOL_NAME]}" ]; then
+	if ! tool_map_exists "$TOOL_NAME"; then
 		TOOL_SCRIPT=""
 		TOOL_OUTPUT=""
 	else
-		TOOL_SCRIPT="${TOOL_MAP[$TOOL_NAME]}"
+		TOOL_SCRIPT="$(tool_map_get "$TOOL_NAME")"
 		
 		TOOL_REASON=$(echo "$TOOL_ARGS" | jq -r '.tool_reason')
 		TOOL_ARGS_READABLE=$(echo "$TOOL_ARGS" | jq -r 'del(.tool_reason)|to_entries|map("\(.key): \(.value)")|.[]' | paste -sd ',' - | awk '{gsub(/,/, ", "); print}')
@@ -411,11 +512,13 @@ if [ -z "$USER_QUERY" ]; then
 	INTERACTIVE_MODE=true
 	print "🤖 ${TITLE_TEXT_COLOR}Bash AI v${VERSION}${RESET_COLOR}"
 	# List all tools loaded in TOOL_MAP
-	if [ ${#TOOL_MAP[@]} -gt 0 ]; then
+	# Get number of tools
+	if [ "$(tool_map_size)" -gt 0 ]; then
 		echo
 		print "🔧 ${TITLE_TEXT_COLOR}Activated Tools${RESET_COLOR}"
-		for tool in "${!TOOL_MAP[@]}"; do
-			print "${TITLE_TEXT_COLOR}$tool${RESET_COLOR} from ${TOOL_MAP[$tool]##*/}"
+		for tool in $(tool_map_keys); do
+			tool_path="$(tool_map_get "$tool")"
+			print "${TITLE_TEXT_COLOR}$tool${RESET_COLOR} from ${tool_path##*/}"
 		done
 	fi
 	echo
@@ -434,13 +537,13 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	if [ "$SKIP_USER_QUERY" != true ]; then
 		while [ -z "$USER_QUERY" ]; do
 			# No query, prompt user for query
-			echo -ne "$SHOW_CURSOR"
+			printf "%b" "$SHOW_CURSOR"
 			read -e -r -p "Bash AI> " USER_QUERY
-			echo -e "$HIDE_CURSOR"
+			printf "%b" "$HIDE_CURSOR"
 			
 			# Check if user wants to quit
 			if [ "$USER_QUERY" == "exit" ]; then
-				echo -ne "$SHOW_CURSOR"
+					printf "%b" "$SHOW_CURSOR"
 				print_info "Bye!"
 				exit 0
 			fi
@@ -450,7 +553,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		USER_QUERY=$(json_safe "$USER_QUERY")
 	fi
 	
-	echo -ne "$HIDE_CURSOR"
+	printf "%b" "$HIDE_CURSOR"
 	
 	# Pretty up user query
 	USER_QUERY=$(echo "$USER_QUERY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
@@ -710,7 +813,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	if [ -z "$RESPONSE" ]; then
 		# We didn't get a reply
 		print_info "$NO_REPLY_TEXT"
-		echo -ne "$SHOW_CURSOR"
+		printf "%b" "$SHOW_CURSOR"
 		exit 1
 	fi
 	
@@ -731,23 +834,10 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	if [ "$FINISH_REASON" != "stop" ]; then
 		if [ "$FINISH_REASON" == "length" ]; then
 			
-			# Check if the last character is a closing brace
-			if [[ "${REPLY: -1}" != "}" ]]; then
-				REPLY+="\"}"
-			fi
-			
-			# Check if the number of opening and closing braces match
-			while [[ $(tr -cd '{' <<< "$REPLY" | wc -c) -gt $(tr -cd '}' <<< "$REPLY" | wc -c) ]]; do
-				REPLY+="}"
-			done
-			
-			# Check if the number of double quotes is even
-			if (( $(tr -cd '"' <<< "$REPLY" | wc -c) % 2 != 0 )); then
-				REPLY+="\\\""
-			fi
-			
-			# Replace any unescaped single backslashes with double backslashes
-			REPLY="${REPLY//\\\\/\\\\\\\\}"
+                        REPLY=$(repair_truncated_json "$REPLY")
+
+                        # Replace any unescaped single backslashes with double backslashes
+                        REPLY="${REPLY//\\\\/\\\\\\\\}"
 		elif [ "$FINISH_REASON" == "content_filter" ]; then
 			REPLY="Your query was rejected."
 		elif [ "$FINISH_REASON" == "tool_calls" ]; then
@@ -815,7 +905,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 				# Print info
 				print_info "$INFO"
 			fi
-			echo -ne "$SHOW_CURSOR"
+			printf "%b" "$SHOW_CURSOR"
 		else
 			# Make sure we have some info
 			if [ ${#INFO} -le 0 ]; then
@@ -828,7 +918,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			
 			# Ask for user command confirmation
 			echo -n "${PRE_TEXT}execute command? [y/e/N]: "
-			echo -ne "$SHOW_CURSOR"
+			printf "%b" "$SHOW_CURSOR"
 			read -n 1 -r -s answer
 			
 			# Did the user want to edit the command?

@@ -20,7 +20,7 @@ Bash AI offers the following features:
 	Communicate with the terminal using everyday language.
 	
 - **Question Answering**\
-	Get answers to all your terminal questions by ending your request with a question mark.
+	Get answers to all your terminal questions by ending your request with a question mark (but note special consideration for zsh users below)
 
 - **Command Suggestions**\
 	Receive intelligent command suggestions based on your input.
@@ -100,6 +100,15 @@ curl -sS https://raw.githubusercontent.com/hezkore/bash-ai/main/install.sh | bas
 		```
 
 </details>
+
+## Special considerations for zsh users
+
+Unfortunately, zsh treats “?” and “*” as filename-globs.
+
+If your question ends with a “?”, either:
+
+– quote it (bai "how to list contents of a directory?")
+– or create an alias that disables globbing: alias bai='noglob bai'.
 
 ## Configuration
 
