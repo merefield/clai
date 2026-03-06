@@ -8,7 +8,7 @@ With its plugin architecture, you can easily add your own tools, thereby empower
 
 ## Credits
 
-CLAI is a hard fork of the original `bash-ai` project by [@Hezkore](https://github.com/Hezkore).
+CLAI is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore).
 
 This fork exists because I intend to completely rewrite the project and prefer to have more immediate decision-making capability while doing that work.
 
