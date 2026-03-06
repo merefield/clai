@@ -82,9 +82,12 @@ create_private_dir() {
 
 write_private_file() {
 	local target="$1"
+	local old_umask
 
+	old_umask=$(umask)
 	umask 077
 	cat > "$target"
+	umask "$old_umask"
 	chmod 600 "$target" 2>/dev/null || true
 }
 
