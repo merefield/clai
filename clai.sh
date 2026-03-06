@@ -1104,7 +1104,11 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			elif [ "$answer" == "E" ] || [ "$answer" == "e" ]; then
 				# EDIT
 				echo -ne "$CLEAR_LINE\r"
-				read -e -r -p "${PRE_TEXT}edit command: " -i "$CMD" CMD
+				if [ -n "$CLAI_EDIT_COMMAND_OVERRIDE" ]; then
+					CMD="$CLAI_EDIT_COMMAND_OVERRIDE"
+				else
+					read -e -r -p "${PRE_TEXT}edit command: " -i "$CMD" CMD
+				fi
 				echo
 				run_cmd "$CMD"
 			else

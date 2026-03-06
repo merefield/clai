@@ -793,6 +793,43 @@ EOF
   [[ "$output" == *"[cancel]"* ]]
 }
 
+@test "command responses can be edited before execution" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_command_curl
+
+  run bash -lc '
+    printf "e" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      CLAI_EDIT_COMMAND_OVERRIDE="printf edited > \"'"$TEST_HOME"'/cmd-edited.txt\"" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the command"
+  '
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$TEST_HOME/cmd-ran.txt" ]
+  [ -f "$TEST_HOME/cmd-edited.txt" ]
+  [ "$(cat "$TEST_HOME/cmd-edited.txt")" = "edited" ]
+}
+
 @test "missing assistant message content falls back to an unknown error" {
   write_config <<'EOF'
 key=test-key
