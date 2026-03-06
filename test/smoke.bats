@@ -50,6 +50,137 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
+make_tool_call_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+count_file="$TEST_HOME/curl-call-count"
+if [ ! -f "$count_file" ]; then
+  printf '0' > "$count_file"
+fi
+call_count=$(cat "$count_file")
+call_count=$((call_count + 1))
+printf '%s' "$call_count" > "$count_file"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s' "$payload" > "$TEST_HOME/curl-request-$call_count.json"
+if [ "$call_count" -eq 1 ]; then
+  printf '%s' '{"choices":[{"message":{"content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"record-note","arguments":"{\"value\":\"hello from tool\",\"tool_reason\":\"Need data from the helper tool.\"}"}}]},"finish_reason":"tool_calls"}]}' > "$output"
+else
+  printf '%s' '{"choices":[{"message":{"content":"{\"info\":\"tool flow complete\"}"},"finish_reason":"stop"}]}' > "$output"
+fi
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_command_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"choices":[{"message":{"content":"{\"cmd\":\"printf executed > \\\"$HOME/cmd-ran.txt\\\"\",\"info\":\"run the stub command\"}"},"finish_reason":"stop"}]}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_truncated_json_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+status_code="200"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s' '{"choices":[{"message":{"content":"{\"info\":\"trimmed response\""},"finish_reason":"length"}]}' > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_non_json_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s' '<html>not json</html>' > "$output"
+printf '200'
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
 @test "clai bootstraps config and asks for API key when missing" {
   run env \
     HOME="$TEST_HOME" \
@@ -334,4 +465,171 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" != *"syntax error"* ]]
   [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 1 ]
+}
+
+@test "tool calls trigger tool execution and resume with tool output in history" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  mkdir -p "$TEST_HOME/.clai_tools"
+  cat > "$TEST_HOME/.clai_tools/record-note.sh" <<'EOF'
+#!/bin/bash
+init() {
+  echo '{
+    "type": "function",
+    "function": {
+      "name": "record-note",
+      "description": "Record a note for testing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      }
+    }
+  }'
+}
+
+execute() {
+  echo "tool said: $(echo "$1" | jq -r '.value')"
+}
+EOF
+  chmod +x "$TEST_HOME/.clai_tools/record-note.sh"
+
+  make_tool_call_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "use a tool"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tool flow complete"* ]]
+  [ -f "$TEST_HOME/curl-request-2.json" ]
+  jq -e '.messages | map(select(.role == "tool" and .content == "tool said: hello from tool")) | length >= 1' \
+    "$TEST_HOME/curl-request-2.json" >/dev/null
+  jq -e '.messages | map(select(.role == "assistant" and (.tool_calls | length >= 1))) | length >= 1' \
+    "$TEST_HOME/curl-request-2.json" >/dev/null
+}
+
+@test "command responses can be accepted and executed" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_command_curl
+
+  run bash -lc '
+    printf "y" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the command"
+  '
+
+  [ "$status" -eq 0 ]
+  [ -f "$TEST_HOME/cmd-ran.txt" ]
+  [ "$(cat "$TEST_HOME/cmd-ran.txt")" = "executed" ]
+  [[ "$output" == *"run the stub command"* ]]
+}
+
+@test "truncated JSON responses are repaired before display" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_truncated_json_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "show truncated response"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"trimmed response"* ]]
+}
+
+@test "non-JSON API success responses fail clearly" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_non_json_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "show malformed response"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"non-JSON response"* ]]
 }
