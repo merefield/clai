@@ -46,6 +46,18 @@ teardown() {
   [[ "$output" == *"$TEST_ROOT/tilde-dir/hello.txt"* ]]
 }
 
+@test "find-wildcard expands a bare tilde path to HOME" {
+  touch "$TEST_ROOT/home-file.txt"
+
+  run env HOME="$TEST_ROOT" REPO_ROOT="$PWD" bash -c '
+    source "$REPO_ROOT/tools/find-wild.sh"
+    execute "{\"path\":\"~\",\"name\":\"home-file\"}"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$TEST_ROOT/home-file.txt"* ]]
+}
+
 @test "find-wildcard handles dash-prefixed relative directories safely" {
   mkdir -p "$TEST_ROOT/-dashdir"
   touch "$TEST_ROOT/-dashdir/hello.txt"
