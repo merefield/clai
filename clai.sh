@@ -59,6 +59,7 @@ STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 STATE_DIR="${STATE_HOME}/clai"
 SESSION_TMPDIR="${TMPDIR:-/tmp}"
 TEMP_FILES=()
+CURSOR_HIDDEN=false
 
 # Default query constants, these are used as default values for different types of queries
 DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd' and 'info' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omittied as a last resort if no command can be suggested."
@@ -105,6 +106,20 @@ create_secure_temp() {
 	printf "%s\n" "$tmpfile"
 }
 
+conceal_cursor() {
+	if [ -t 1 ] && [ -n "$HIDE_CURSOR" ] && [ "$CURSOR_HIDDEN" != true ]; then
+		printf "%b" "$HIDE_CURSOR"
+		CURSOR_HIDDEN=true
+	fi
+}
+
+restore_cursor() {
+	if [ -t 1 ] && [ -n "$SHOW_CURSOR" ] && [ "$CURSOR_HIDDEN" = true ]; then
+		printf "%b" "$SHOW_CURSOR"
+		CURSOR_HIDDEN=false
+	fi
+}
+
 # cleanup is invoked indirectly via trap EXIT.
 # shellcheck disable=SC2317
 cleanup() {
@@ -114,8 +129,10 @@ cleanup() {
 		[ -n "$path" ] && [ -e "$path" ] && rm -f "$path"
 	done
 
-	printf "%b" "$SHOW_CURSOR"
+	restore_cursor
 }
+
+trap cleanup EXIT
 
 create_private_dir "$STATE_DIR"
 ensure_dir_exists "$CONFIG_DIR"
@@ -317,8 +334,7 @@ done
 OPENAI_TOOLS="${OPENAI_TOOLS%,}"
 
 # Hide the cursor while we're working
-trap cleanup EXIT
-printf "%b" "$HIDE_CURSOR"
+conceal_cursor
 
 # Check for configuration file existence
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -357,7 +373,7 @@ OPENAI_KEY=$(cfg_val "key")
 if [ -z "$OPENAI_KEY" ]; then
 	 # Prompt user to input OpenAI key if not found
 	echo "To use CLAI, please input your OpenAI key into the config file located at $CONFIG_FILE"
-	printf "%b" "$SHOW_CURSOR"
+	restore_cursor
 	exit 1
 fi
 
@@ -604,7 +620,7 @@ run_cmd() {
 		if [ ${#LAST_ERROR} -gt 1 ]; then
 			print_error "[error]"
 			echo -n "${PRE_TEXT}examine error? [y/N]: "
-			printf "%b" "$SHOW_CURSOR"
+			restore_cursor
 			read -n 1 -r -s answer
 			
 			# Did the user want to examine the error?
@@ -695,23 +711,23 @@ RUN_COUNT=0
 while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_TOOL_REPONSE" = true ]; do
 	# Ask for user query if we're in Interactive Mode
 	if [ "$SKIP_USER_QUERY" != true ]; then
-		while [ -z "$USER_QUERY" ]; do
-			# No query, prompt user for query
-			printf "%b" "$SHOW_CURSOR"
-				read -e -r -p "CLAI> " USER_QUERY
-			printf "%b" "$HIDE_CURSOR"
+			while [ -z "$USER_QUERY" ]; do
+				# No query, prompt user for query
+				restore_cursor
+					read -e -r -p "CLAI> " USER_QUERY
+				conceal_cursor
 			
-			# Check if user wants to quit
-			if [ "$USER_QUERY" == "exit" ]; then
-					printf "%b" "$SHOW_CURSOR"
-				print_info "Bye!"
-				exit 0
-			fi
+				# Check if user wants to quit
+				if [ "$USER_QUERY" == "exit" ]; then
+						restore_cursor
+					print_info "Bye!"
+					exit 0
+				fi
 		done
 		
 		fi
 	
-	printf "%b" "$HIDE_CURSOR"
+	conceal_cursor
 	
 	# Pretty up user query
 	USER_QUERY=$(echo "$USER_QUERY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
@@ -840,42 +856,42 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		# Reset user query
 		USER_QUERY=""
 
-		if [ $CURL_STATUS -ne 0 ]; then
-			echo -ne "$CLEAR_LINE\r"
-			CURL_ERROR=$(cat "$CURL_ERROR_FILE" 2>/dev/null)
-			if [ -z "$CURL_ERROR" ]; then
-				CURL_ERROR="Request failed before the API responded."
+			if [ $CURL_STATUS -ne 0 ]; then
+				echo -ne "$CLEAR_LINE\r"
+				CURL_ERROR=$(cat "$CURL_ERROR_FILE" 2>/dev/null)
+				if [ -z "$CURL_ERROR" ]; then
+					CURL_ERROR="Request failed before the API responded."
+				fi
+				print_error "$CURL_ERROR"
+				restore_cursor
+				exit 1
 			fi
-			print_error "$CURL_ERROR"
-			printf "%b" "$SHOW_CURSOR"
-			exit 1
-		fi
 
-		if ! jq -e . "$RESPONSE_FILE" >/dev/null 2>&1; then
-			echo -ne "$CLEAR_LINE\r"
-			print_error "The API returned a non-JSON response (HTTP $HTTP_CODE)."
-			printf "%b" "$SHOW_CURSOR"
-			exit 1
-		fi
+			if ! jq -e . "$RESPONSE_FILE" >/dev/null 2>&1; then
+				echo -ne "$CLEAR_LINE\r"
+				print_error "The API returned a non-JSON response (HTTP $HTTP_CODE)."
+				restore_cursor
+				exit 1
+			fi
 
 		if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
 			echo -ne "$CLEAR_LINE\r"
 			API_ERROR=$(jq -r '.error.message // empty' "$RESPONSE_FILE")
-			if [ -z "$API_ERROR" ]; then
-				API_ERROR="The API request failed with HTTP status $HTTP_CODE."
+				if [ -z "$API_ERROR" ]; then
+					API_ERROR="The API request failed with HTTP status $HTTP_CODE."
+				fi
+				print_error "$API_ERROR"
+				restore_cursor
+				exit 1
 			fi
-			print_error "$API_ERROR"
-			printf "%b" "$SHOW_CURSOR"
-			exit 1
-		fi
 		
 		# Is response empty?
 		if [ -z "$RESPONSE" ]; then
-		# We didn't get a reply
-		print_info "$NO_REPLY_TEXT"
-		printf "%b" "$SHOW_CURSOR"
-		exit 1
-	fi
+			# We didn't get a reply
+			print_info "$NO_REPLY_TEXT"
+			restore_cursor
+			exit 1
+		fi
 	
 		# Extract the reply from the JSON response
 		REPLY=$(jq -r '.choices[0].message.content // ""' "$RESPONSE_FILE")
@@ -943,12 +959,12 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			if [ ${#INFO} -le 0 ]; then
 				# No info
 				print_info "$REPLY"
+				else
+					# Print info
+					print_info "$INFO"
+				fi
+				restore_cursor
 			else
-				# Print info
-				print_info "$INFO"
-			fi
-			printf "%b" "$SHOW_CURSOR"
-		else
 			# Make sure we have some info
 			if [ ${#INFO} -le 0 ]; then
 				INFO="warning: no information"
@@ -958,10 +974,10 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			print_cmd "$CMD"
 			print_info "$INFO"
 			
-			# Ask for user command confirmation
-			echo -n "${PRE_TEXT}execute command? [y/e/N]: "
-			printf "%b" "$SHOW_CURSOR"
-			read -n 1 -r -s answer
+				# Ask for user command confirmation
+				echo -n "${PRE_TEXT}execute command? [y/e/N]: "
+				restore_cursor
+				read -n 1 -r -s answer
 			
 			# Did the user want to edit the command?
 			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
