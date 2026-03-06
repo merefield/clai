@@ -896,6 +896,52 @@ EOF
   [ "$(cat "$TEST_HOME/cmd-edited.txt")" = "edited" ]
 }
 
+@test "command responses can be edited through a real PTY session" {
+  if [ "${CLAI_ENABLE_PTY_TESTS:-false}" != "true" ]; then
+    skip "PTY-backed edit test is disabled in this environment"
+  fi
+
+  if ! command -v script >/dev/null 2>&1; then
+    skip "script command is unavailable"
+  fi
+
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_command_curl
+
+  printf 'eprintf edited-pty > "%s/cmd-edited-pty.txt"\n' "$TEST_HOME" > "$TEST_HOME/edit-input.txt"
+
+  run bash -lc '
+    env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      script -qec "bash ./clai.sh \"run the command\"" /dev/null < "'"$TEST_HOME"'/edit-input.txt"
+  '
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$TEST_HOME/cmd-ran.txt" ]
+  [ -f "$TEST_HOME/cmd-edited-pty.txt" ]
+  [ "$(cat "$TEST_HOME/cmd-edited-pty.txt")" = "edited-pty" ]
+}
+
 @test "missing assistant message content falls back to an unknown error" {
   write_config <<'EOF'
 key=test-key

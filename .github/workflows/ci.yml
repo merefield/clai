@@ -24,4 +24,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run checks
+        env:
+          CLAI_ENABLE_PTY_TESTS: "true"
         run: make check
