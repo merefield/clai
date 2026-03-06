@@ -126,6 +126,79 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
+make_no_reply_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"choices":[{"message":{},"finish_reason":"stop"}]}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_malformed_tool_call_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+count_file="$TEST_HOME/curl-call-count"
+status_code="200"
+if [ ! -f "$count_file" ]; then
+  printf '0' > "$count_file"
+fi
+call_count=$(cat "$count_file")
+call_count=$((call_count + 1))
+printf '%s' "$call_count" > "$count_file"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ "$call_count" -eq 1 ]; then
+  printf '%s' '{"choices":[{"message":{"content":"","tool_calls":[{"id":"bad_1","type":"function","function":{"name":"record-note","arguments":"not-json"}}]},"finish_reason":"tool_calls"}]}' > "$output"
+else
+  printf '%s' '{"choices":[{"message":{"content":"{\"info\":\"tool fallback complete\"}"},"finish_reason":"stop"}]}' > "$output"
+fi
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
 make_truncated_json_curl() {
   cat > "$TEST_HOME/fakebin/curl" <<'EOF'
 #!/bin/bash
@@ -649,6 +722,72 @@ EOF
     "$TEST_HOME/curl-request-2.json" >/dev/null
 }
 
+@test "tool calls work with associative-array fallback enabled" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  mkdir -p "$TEST_HOME/.clai_tools"
+  cat > "$TEST_HOME/.clai_tools/record-note.sh" <<'EOF'
+#!/bin/bash
+init() {
+  echo '{
+    "type": "function",
+    "function": {
+      "name": "record-note",
+      "description": "Record a note for testing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      }
+    }
+  }'
+}
+
+execute() {
+  echo "tool said: $(echo "$1" | jq -r '.value')"
+}
+EOF
+  chmod +x "$TEST_HOME/.clai_tools/record-note.sh"
+
+  make_tool_call_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    CLAI_FORCE_NO_ASSOC_ARRAY=true \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "use a tool"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tool flow complete"* ]]
+  [ -f "$TEST_HOME/curl-request-2.json" ]
+  jq -e '.messages | map(select(.role == "tool" and .content == "tool said: hello from tool")) | length >= 1' \
+    "$TEST_HOME/curl-request-2.json" >/dev/null
+}
+
 @test "command responses can be accepted and executed" {
   write_config <<'EOF'
 key=test-key
@@ -683,6 +822,254 @@ EOF
   [ -f "$TEST_HOME/cmd-ran.txt" ]
   [ "$(cat "$TEST_HOME/cmd-ran.txt")" = "executed" ]
   [[ "$output" == *"run the stub command"* ]]
+}
+
+@test "command responses can be declined without execution" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_command_curl
+
+  run bash -lc '
+    printf "n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the command"
+  '
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$TEST_HOME/cmd-ran.txt" ]
+  [[ "$output" == *"[cancel]"* ]]
+}
+
+@test "command responses can be edited before execution" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_command_curl
+
+  run bash -lc '
+    printf "e" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      CLAI_EDIT_COMMAND_OVERRIDE="printf edited > \"'"$TEST_HOME"'/cmd-edited.txt\"" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the command"
+  '
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$TEST_HOME/cmd-ran.txt" ]
+  [ -f "$TEST_HOME/cmd-edited.txt" ]
+  [ "$(cat "$TEST_HOME/cmd-edited.txt")" = "edited" ]
+}
+
+@test "command responses can be edited through a real PTY session" {
+  if [ "${CLAI_ENABLE_PTY_TESTS:-false}" != "true" ]; then
+    skip "PTY-backed edit test is disabled in this environment"
+  fi
+
+  if ! command -v script >/dev/null 2>&1; then
+    skip "script command is unavailable"
+  fi
+
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_command_curl
+
+  # Send "e" to enter the edit path; the replacement command comes from CLAI_EDIT_COMMAND_OVERRIDE.
+  printf 'e' > "$TEST_HOME/edit-input.txt"
+
+  run bash -lc '
+    env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      CLAI_EDIT_COMMAND_OVERRIDE="printf edited-pty > \"'"$TEST_HOME"'/cmd-edited-pty.txt\"" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      script -qec "bash ./clai.sh \"run the command\"" /dev/null < "'"$TEST_HOME"'/edit-input.txt"
+  '
+
+  [ "$status" -eq 0 ]
+  [ ! -e "$TEST_HOME/cmd-ran.txt" ]
+  [ -f "$TEST_HOME/cmd-edited-pty.txt" ]
+  [ "$(cat "$TEST_HOME/cmd-edited-pty.txt")" = "edited-pty" ]
+}
+
+@test "missing assistant message content falls back to an unknown error" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_no_reply_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "show malformed response"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"An unknown error occurred."* ]]
+}
+
+@test "malformed tool call arguments do not crash the session" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  mkdir -p "$TEST_HOME/.clai_tools"
+  cat > "$TEST_HOME/.clai_tools/record-note.sh" <<'EOF'
+#!/bin/bash
+init() {
+  echo '{
+    "type": "function",
+    "function": {
+      "name": "record-note",
+      "description": "Record a note for testing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      }
+    }
+  }'
+}
+
+execute() {
+  echo "tool said: $(echo "$1" | jq -r '.value')"
+}
+EOF
+  chmod +x "$TEST_HOME/.clai_tools/record-note.sh"
+
+  make_malformed_tool_call_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "use a tool"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Using tool \"record-note\""* ]]
+  [[ "$output" == *"tool fallback complete"* ]]
+}
+
+@test "invalid temp and tokens fall back in the request payload" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=not-a-number
+tokens=also-bad
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  jq -e '.temperature == 0.1' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.max_tokens == 500' "$TEST_HOME/curl-request.json" >/dev/null
 }
 
 @test "truncated JSON responses are repaired before display" {

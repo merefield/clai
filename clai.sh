@@ -315,7 +315,7 @@ HAS_ASSOC_ARRAY=false
 # Bash ≥4 or any zsh support associative arrays. We only care whether declare
 # succeeds; the probe variable is intentionally throwaway.
 # shellcheck disable=SC2034
-if (unset TEST 2>/dev/null; declare -A TEST 2>/dev/null); then
+if [ "$CLAI_FORCE_NO_ASSOC_ARRAY" != true ] && (unset TEST 2>/dev/null; declare -A TEST 2>/dev/null); then
     HAS_ASSOC_ARRAY=true
 fi
 
@@ -1104,7 +1104,11 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			elif [ "$answer" == "E" ] || [ "$answer" == "e" ]; then
 				# EDIT
 				echo -ne "$CLEAR_LINE\r"
-				read -e -r -p "${PRE_TEXT}edit command: " -i "$CMD" CMD
+				if [ -n "$CLAI_EDIT_COMMAND_OVERRIDE" ]; then
+					CMD="$CLAI_EDIT_COMMAND_OVERRIDE"
+				else
+					read -e -r -p "${PRE_TEXT}edit command: " -i "$CMD" CMD
+				fi
 				echo
 				run_cmd "$CMD"
 			else

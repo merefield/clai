@@ -51,20 +51,21 @@ Run only the test suite:
 make test
 ```
 
-### First test scenario
+### Current test coverage
 
-The Bats smoke tests verify that `clai.sh`:
+The Bats suite currently covers:
 
-- creates `~/.config/clai.cfg` when it does not exist
-- creates `~/.config` automatically on a fresh system
-- writes `clai.cfg` with restrictive permissions
-- creates a private state directory for CLAI data
-- exits with status `1` when no API key is configured
-- prints guidance telling the user to add an OpenAI API key
-- builds request payloads as valid JSON
-- surfaces API transport and HTTP errors cleanly
+- first-run config bootstrap and private state creation
+- installer download failure and overridden install-target success paths
+- request payload generation and API transport / HTTP error handling
+- history persistence, trimming, normalization, and deprecated config fallback behavior
+- tool-call round trips, including the non-associative-array fallback path used for older Bash compatibility
+- command suggestion accept, decline, and edit flows
+- malformed response fallbacks, including truncated JSON, missing content, and malformed tool arguments
 
-These tests stay deterministic and avoid making successful live API calls.
+The suite stays deterministic and avoids making successful live API calls.
+
+One PTY-backed edit-path test is enabled in CI and skipped locally unless `CLAI_ENABLE_PTY_TESTS=true` is set.
 
 ## Features
 
