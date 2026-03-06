@@ -54,6 +54,12 @@ HIDE_CURSOR="\e[?25l"
 SHOW_CURSOR="\e[?25h"
 RESET_COLOR="\e[0m"
 
+# Filesystem paths
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+STATE_DIR="${STATE_HOME}/clai"
+SESSION_TMPDIR="${TMPDIR:-/tmp}"
+TEMP_FILES=()
+
 # Default query constants, these are used as default values for different types of queries
 DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd' and 'info' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omittied as a last resort if no command can be suggested."
 DEFAULT_QUESTION_QUERY="Return only a single compact JSON object containing a 'info' field. 'info' must always contain a single-line string terminal-related answer to the user query."
@@ -66,6 +72,35 @@ GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell sc
 # Configuration file path
 CONFIG_FILE=~/.config/clai.cfg
 #GLOBAL_QUERY+=" Your configuration file path \"$CONFIG_FILE\"."
+
+create_private_dir() {
+	local dir_path="$1"
+	mkdir -p "$dir_path"
+	chmod 700 "$dir_path" 2>/dev/null || true
+}
+
+create_secure_temp() {
+	local template="${1:-${SESSION_TMPDIR}/clai.XXXXXX}"
+	local tmpfile
+
+	tmpfile=$(mktemp "$template") || return 1
+	chmod 600 "$tmpfile" 2>/dev/null || true
+	printf "%s\n" "$tmpfile"
+}
+
+# cleanup is invoked indirectly via trap EXIT.
+# shellcheck disable=SC2317
+cleanup() {
+	local path
+
+	for path in "${TEMP_FILES[@]}"; do
+		[ -n "$path" ] && [ -e "$path" ] && rm -f "$path"
+	done
+
+	printf "%b" "$SHOW_CURSOR"
+}
+
+create_private_dir "$STATE_DIR"
 
 # Test if we're in Vim
 if [ -n "$VIMRUNTIME" ]; then
@@ -83,12 +118,12 @@ if [ -n "$VIMRUNTIME" ]; then
 	
 	# Make sure system message reflects that we're in Vim
 	DYNAMIC_SYSTEM_QUERY+="User is inside \"$VIM\". You are in the Vim terminal."
-	
-	# Use the Vim history file
-	HISTORY_FILE=/tmp/claihistory_vim.txt
+		
+		# Use the Vim history file
+		HISTORY_FILE="${STATE_DIR}/history_vim.json"
 else
-	# Use the default history file
-	HISTORY_FILE=/tmp/claihistory_com.txt
+		# Use the default history file
+		HISTORY_FILE="${STATE_DIR}/history_com.json"
 fi
 
 # Update info about history file
@@ -99,10 +134,14 @@ OPENAI_TOOLS=""
 TOOLS_PATH=~/.clai_tools
 
 # Create the directory only if it doesn't exist
-if [ ! -d "$TOOLS_PATH" ]; then
-	mkdir -p "$TOOLS_PATH"
-fi
-echo "" > /tmp/clai_tool_output.txt
+create_private_dir "$TOOLS_PATH"
+TOOL_LOG_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-tool-output.XXXXXX.log") || exit 1
+TEMP_FILES+=("$TOOL_LOG_FILE")
+PAYLOAD_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-payload.XXXXXX.json") || exit 1
+TEMP_FILES+=("$PAYLOAD_FILE")
+RESPONSE_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-response.XXXXXX.json") || exit 1
+TEMP_FILES+=("$RESPONSE_FILE")
+: > "$TOOL_LOG_FILE"
 
 # -------------------------------------------------------------
 # Cross-shell compatibility helpers (Bash <4, zsh support)
@@ -258,7 +297,7 @@ done
 OPENAI_TOOLS="${OPENAI_TOOLS%,}"
 
 # Hide the cursor while we're working
-trap 'printf "%b" "$SHOW_CURSOR"' EXIT # Make sure the cursor is shown when the script exits
+trap cleanup EXIT
 printf "%b" "$HIDE_CURSOR"
 
 # Check for configuration file existence
@@ -467,14 +506,14 @@ run_tool() {
 		print_info "$TOOL_REASON"
 		print_info "Using tool \"$TOOL_NAME\" $TOOL_ARGS_READABLE"
 		
-			echo "$TOOL_NAME" >> /tmp/clai_tool_output.txt
-			echo "$TOOL_ARGS_READABLE" >> /tmp/clai_tool_output.txt
+				echo "$TOOL_NAME" >> "$TOOL_LOG_FILE"
+				echo "$TOOL_ARGS_READABLE" >> "$TOOL_LOG_FILE"
 		
 			# Run the execute function from the TOOL_SCRIPT
 			# shellcheck disable=SC1090
 			TOOL_OUTPUT=$(source "$TOOL_SCRIPT"; execute "$TOOL_ARGS")
-			echo "$TOOL_OUTPUT" >> /tmp/clai_tool_output.txt
-			echo "" >> /tmp/clai_tool_output.txt
+				echo "$TOOL_OUTPUT" >> "$TOOL_LOG_FILE"
+				echo "" >> "$TOOL_LOG_FILE"
 		# Trim the output to 1000 characters
 		TOOL_OUTPUT=${TOOL_OUTPUT:0:1000}
 		# Make it JSON safe
@@ -715,9 +754,9 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	# If this is the first run we apply history
 	if [ $RUN_COUNT -eq 0 ]; then
 		# Check if the history file exists
-		if [ -f "$HISTORY_FILE" ]; then
-			# Read the history file
-			HISTORY_MESSAGES=$(sed 's/^\[\(.*\)\]$/,\1/' $HISTORY_FILE)
+			if [ -f "$HISTORY_FILE" ]; then
+				# Read the history file
+				HISTORY_MESSAGES=$(sed 's/^\[\(.*\)\]$/,\1/' "$HISTORY_FILE")
 		fi
 	fi
 	
@@ -780,13 +819,13 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	fi
 	
 	# Save the payload to a tmp JSON file
-	echo "$JSON_PAYLOAD" > /tmp/clai_payload.json
+		echo "$JSON_PAYLOAD" > "$PAYLOAD_FILE"
 	
 	# Send request to OpenAI API
 	RESPONSE=$(curl -s -X POST -H "Authorization:Bearer $OPENAI_KEY" -H "Content-Type:application/json" -d "$JSON_PAYLOAD" "$URL")
 	
 	# Save reponse to a tmp JSON file
-	echo "$RESPONSE" > /tmp/clai_response.json
+		echo "$RESPONSE" > "$RESPONSE_FILE"
 	
 	# Stop the spinner
 	kill $spinner_pid
@@ -964,7 +1003,7 @@ if [ "$INTERACTIVE_MODE" = false ]; then
 	fi
 	
 	# Remove the dummy message and write the history to the file
-	echo "$HISTORY_MESSAGES_JSON" | jq '.[1:]' | jq -c . > $HISTORY_FILE
+		echo "$HISTORY_MESSAGES_JSON" | jq '.[1:]' | jq -c . > "$HISTORY_FILE"
 fi
 
 # We're done

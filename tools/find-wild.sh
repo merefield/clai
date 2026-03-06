@@ -33,14 +33,19 @@ init() {
 execute() {
 	local path
 	local name
+	local output
 	path=$(echo "$1" | jq -r '.path')
 	name=$(echo "$1" | jq -r '.name')
-	name="*$name*"
-    output=$(eval "find $path -iname '$name'" 2>/dev/null)
-    if [ -n "$output" ]; then
+	if [ ! -d "$path" ]; then
+		echo "Not found"
+		return 0
+	fi
+
+	output=$(find "$path" -iname "*$name*" 2>/dev/null)
+	if [ -n "$output" ]; then
 		output=$(echo "$output" | awk '{printf "%s\\n", $0}')
 		echo "$output"
-    else
-        echo "Not found"
-    fi
+	else
+		echo "Not found"
+	fi
 }
