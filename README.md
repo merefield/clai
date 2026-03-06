@@ -186,6 +186,8 @@ You must provide a [OpenAI API key](https://platform.openai.com/api-keys) in the
 
 You can also change the [GPT model](https://platform.openai.com/docs/models), [temperature](https://platform.openai.com/docs/api-reference/chat/create#chat-create-temperature) and many other things in this file.
 
+The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions. The older `max_history=` key is still accepted temporarily, but it is deprecated.
+
 Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.
 
 Transient request payloads, API responses, and tool logs are written to secure temporary files created with `mktemp` and are deleted automatically when the session exits.

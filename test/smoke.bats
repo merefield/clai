@@ -205,7 +205,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=http://127.0.0.1:1
 model=gpt-4o-mini
 json_mode=false
@@ -234,7 +234,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=true
@@ -268,7 +268,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -323,7 +323,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -361,7 +361,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -394,12 +394,12 @@ EOF
     "$TEST_HOME/curl-request.json" >/dev/null
 }
 
-@test "history persistence respects max_history trimming" {
+@test "history persistence respects max_history_turns trimming" {
   write_config <<'EOF'
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=2
+max_history_turns=2
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -433,12 +433,12 @@ EOF
   jq -e 'map(select(.content == "one")) | length == 0' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
-@test "invalid max_history falls back safely during persistence" {
+@test "invalid max_history_turns falls back safely during persistence" {
   write_config <<'EOF'
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=2 # invalid inline comment
+max_history_turns=2 # invalid inline comment
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -473,12 +473,50 @@ EOF
   jq -e 'map(select(.content == "one")) | length == 0' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
+@test "legacy max_history key still works with a deprecation warning" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history=2
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  cat > "$TEST_HOME/.local/state/clai/history_com.json" <<'EOF'
+[{"role":"user","content":"one"},{"role":"assistant","content":"{\"info\":\"two\"}"},{"role":"user","content":"three"},{"role":"assistant","content":"{\"info\":\"four\"}"}]
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deprecated"* ]]
+  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 4 ]
+}
+
 @test "invalid history files warn and reset to empty history" {
   write_config <<'EOF'
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -515,7 +553,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -582,7 +620,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -618,7 +656,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -650,7 +688,7 @@ EOF
 key=test-key
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false

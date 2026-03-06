@@ -453,7 +453,7 @@ key=
 
 hi_contrast=false
 expose_current_dir=true
-max_history=10
+max_history_turns=10
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -518,7 +518,13 @@ fi
 EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 
 # Extract the maximum number of persisted conversation turns from configuration
-MAX_HISTORY_COUNT=$(cfg_val "max_history")
+MAX_HISTORY_COUNT=$(cfg_val "max_history_turns")
+if [ -z "$MAX_HISTORY_COUNT" ]; then
+	MAX_HISTORY_COUNT=$(cfg_val "max_history")
+	if [ -n "$MAX_HISTORY_COUNT" ]; then
+		warn "The config key \"max_history\" is deprecated; use \"max_history_turns\" instead."
+	fi
+fi
 MAX_HISTORY_COUNT=$(jq -Rn --arg value "$MAX_HISTORY_COUNT" '$value | tonumber? // 0')
 
 load_history
