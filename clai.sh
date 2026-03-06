@@ -62,6 +62,7 @@ STATE_DIR="${STATE_HOME}/clai"
 SESSION_TMPDIR="${TMPDIR:-/tmp}"
 TEMP_FILES=()
 CURSOR_HIDDEN=false
+HISTORY_FILES=()
 
 # Default query constants, these are used as default values for different types of queries
 DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd' and 'info' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omittied as a last resort if no command can be suggested."
@@ -163,6 +164,27 @@ load_history() {
 	HISTORY_LOADED=true
 }
 
+clear_history_runtime() {
+	local history_path
+	local failed=false
+
+	for history_path in "${HISTORY_FILES[@]}"; do
+		if [ -n "$history_path" ] && ! rm -f -- "$history_path"; then
+			failed=true
+		fi
+	done
+
+	HISTORY_MESSAGES='[]'
+	HISTORY_DIRTY=false
+	HISTORY_LOADED=true
+
+	if [ "$failed" = true ]; then
+		return 1
+	fi
+
+	return 0
+}
+
 save_history() {
 	local max_history_count_int
 	local persisted_history
@@ -220,6 +242,30 @@ exit_clai() {
 	exit "$status"
 }
 
+handle_clear_history() {
+	if clear_history_runtime; then
+		printf "%b%s%b\n\n" "${PRE_TEXT}${INFO_TEXT_COLOR}" "Cleared CLAI history." "${RESET_COLOR}"
+		return 0
+	fi
+
+	printf "%b%s%b\n\n" "${ERROR_TEXT_COLOR}" "Failed to clear CLAI history." "${RESET_COLOR}"
+	return 1
+}
+
+is_clear_history_request() {
+	local normalized_query
+
+	normalized_query=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/[[:punct:]]*$//')
+
+	case "$normalized_query" in
+		"clear history"|"clear your history"|"clear our history"|"forget history"|"forget your history"|"forget our history"|"reset history"|"flush history")
+			return 0
+			;;
+	esac
+
+	return 1
+}
+
 conceal_cursor() {
 	if [ -t 1 ] && [ -n "$HIDE_CURSOR" ] && [ "$CURSOR_HIDDEN" != true ]; then
 		printf "%b" "$HIDE_CURSOR"
@@ -275,6 +321,28 @@ if [ -n "$VIMRUNTIME" ]; then
 else
 		# Use the default history file
 		HISTORY_FILE="${STATE_DIR}/history_com.json"
+fi
+HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
+
+# Built-in request handling
+USER_QUERY=$*
+if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
+	handle_clear_history
+	clear_history_status=$?
+	restore_cursor
+	if [ "$clear_history_status" -eq 0 ]; then
+		exit_clai 0
+	fi
+	exit_clai 1
+fi
+if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
+	handle_clear_history
+	clear_history_status=$?
+	restore_cursor
+	if [ "$clear_history_status" -eq 0 ]; then
+		exit_clai 0
+	fi
+	exit_clai 1
 fi
 
 # Update info about history file
@@ -812,9 +880,6 @@ run_tool() {
 	SKIP_SYSTEM_MSG=true
 }
 
-# User AI query and Interactive Mode
-USER_QUERY=$*
-
 # Are we entering interactive mode?
 if [ -z "$USER_QUERY" ]; then
 	INTERACTIVE_MODE=true
@@ -860,6 +925,28 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	
 	# Pretty up user query
 	USER_QUERY=$(echo "$USER_QUERY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+	if is_clear_history_request "$USER_QUERY"; then
+		clear_history_status=0
+		echo -ne "$CLEAR_LINE\r"
+		handle_clear_history
+		clear_history_status=$?
+		QUERY_TYPE=""
+		USER_QUERY=""
+		SKIP_USER_QUERY=false
+		SKIP_USER_QUERY_RESET=false
+		restore_cursor
+		if [ "$INTERACTIVE_MODE" != true ]; then
+			if [ "$clear_history_status" -eq 0 ]; then
+				exit_clai 0
+			fi
+			exit_clai 1
+		fi
+		if [ "$clear_history_status" -ne 0 ]; then
+			continue
+		fi
+		continue
+	fi
 	
 	# Determine if we should use the question query or the execution query
 	if [ -z "$QUERY_TYPE" ]; then

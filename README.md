@@ -210,6 +210,14 @@ If `exec_query`, `question_query`, or `error_query` are left empty, CLAI uses it
 
 Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.
 
+To clear persisted CLAI history explicitly, run:
+
+```bash
+clai --clear-history
+```
+
+This clears both the normal shell history file and the separate Vim-session history file under the CLAI state directory.
+
 Transient request payloads, API responses, and tool logs are written to secure temporary files created with `mktemp` and are deleted automatically when the session exits.
 
 API requests are built as structured JSON and CLAI distinguishes transport failures, HTTP errors, and successful JSON responses when reporting errors.
@@ -231,6 +239,12 @@ clai create a new directory with a name of your choice, then create a text file 
 You can also ask questions  by ending your request with a question mark:
 ```
 clai what is the current time?
+```
+
+For direct built-in history reset without going through the model, you can also run:
+
+```bash
+clai clear your history
 ```
 
 ### Command confirmation flow

@@ -160,6 +160,15 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
+make_marker_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+printf 'called' > "$TEST_HOME/curl-called"
+exit 99
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
 make_malformed_tool_call_curl() {
   cat > "$TEST_HOME/fakebin/curl" <<'EOF'
 #!/bin/bash
@@ -657,6 +666,78 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"Could not parse history file"* ]]
   [ "$(cat "$TEST_HOME/.local/state/clai/history_com.json")" = "[]" ]
+}
+
+@test "--clear-history removes persisted history without requiring API config" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  printf '[]' > "$TEST_HOME/.local/state/clai/history_com.json"
+  printf '[]' > "$TEST_HOME/.local/state/clai/history_vim.json"
+
+  make_marker_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh --clear-history
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cleared CLAI history."* ]]
+  [ ! -e "$TEST_HOME/.local/state/clai/history_com.json" ]
+  [ ! -e "$TEST_HOME/.local/state/clai/history_vim.json" ]
+  [ ! -e "$TEST_HOME/curl-called" ]
+  [ ! -e "$TEST_HOME/.config/clai.cfg" ]
+}
+
+@test "clear your history request is handled locally without an API call" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  printf '[]' > "$TEST_HOME/.local/state/clai/history_com.json"
+  printf '[]' > "$TEST_HOME/.local/state/clai/history_vim.json"
+
+  make_marker_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "clear your history"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cleared CLAI history."* ]]
+  [ ! -e "$TEST_HOME/.local/state/clai/history_com.json" ]
+  [ ! -e "$TEST_HOME/.local/state/clai/history_vim.json" ]
+  [ ! -e "$TEST_HOME/curl-called" ]
+  [ ! -e "$TEST_HOME/.config/clai.cfg" ]
+}
+
+@test "--clear-history returns an error when persisted history cannot be removed" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  mkdir -p "$TEST_HOME/.local/state/clai/history_com.json"
+
+  make_marker_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh --clear-history
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed to clear CLAI history."* ]]
+  [ -d "$TEST_HOME/.local/state/clai/history_com.json" ]
+  [ ! -e "$TEST_HOME/curl-called" ]
 }
 
 @test "tool calls trigger tool execution and resume with tool output in history" {
