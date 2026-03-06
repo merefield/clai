@@ -38,6 +38,8 @@ INTERACTIVE_INFO="Hi! Feel free to ask me anything or give me a task. Type \"exi
 PROGRESS_TEXT="Thinking..."
 PROGRESS_ANIM="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 HISTORY_MESSAGES="[]"  # Message history stored as a JSON array
+HISTORY_LOADED=false
+HISTORY_DIRTY=false
 
 # Theme colors
 CMD_BG_COLOR="\e[48;5;236m"  # Background color for cmd suggestions
@@ -106,6 +108,46 @@ create_secure_temp() {
 	printf "%s\n" "$tmpfile"
 }
 
+load_history() {
+	if [ -f "$HISTORY_FILE" ]; then
+		HISTORY_MESSAGES=$(jq -c 'if type == "array" then . else [] end' "$HISTORY_FILE" 2>/dev/null || echo '[]')
+	else
+		HISTORY_MESSAGES='[]'
+	fi
+	HISTORY_LOADED=true
+}
+
+save_history() {
+	local max_history_count_int
+	local history_count
+	local trimmed_history
+
+	if [ "$HISTORY_LOADED" != true ]; then
+		return
+	fi
+
+	if [ "$HISTORY_DIRTY" != true ]; then
+		return
+	fi
+
+	max_history_count_int=$((MAX_HISTORY_COUNT))
+	if [ "$max_history_count_int" -lt 1 ]; then
+		max_history_count_int=1
+	fi
+
+	history_count=$(jq 'length' <<< "$HISTORY_MESSAGES")
+	if [ "$history_count" -le 0 ] && [ ! -f "$HISTORY_FILE" ]; then
+		return
+	fi
+
+	trimmed_history=$(jq -cn \
+		--argjson history "$HISTORY_MESSAGES" \
+		--argjson max_history "$max_history_count_int" \
+		'if ($history | length) > $max_history then $history[-$max_history:] else $history end')
+	echo "$trimmed_history" > "$HISTORY_FILE"
+	HISTORY_DIRTY=false
+}
+
 conceal_cursor() {
 	if [ -t 1 ] && [ -n "$HIDE_CURSOR" ] && [ "$CURSOR_HIDDEN" != true ]; then
 		printf "%b" "$HIDE_CURSOR"
@@ -124,6 +166,8 @@ restore_cursor() {
 # shellcheck disable=SC2317
 cleanup() {
 	local path
+
+	save_history
 
 	for path in "${TEMP_FILES[@]}"; do
 		[ -n "$path" ] && [ -e "$path" ] && rm -f "$path"
@@ -411,6 +455,8 @@ EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 # Extract maximum history message count from configuration
 MAX_HISTORY_COUNT=$(cfg_val "max_history")
 
+load_history
+
 # Test if GPT JSON mode is set in configuration
 JSON_MODE_ENABLED=$(cfg_val "json_mode")
 if [ "$JSON_MODE_ENABLED" = true ]; then
@@ -472,6 +518,7 @@ append_history_message() {
 		--arg role "$role" \
 		--arg content "$content" \
 		'$history + [{"role": $role, "content": $content}]')
+	HISTORY_DIRTY=true
 }
 
 append_history_tool_message() {
@@ -483,6 +530,7 @@ append_history_tool_message() {
 		--arg tool_call_id "$tool_call_id" \
 		--arg content "$content" \
 		'$history + [{"role": "tool", "content": $content, "tool_call_id": $tool_call_id}]')
+	HISTORY_DIRTY=true
 }
 
 append_history_assistant_tool_call() {
@@ -507,6 +555,7 @@ append_history_assistant_tool_call() {
 				}
 			}]
 		}]')
+	HISTORY_DIRTY=true
 }
 
 repair_truncated_json() {
@@ -704,9 +753,6 @@ else
 	NEEDS_TO_RUN=true
 fi
 
-# We're ready to run
-RUN_COUNT=0
-
 # Run as long as we're oin interactive mode, needs to run, or awaiting tool reponse
 while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_TOOL_REPONSE" = true ]; do
 	# Ask for user query if we're in Interactive Mode
@@ -772,16 +818,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	spinner & # Start the spinner
 	spinner_pid=$! # Save the spinner's PID
 	
-		# If this is the first run we apply history
-		if [ $RUN_COUNT -eq 0 ]; then
-			# Check if the history file exists
-			if [ -f "$HISTORY_FILE" ]; then
-				# Read the history file
-				HISTORY_MESSAGES=$(jq -c 'if type == "array" then . else [] end' "$HISTORY_FILE" 2>/dev/null || echo '[]')
-			fi
-		fi
-	
-	# Prepare system message
+		# Prepare system message
 	if [ "$SKIP_SYSTEM_MSG" != true ]; then
 		sys_msg=""
 		# Directory and content exposure
@@ -1004,18 +1041,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	fi
 	SKIP_USER_QUERY_RESET=false
 	
-	RUN_COUNT=$((RUN_COUNT+1))
 done
-
-# Save the history messages
-if [ "$INTERACTIVE_MODE" = false ]; then
-	MAX_HISTORY_COUNT_INT=$((MAX_HISTORY_COUNT))
-	HISTORY_MESSAGES_JSON=$(jq -cn \
-		--argjson history "$HISTORY_MESSAGES" \
-		--argjson max_history "$MAX_HISTORY_COUNT_INT" \
-		'if ($history | length) > $max_history then $history[-$max_history:] else $history end')
-	echo "$HISTORY_MESSAGES_JSON" > "$HISTORY_FILE"
-fi
 
 # We're done
 exit 0
