@@ -189,6 +189,25 @@ You can also change the [GPT model](https://platform.openai.com/docs/models), [t
 
 The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions. The older `max_history=` key is still accepted temporarily, but it is deprecated.
 
+### Config keys
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `key` | empty | Your OpenAI API key. Required before CLAI can make requests. |
+| `hi_contrast` | `false` | Uses less muted info text output. |
+| `expose_current_dir` | `true` | Includes the current working directory in the runtime context sent to the model. |
+| `max_history_turns` | `10` | Number of user conversation turns to persist across sessions. |
+| `api` | `https://api.openai.com/v1/chat/completions` | Chat Completions API endpoint. |
+| `model` | `gpt-4o-mini` | Model name sent in the request payload. |
+| `json_mode` | `false` | Requests JSON object output mode from the API. |
+| `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
+| `tokens` | `500` | Maximum token count requested from the API. Invalid values fall back to `500`. |
+| `exec_query` | empty | Optional extra system guidance for normal command-generation mode. |
+| `question_query` | empty | Optional extra system guidance for question-answering mode. |
+| `error_query` | empty | Optional extra system guidance for error-recovery mode. |
+
+If `exec_query`, `question_query`, or `error_query` are left empty, CLAI uses its built-in defaults.
+
 Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.
 
 Transient request payloads, API responses, and tool logs are written to secure temporary files created with `mktemp` and are deleted automatically when the session exits.
@@ -213,6 +232,25 @@ You can also ask questions  by ending your request with a question mark:
 ```
 clai what is the current time?
 ```
+
+### Command confirmation flow
+
+When CLAI suggests a command, it shows the command and a short explanation, then prompts:
+
+- `y`: execute the suggested command
+- `e`: edit the suggested command before execution
+- `N` or Enter: cancel the command
+
+In interactive mode, this lets you inspect or adjust the generated command before anything runs.
+
+### Error recovery flow
+
+If an executed command fails, CLAI shows the error and prompts:
+
+- `y`: ask CLAI to examine the error and suggest a fix
+- `N` or Enter: stop there and return without further analysis
+
+This uses CLAI's error mode, which sends the failed command and captured error text back through the model so it can propose a repair.
 
 ## Plugins and tools
 
