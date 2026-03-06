@@ -1,13 +1,13 @@
 #!/bin/bash
 # -*- Mode: sh; coding: utf-8; indent-tabs-mode: t; tab-width: 4 -*-
 
-REPO_OWNER="merefield"
-REPO_NAME="clai"
-REPO_BRANCH="main"
-REPO_SCRIPT="clai.sh"
-SCRIPT_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/${REPO_SCRIPT}"
-BIN_DIR="/usr/local/bin"
-BIN_NAME="clai"
+REPO_OWNER="${CLAI_REPO_OWNER:-merefield}"
+REPO_NAME="${CLAI_REPO_NAME:-clai}"
+REPO_BRANCH="${CLAI_REPO_BRANCH:-main}"
+REPO_SCRIPT="${CLAI_REPO_SCRIPT:-clai.sh}"
+SCRIPT_URL="${CLAI_SCRIPT_URL:-https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/${REPO_SCRIPT}}"
+BIN_DIR="${CLAI_BIN_DIR:-/usr/local/bin}"
+BIN_NAME="${CLAI_BIN_NAME:-clai}"
 TMP_FILE=$(mktemp)
 
 # Download the script file
