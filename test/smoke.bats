@@ -922,7 +922,8 @@ EOF
 
   make_command_curl
 
-  printf 'eprintf edited-pty > "%s/cmd-edited-pty.txt"\n' "$TEST_HOME" > "$TEST_HOME/edit-input.txt"
+  # Ctrl-U clears the prefilled readline buffer before typing the replacement command.
+  printf 'e\025printf edited-pty > "%s/cmd-edited-pty.txt"\n' "$TEST_HOME" > "$TEST_HOME/edit-input.txt"
 
   run bash -lc '
     env \
