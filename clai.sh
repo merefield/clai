@@ -315,7 +315,7 @@ HAS_ASSOC_ARRAY=false
 # Bash ≥4 or any zsh support associative arrays. We only care whether declare
 # succeeds; the probe variable is intentionally throwaway.
 # shellcheck disable=SC2034
-if (unset TEST 2>/dev/null; declare -A TEST 2>/dev/null); then
+if [ "$CLAI_FORCE_NO_ASSOC_ARRAY" != true ] && (unset TEST 2>/dev/null; declare -A TEST 2>/dev/null); then
     HAS_ASSOC_ARRAY=true
 fi
 

@@ -722,6 +722,72 @@ EOF
     "$TEST_HOME/curl-request-2.json" >/dev/null
 }
 
+@test "tool calls work with associative-array fallback enabled" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  mkdir -p "$TEST_HOME/.clai_tools"
+  cat > "$TEST_HOME/.clai_tools/record-note.sh" <<'EOF'
+#!/bin/bash
+init() {
+  echo '{
+    "type": "function",
+    "function": {
+      "name": "record-note",
+      "description": "Record a note for testing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      }
+    }
+  }'
+}
+
+execute() {
+  echo "tool said: $(echo "$1" | jq -r '.value')"
+}
+EOF
+  chmod +x "$TEST_HOME/.clai_tools/record-note.sh"
+
+  make_tool_call_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    CLAI_FORCE_NO_ASSOC_ARRAY=true \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "use a tool"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tool flow complete"* ]]
+  [ -f "$TEST_HOME/curl-request-2.json" ]
+  jq -e '.messages | map(select(.role == "tool" and .content == "tool said: hello from tool")) | length >= 1' \
+    "$TEST_HOME/curl-request-2.json" >/dev/null
+}
+
 @test "command responses can be accepted and executed" {
   write_config <<'EOF'
 key=test-key
