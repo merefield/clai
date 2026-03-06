@@ -3,7 +3,6 @@
 setup() {
   export TEST_HOME
   TEST_HOME="$(mktemp -d "${TMPDIR:-/tmp}/clai-test.XXXXXX")"
-  mkdir -p "$TEST_HOME/.config"
   mkdir -p "$TEST_HOME/fakebin"
   mkdir -p "$TEST_HOME/tmp"
 }
@@ -13,6 +12,7 @@ teardown() {
 }
 
 write_config() {
+  mkdir -p "$TEST_HOME/.config"
   cat > "$TEST_HOME/.config/clai.cfg"
 }
 
