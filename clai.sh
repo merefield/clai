@@ -773,8 +773,8 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			if [ "$EXPOSE_CURRENT_DIR" = true ]; then
 				sys_msg+="User is working from directory \"$(pwd)\"."
 			fi
-		# Apply date
-		sys_msg+=" The current date is Y-m-d H:M \\\"$(date "+%Y-%m-%d %H:%M")\\\"."
+			# Apply date
+			sys_msg+=" The current date is Y-m-d H:M $(date "+%Y-%m-%d %H:%M")."
 		# Apply dynamic system query
 		sys_msg+="$DYNAMIC_SYSTEM_QUERY"
 			append_history_message "system" "$sys_msg"
