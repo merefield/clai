@@ -548,6 +548,40 @@ EOF
     "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
+@test "invalid history files are repaired on immediate exit" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  printf '{not json' > "$TEST_HOME/.local/state/clai/history_com.json"
+
+  run bash -lc '
+    printf "exit\n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      bash ./clai.sh
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not parse history file"* ]]
+  [ "$(cat "$TEST_HOME/.local/state/clai/history_com.json")" = "[]" ]
+}
+
 @test "tool calls trigger tool execution and resume with tool output in history" {
   write_config <<'EOF'
 key=test-key

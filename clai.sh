@@ -142,13 +142,18 @@ write_private_file_atomic() {
 
 load_history() {
 	local loaded_history
+	local normalized_history
 
 	if [ -f "$HISTORY_FILE" ]; then
-		if loaded_history=$(jq -ce 'if type == "array" then map(select(.role != "system")) else error("history must be an array") end' "$HISTORY_FILE" 2>/dev/null); then
-			HISTORY_MESSAGES="$loaded_history"
+		if loaded_history=$(cat "$HISTORY_FILE" 2>/dev/null) && normalized_history=$(jq -ce 'if type == "array" then map(select(.role != "system")) else error("history must be an array") end' "$HISTORY_FILE" 2>/dev/null); then
+			if [ "$loaded_history" != "$normalized_history" ]; then
+				HISTORY_DIRTY=true
+			fi
+			HISTORY_MESSAGES="$normalized_history"
 		else
 			warn "Could not parse history file at $HISTORY_FILE; starting with empty history."
 			HISTORY_MESSAGES='[]'
+			HISTORY_DIRTY=true
 		fi
 	else
 		HISTORY_MESSAGES='[]'
