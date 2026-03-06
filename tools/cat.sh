@@ -28,8 +28,7 @@ init() {
 execute() {
 	local path
 	path=$(echo "$1" | jq -r '.path')
-	output=$(awk '{printf "LINE %d: %s\\\\n", NR, $0}' "$path" 2>&1)
-	if [ $? -eq 0 ]; then
+	if output=$(awk '{printf "LINE %d: %s\\\\n", NR, $0}' "$path" 2>&1); then
 		echo -e "$output"
 	else
 		echo "$output"

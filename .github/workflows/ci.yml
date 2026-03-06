@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install runtime and lint dependencies
+        run: sudo apt-get update && sudo apt-get install -y curl jq shellcheck
+
+      - name: Setup Bats
+        uses: bats-core/bats-action@3.0.1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run checks
+        run: make check

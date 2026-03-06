@@ -12,6 +12,55 @@ CLAI is a hard fork of the original `bash-ai` project by [@Hezkore](https://gith
 
 This fork exists because I intend to completely rewrite the project and prefer to have more immediate decision-making capability while doing that work.
 
+## Runtime Scope
+
+CLAI is intentionally a Bash-first project. It may be invoked from zsh and other shells, but the script itself is expected to run under Bash rather than natively under multiple shell interpreters.
+
+This keeps the implementation and test surface narrower, and it lets the project stay focused on Bash compatibility, including older Bash versions such as the default Bash shipped on macOS.
+
+## Development
+
+End users do not need the test framework. `bats` and `shellcheck` are only needed for local development and CI.
+
+### Local setup for testing
+
+On Ubuntu, install the development dependencies with:
+
+```bash
+sudo apt update
+sudo apt install bats shellcheck jq curl
+```
+
+### Running checks locally
+
+Run all checks:
+
+```bash
+make check
+```
+
+Run only the shell linter:
+
+```bash
+make lint
+```
+
+Run only the test suite:
+
+```bash
+make test
+```
+
+### First test scenario
+
+The initial Bats smoke test verifies that `clai.sh`:
+
+- creates `~/.config/clai.cfg` when it does not exist
+- exits with status `1` when no API key is configured
+- prints guidance telling the user to add an OpenAI API key
+
+This keeps the first test deterministic and avoids making live API calls.
+
 ## Features
 
 CLAI offers the following features:

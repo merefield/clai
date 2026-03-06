@@ -119,8 +119,9 @@ echo "" > /tmp/clai_tool_output.txt
 # Determine associative-array support
 HAS_ASSOC_ARRAY=false
 
-# Bash ≥4 or any zsh support associative arrays.  We attempt a silent test that
-# works for both.
+# Bash ≥4 or any zsh support associative arrays. We only care whether declare
+# succeeds; the probe variable is intentionally throwaway.
+# shellcheck disable=SC2034
 if (unset TEST 2>/dev/null; declare -A TEST 2>/dev/null); then
     HAS_ASSOC_ARRAY=true
 fi
@@ -206,20 +207,16 @@ for tool in "$TOOLS_PATH"/*.sh
 do
 	# Check if the file exists before sourcing it
 	if [ -f "$tool" ]; then
-		# For each file, run it in a subshell and call its `init` function
-		init_output=$(source "$tool"; init 2>/dev/null)
-		
-		# Check the exit status of the last command
-		if [ $? -ne 0 ]; then
-			echo "WARNING: $tool does not contain an init function."
-		else
-			# Test if the output is a valid JSON and pretty-print it
-			pretty_json=$(echo "$init_output" | jq . 2>/dev/null)
-			
-			if [ $? -ne 0 ]; then
-				echo "ERROR: $tool init function has JSON syntax errors."
-				exit 1
+			# For each file, run it in a subshell and call its `init` function
+			# shellcheck disable=SC1090
+			if ! init_output=$(source "$tool"; init 2>/dev/null); then
+				echo "WARNING: $tool does not contain an init function."
 			else
+				# Test if the output is a valid JSON and pretty-print it
+				if ! pretty_json=$(echo "$init_output" | jq . 2>/dev/null); then
+					echo "ERROR: $tool init function has JSON syntax errors."
+					exit 1
+				else
 				# Extract the type from the JSON
 				type=$(echo "$pretty_json" | jq -r '.type')
 				
@@ -473,8 +470,9 @@ run_tool() {
 			echo "$TOOL_NAME" >> /tmp/clai_tool_output.txt
 			echo "$TOOL_ARGS_READABLE" >> /tmp/clai_tool_output.txt
 		
-		# Run the execute function from the TOOL_SCRIPT
-		TOOL_OUTPUT=$(source "$TOOL_SCRIPT"; execute "$TOOL_ARGS")
+			# Run the execute function from the TOOL_SCRIPT
+			# shellcheck disable=SC1090
+			TOOL_OUTPUT=$(source "$TOOL_SCRIPT"; execute "$TOOL_ARGS")
 			echo "$TOOL_OUTPUT" >> /tmp/clai_tool_output.txt
 			echo "" >> /tmp/clai_tool_output.txt
 		# Trim the output to 1000 characters
@@ -844,7 +842,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			# One or multiple tools were called for
 			TOOL_CALLS_COUNT=$(echo "$RESPONSE" | jq '.choices[0].message.tool_calls | length')
 			
-			for ((i=0; i<$TOOL_CALLS_COUNT; i++)); do
+			for ((i=0; i<TOOL_CALLS_COUNT; i++)); do
 				TOOL_ID=$(echo "$RESPONSE" | jq -r '.choices[0].message.tool_calls['"$i"'].id')
 				TOOL_NAME=$(echo "$RESPONSE" | jq -r '.choices[0].message.tool_calls['"$i"'].function.name')
 				TOOL_ARGS=$(echo "$RESPONSE" | jq -r '.choices[0].message.tool_calls['"$i"'].function.arguments')
