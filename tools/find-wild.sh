@@ -36,6 +36,19 @@ execute() {
 	local output
 	path=$(echo "$1" | jq -r '.path')
 	name=$(echo "$1" | jq -r '.name')
+
+	case "$path" in
+		\~)
+			path="$HOME"
+			;;
+		\~/*)
+			path="$HOME/${path#\~/}"
+			;;
+		-*)
+			path="./$path"
+			;;
+	esac
+
 	if [ ! -d "$path" ]; then
 		echo "Not found"
 		return 0
