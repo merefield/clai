@@ -80,6 +80,11 @@ create_private_dir() {
 	chmod 700 "$dir_path" 2>/dev/null || true
 }
 
+ensure_dir_exists() {
+	local dir_path="$1"
+	mkdir -p "$dir_path"
+}
+
 write_private_file() {
 	local target="$1"
 	local old_umask
@@ -113,7 +118,7 @@ cleanup() {
 }
 
 create_private_dir "$STATE_DIR"
-create_private_dir "$CONFIG_DIR"
+ensure_dir_exists "$CONFIG_DIR"
 
 # Test if we're in Vim
 if [ -n "$VIMRUNTIME" ]; then
