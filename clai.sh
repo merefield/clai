@@ -146,7 +146,7 @@ save_history() {
 		--argjson history "$HISTORY_MESSAGES" \
 		--argjson max_history "$max_history_count_int" \
 		'if ($history | length) > $max_history then $history[-$max_history:] else $history end')
-	echo "$trimmed_history" > "$HISTORY_FILE"
+	write_private_file "$HISTORY_FILE" <<< "$trimmed_history"
 	HISTORY_DIRTY=false
 }
 
