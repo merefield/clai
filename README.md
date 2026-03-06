@@ -53,14 +53,16 @@ make test
 
 ### First test scenario
 
-The initial Bats smoke test verifies that `clai.sh`:
+The Bats smoke tests verify that `clai.sh`:
 
 - creates `~/.config/clai.cfg` when it does not exist
+- creates `~/.config` automatically on a fresh system
+- writes `clai.cfg` with restrictive permissions
 - creates a private state directory for CLAI data
 - exits with status `1` when no API key is configured
 - prints guidance telling the user to add an OpenAI API key
-
-There is also a transport-failure smoke test that verifies CLAI cleans up its transient session files after a failed API request.
+- builds request payloads as valid JSON
+- surfaces API transport and HTTP errors cleanly
 
 These tests stay deterministic and avoid making successful live API calls.
 
@@ -172,6 +174,8 @@ If your question ends with a “?”, either:
 
 On the first run, a configuration file named `clai.cfg` will be created in your `~/.config` directory.
 
+CLAI will create `~/.config` automatically if needed and will write `clai.cfg` with restrictive permissions.
+
 > [!IMPORTANT]
 > Always remove `clai.cfg` before updating CLAI to avoid compatibility issues.
 
@@ -185,6 +189,8 @@ You can also change the [GPT model](https://platform.openai.com/docs/models), [t
 Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.
 
 Transient request payloads, API responses, and tool logs are written to secure temporary files created with `mktemp` and are deleted automatically when the session exits.
+
+API requests are built as structured JSON and CLAI distinguishes transport failures, HTTP errors, and successful JSON responses when reporting errors.
 
 ## Usage
 

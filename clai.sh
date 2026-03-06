@@ -37,7 +37,7 @@ NO_REPLY_TEXT="¯\_(ツ)_/¯"  # Text for no reply
 INTERACTIVE_INFO="Hi! Feel free to ask me anything or give me a task. Type \"exit\" when you're done."  # Text for interactive mode intro
 PROGRESS_TEXT="Thinking..."
 PROGRESS_ANIM="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-HISTORY_MESSAGES=""  # Placeholder for history messages, this will be updated later
+HISTORY_MESSAGES="[]"  # Message history stored as a JSON array
 
 # Theme colors
 CMD_BG_COLOR="\e[48;5;236m"  # Background color for cmd suggestions
@@ -71,12 +71,21 @@ GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell sc
 
 # Configuration file path
 CONFIG_FILE=~/.config/clai.cfg
+CONFIG_DIR="${CONFIG_FILE%/*}"
 #GLOBAL_QUERY+=" Your configuration file path \"$CONFIG_FILE\"."
 
 create_private_dir() {
 	local dir_path="$1"
 	mkdir -p "$dir_path"
 	chmod 700 "$dir_path" 2>/dev/null || true
+}
+
+write_private_file() {
+	local target="$1"
+
+	umask 077
+	cat > "$target"
+	chmod 600 "$target" 2>/dev/null || true
 }
 
 create_secure_temp() {
@@ -101,6 +110,7 @@ cleanup() {
 }
 
 create_private_dir "$STATE_DIR"
+create_private_dir "$CONFIG_DIR"
 
 # Test if we're in Vim
 if [ -n "$VIMRUNTIME" ]; then
@@ -141,6 +151,8 @@ PAYLOAD_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-payload.XXXXXX.json") 
 TEMP_FILES+=("$PAYLOAD_FILE")
 RESPONSE_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-response.XXXXXX.json") || exit 1
 TEMP_FILES+=("$RESPONSE_FILE")
+CURL_ERROR_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-curl-error.XXXXXX.log") || exit 1
+TEMP_FILES+=("$CURL_ERROR_FILE")
 : > "$TOOL_LOG_FILE"
 
 # -------------------------------------------------------------
@@ -303,22 +315,23 @@ printf "%b" "$HIDE_CURSOR"
 # Check for configuration file existence
 if [ ! -f "$CONFIG_FILE" ]; then
 	# Initialize configuration file with default values
-	{
-		echo "key="
-		echo ""
-		echo "hi_contrast=false"
-		echo "expose_current_dir=true"
-		echo "max_history=10"
-		echo "api=https://api.openai.com/v1/chat/completions"
-		echo "model=gpt-4o-mini"
-		echo "json_mode=false"
-		echo "temp=0.1"
-		echo "tokens=500"
-		echo "exec_query="
-		echo "question_query="
-		echo "error_query="
-	} >> "$CONFIG_FILE"
+	write_private_file "$CONFIG_FILE" <<'EOF'
+key=
+
+hi_contrast=false
+expose_current_dir=true
+max_history=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
 fi
+chmod 600 "$CONFIG_FILE" 2>/dev/null || true
 
 # Read configuration file
 config=$(cat "$CONFIG_FILE")
@@ -375,12 +388,15 @@ EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 MAX_HISTORY_COUNT=$(cfg_val "max_history")
 
 # Test if GPT JSON mode is set in configuration
-JSON_MODE=$(cfg_val "json_mode")
-if [ "$JSON_MODE" = true ]; then
-	JSON_MODE="\"response_format\": { \"type\": \"json_object\" },"
+JSON_MODE_ENABLED=$(cfg_val "json_mode")
+if [ "$JSON_MODE_ENABLED" = true ]; then
+	RESPONSE_FORMAT_JSON='{"type":"json_object"}'
 else
-	JSON_MODE=""
+	RESPONSE_FORMAT_JSON='null'
 fi
+
+OPENAI_TEMP_JSON=$(jq -Rn --arg value "$OPENAI_TEMP" '$value | tonumber? // 0.1')
+OPENAI_TOKENS_JSON=$(jq -Rn --arg value "$OPENAI_TOKENS" '$value | tonumber? // 500')
 
 # Set default query if not provided in configuration
 if [ -z "$OPENAI_EXEC_QUERY" ]; then
@@ -423,31 +439,143 @@ print() {
 	printf "%b%b%b\n" "${PRE_TEXT}" "$1" "${RESET_COLOR}"
 }
 
-json_safe() {
-        # FIX this is a bad way of doing this, and it misses many unsafe characters
-        echo "$1" | perl -pe 's/\\/\\\\/g; s/"/\\"/g; s/\033/\\\\033/g; s/\n/ /g; s/\r/\\r/g; s/\t/\\t/g'
+append_history_message() {
+	local role="$1"
+	local content="$2"
+
+	HISTORY_MESSAGES=$(jq -cn \
+		--argjson history "$HISTORY_MESSAGES" \
+		--arg role "$role" \
+		--arg content "$content" \
+		'$history + [{"role": $role, "content": $content}]')
+}
+
+append_history_tool_message() {
+	local tool_call_id="$1"
+	local content="$2"
+
+	HISTORY_MESSAGES=$(jq -cn \
+		--argjson history "$HISTORY_MESSAGES" \
+		--arg tool_call_id "$tool_call_id" \
+		--arg content "$content" \
+		'$history + [{"role": "tool", "content": $content, "tool_call_id": $tool_call_id}]')
+}
+
+append_history_assistant_tool_call() {
+	local tool_call_id="$1"
+	local tool_name="$2"
+	local tool_args="$3"
+
+	HISTORY_MESSAGES=$(jq -cn \
+		--argjson history "$HISTORY_MESSAGES" \
+		--arg tool_call_id "$tool_call_id" \
+		--arg tool_name "$tool_name" \
+		--arg tool_args "$tool_args" \
+		'$history + [{
+			"role": "assistant",
+			"content": null,
+			"tool_calls": [{
+				"id": $tool_call_id,
+				"type": "function",
+				"function": {
+					"name": $tool_name,
+					"arguments": $tool_args
+				}
+			}]
+		}]')
 }
 
 repair_truncated_json() {
-        local reply="$1"
-        local repaired="$reply"
+	local reply="$1"
+	local repaired="$reply"
 
-        # Ensure we have an even number of double quotes by appending a closing quote
-        if (( $(tr -cd '"' <<< "$repaired" | wc -c) % 2 != 0 )); then
-                repaired+="\""
-        fi
+	if (( $(tr -cd '"' <<< "$repaired" | wc -c) % 2 != 0 )); then
+		repaired+="\""
+	fi
 
-        # Ensure that opening braces have matching closing braces
-        while [[ $(tr -cd '{' <<< "$repaired" | wc -c) -gt $(tr -cd '}' <<< "$repaired" | wc -c) ]]; do
-                repaired+="}"
-        done
+	while [[ $(tr -cd '{' <<< "$repaired" | wc -c) -gt $(tr -cd '}' <<< "$repaired" | wc -c) ]]; do
+		repaired+="}"
+	done
 
-        # Only use the repaired string if it parses as valid JSON
-        if echo "$repaired" | jq -e . >/dev/null 2>&1; then
-                echo "$repaired"
-        else
-                echo "$reply"
-        fi
+	if echo "$repaired" | jq -e . >/dev/null 2>&1; then
+		echo "$repaired"
+	else
+		echo "$reply"
+	fi
+}
+
+build_template_messages() {
+	local query_type="$1"
+	local system_content="$2"
+
+	case "$query_type" in
+		question)
+			jq -cn --arg system "$system_content" '[
+				{"role": "system", "content": $system},
+				{"role": "user", "content": "how do I list all files?"},
+				{"role": "assistant", "content": "{ \"info\": \"Use the \\\"ls\\\" command to with the \\\"-a\\\" flag to list all files, including hidden ones, in the current directory.\" }"},
+				{"role": "user", "content": "how do I recursively list all the files?"},
+				{"role": "assistant", "content": "{ \"info\": \"Use the \\\"ls\\\" command to with the \\\"-aR\\\" flag to list all files recursively, including hidden ones, in the current directory.\" }"},
+				{"role": "user", "content": "how do I print hello world?"},
+				{"role": "assistant", "content": "{ \"info\": \"Use the \\\"echo\\\" command to print text, and \\\"echo \\\"hello world\\\"\\\" to print your specified text.\" }"},
+				{"role": "user", "content": "how do I autocomplete commands?"},
+				{"role": "assistant", "content": "{ \"info\": \"Press the Tab key to autocomplete commands, file names, and directories.\" }"}
+			]'
+			;;
+		error)
+			jq -cn --arg system "$system_content" '[
+				{"role": "system", "content": $system},
+				{"role": "user", "content": "You executed \\\"start avidemux\\\". Which returned error \\\"avidemux: command not found\\\"."},
+				{"role": "assistant", "content": "{ \"cmd\": \"sudo install avidemux\", \"info\": \"This means that the application \\\"avidemux\\\" was not found. Try installing it.\" }"},
+				{"role": "user", "content": "You executed \\\"cd \\\"hell word\\\"\\\". Which returned error \\\"cd: hell word: No such file or directory\\\"."},
+				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"wORLD helloz\\\"\", \"info\": \"The error indicates that the \\\"wORLD helloz\\\" directory does not exist. However, the current directory contains a \\\"hello world\\\" directory we can try instead.\" }"},
+				{"role": "user", "content": "You executed \\\"cat \\\"in .sh.\\\"\\\". Which returned error \\\"cat: in .sh: No such file or directory\\\"."},
+				{"role": "assistant", "content": "{ \"cmd\": \"cat \\\"install.sh\\\"\", \"info\": \"The cat command could not find the \\\"in .sh\\\" file in the current directory. However, the current directory contains a file called \\\"install.sh\\\".\" }"}
+			]'
+			;;
+		*)
+			jq -cn --arg system "$system_content" '[
+				{"role": "system", "content": $system},
+				{"role": "user", "content": "list all files"},
+				{"role": "assistant", "content": "{ \"cmd\": \"ls -a\", \"info\": \"\\\"ls\\\" with the flag \\\"-a\\\" will list all files, including hidden ones, in the current directory\" }"},
+				{"role": "user", "content": "start avidemux"},
+				{"role": "assistant", "content": "{ \"cmd\": \"avidemux\", \"info\": \"start the Avidemux video editor, if it is installed on the system and available for the current user\" }"},
+				{"role": "user", "content": "print hello world"},
+				{"role": "assistant", "content": "{ \"cmd\": \"echo \\\"hello world\\\"\", \"info\": \"\\\"echo\\\" will print text, while \\\"echo \\\"hello world\\\"\\\" will print your text\" }"},
+				{"role": "user", "content": "remove the hello world folder"},
+				{"role": "assistant", "content": "{ \"cmd\": \"rm -r  \\\"hello world\\\"\", \"info\": \"\\\"rm\\\" with the \\\"-r\\\" flag will remove the \\\"hello world\\\" folder and its contents recursively\" }"},
+				{"role": "user", "content": "move into the hello world folder"},
+				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"\\\"cd\\\" will let you change directory to \\\"hello world\\\"\" }"},
+				{"role": "user", "content": "add /home/user/.local/bin to PATH"},
+				{"role": "assistant", "content": "{ \"cmd\": \"export PATH=/home/user/.local/bin:PATH\", \"info\": \"\\\"export\\\" has the ability to add \\\"/some/path\\\" to your PATH environment variable for the current session. the specified path already exists in your PATH environment variable since before\" }"}
+			]'
+			;;
+	esac
+}
+
+build_payload() {
+	local messages_json="$1"
+	local tools_json='[]'
+
+	if [ -n "$OPENAI_TOOLS" ]; then
+		tools_json=$(printf '[%s]' "$OPENAI_TOOLS")
+	fi
+
+	jq -cn \
+		--arg model "$OPENAI_MODEL" \
+		--argjson max_tokens "$OPENAI_TOKENS_JSON" \
+		--argjson temperature "$OPENAI_TEMP_JSON" \
+		--argjson messages "$messages_json" \
+		--argjson response_format "$RESPONSE_FORMAT_JSON" \
+		--argjson tools "$tools_json" '
+		{
+			"model": $model,
+			"max_tokens": $max_tokens,
+			"temperature": $temperature,
+			"messages": $messages
+		}
+		+ (if $response_format == null then {} else {"response_format": $response_format} end)
+		+ (if ($tools | length) == 0 then {} else {"tools": $tools, "tool_choice": "auto"} end)'
 }
 
 run_cmd() {
@@ -514,32 +642,19 @@ run_tool() {
 			TOOL_OUTPUT=$(source "$TOOL_SCRIPT"; execute "$TOOL_ARGS")
 				echo "$TOOL_OUTPUT" >> "$TOOL_LOG_FILE"
 				echo "" >> "$TOOL_LOG_FILE"
-		# Trim the output to 1000 characters
-		TOOL_OUTPUT=${TOOL_OUTPUT:0:1000}
-		# Make it JSON safe
-		TOOL_OUTPUT=$(json_safe "$TOOL_OUTPUT")
-	fi
-	
-	# Apply tool output to message history
-	HISTORY_MESSAGES+=',{
-		"role": "tool",
-		"content": "'"$TOOL_OUTPUT"'",
-		"tool_call_id": "'"$TOOL_ID"'"
-	}'
-	
-	# Prepare the next run
-	NEEDS_TO_RUN=true
+			# Trim the output to 1000 characters
+			TOOL_OUTPUT=${TOOL_OUTPUT:0:1000}
+		fi
+
+		# Apply tool output to message history
+		append_history_tool_message "$TOOL_ID" "$TOOL_OUTPUT"
+		
+		# Prepare the next run
+		NEEDS_TO_RUN=true
 	SKIP_USER_QUERY=true
 	SKIP_USER_QUERY_RESET=true
 	SKIP_SYSTEM_MSG=true
 }
-
-# Make sure all queries are JSON safe
-DEFAULT_EXEC_QUERY=$(json_safe "$DEFAULT_EXEC_QUERY")
-DEFAULT_QUESTION_QUERY=$(json_safe "$DEFAULT_QUESTION_QUERY")
-DEFAULT_ERROR_QUERY=$(json_safe "$DEFAULT_ERROR_QUERY")
-GLOBAL_QUERY=$(json_safe "$GLOBAL_QUERY")
-DYNAMIC_SYSTEM_QUERY=$(json_safe "$DYNAMIC_SYSTEM_QUERY")
 
 # User AI query and Interactive Mode
 USER_QUERY=$*
@@ -586,9 +701,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			fi
 		done
 		
-		# Make sure the query is JSON safe
-		USER_QUERY=$(json_safe "$USER_QUERY")
-	fi
+		fi
 	
 	printf "%b" "$HIDE_CURSOR"
 	
@@ -606,134 +719,18 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		fi
 	fi
 	
-	# Apply the correct query message history
-	# The options are "execute", "question" and "error"
-	if [ "$QUERY_TYPE" == "question" ]; then
-		# QUESTION
-		CURRENT_QUERY_TYPE_MSG="${OPENAI_QUESTION_QUERY}"
-		OPENAI_TEMPLATE_MESSAGES='{
-			"role": "system",
-			"content": "'"${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}"'"
-		},
-		{
-			"role": "user",
-			"content": "how do I list all files?"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"info\": \"Use the \\\"ls\\\" command to with the \\\"-a\\\" flag to list all files, including hidden ones, in the current directory.\" }"
-		},
-		{
-			"role": "user",
-			"content": "how do I recursively list all the files?"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"info\": \"Use the \\\"ls\\\" command to with the \\\"-aR\\\" flag to list all files recursively, including hidden ones, in the current directory.\" }"
-		},
-		{
-			"role": "user",
-			"content": "how do I print hello world?"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"info\": \"Use the \\\"echo\\\" command to print text, and \\\"echo \\\"hello world\\\"\\\" to print your specified text.\" }"
-		},
-		{
-			"role": "user",
-			"content": "how do I autocomplete commands?"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"info\": \"Press the Tab key to autocomplete commands, file names, and directories.\" }"
-		}'
-	elif [ "$QUERY_TYPE" == "error" ]; then
-		# ERROR
-		CURRENT_QUERY_TYPE_MSG="${OPENAI_ERROR_QUERY}"
-		OPENAI_TEMPLATE_MESSAGES='{
-			"role": "system",
-			"content": "'"${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}"'"
-		},
-		{
-			"role": "user",
-			"content": "You executed \\\"start avidemux\\\". Which returned error \\\"avidemux: command not found\\\"."
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"sudo install avidemux\", \"info\": \"This means that the application \\\"avidemux\\\" was not found. Try installing it.\" }"
-		},
-		{
-			"role": "user",
-			"content": "You executed \\\"cd \\\"hell word\\\"\\\". Which returned error \\\"cd: hell word: No such file or directory\\\"."
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"cd \\\"wORLD helloz\\\"\", \"info\": \"The error indicates that the \\\"wORLD helloz\\\" directory does not exist. However, the current directory contains a \\\"hello world\\\" directory we can try instead.\" }"
-		},
-		{
-			"role": "user",
-			"content": "You executed \\\"cat \\\"in .sh.\\\"\\\". Which returned error \\\"cat: in .sh: No such file or directory\\\"."
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"cat \\\"install.sh\\\"\", \"info\": \"The cat command could not find the \\\"in .sh\\\" file in the current directory. However, the current directory contains a file called \\\"install.sh\\\".\" }"
-		}'
-	else
-		# COMMAND
-		CURRENT_QUERY_TYPE_MSG="${OPENAI_EXEC_QUERY}"
-		OPENAI_TEMPLATE_MESSAGES='{
-			"role": "system",
-			"content": "'"${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}"'"
-		},
-		{
-			"role": "user",
-			"content": "list all files"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"ls -a\", \"info\": \"\\\"ls\\\" with the flag \\\"-a\\\" will list all files, including hidden ones, in the current directory\" }"
-		},
-		{
-			"role": "user",
-			"content": "start avidemux"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"avidemux\", \"info\": \"start the Avidemux video editor, if it is installed on the system and available for the current user\" }"
-		},
-		{
-			"role": "user",
-			"content": "print hello world"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"echo \\\"hello world\\\"\", \"info\": \"\\\"echo\\\" will print text, while \\\"echo \\\"hello world\\\"\\\" will print your text\" }"
-		},
-		{
-			"role": "user",
-			"content": "remove the hello world folder"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"rm -r  \\\"hello world\\\"\", \"info\": \"\\\"rm\\\" with the \\\"-r\\\" flag will remove the \\\"hello world\\\" folder and its contents recursively\" }"
-		},
-		{
-			"role": "user",
-			"content": "move into the hello world folder"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"\\\"cd\\\" will let you change directory to \\\"hello world\\\"\" }"
-		},
-		{
-			"role": "user",
-			"content": "add /home/user/.local/bin to PATH"
-		},
-		{
-			"role": "assistant",
-			"content": "{ \"cmd\": \"export PATH=/home/user/.local/bin:PATH\", \"info\": \"\\\"export\\\" has the ability to add \\\"/some/path\\\" to your PATH environment variable for the current session. the specified path already exists in your PATH environment variable since before\" }"
-		}'
-	fi
+		# Apply the correct query message history
+		# The options are "execute", "question" and "error"
+		if [ "$QUERY_TYPE" == "question" ]; then
+			CURRENT_QUERY_TYPE_MSG="${OPENAI_QUESTION_QUERY}"
+			OPENAI_TEMPLATE_MESSAGES=$(build_template_messages "question" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
+		elif [ "$QUERY_TYPE" == "error" ]; then
+			CURRENT_QUERY_TYPE_MSG="${OPENAI_ERROR_QUERY}"
+			OPENAI_TEMPLATE_MESSAGES=$(build_template_messages "error" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
+		else
+			CURRENT_QUERY_TYPE_MSG="${OPENAI_EXEC_QUERY}"
+			OPENAI_TEMPLATE_MESSAGES=$(build_template_messages "execute" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
+		fi
 	
 	# Notify the user about our progress
 	echo -ne "${PRE_TEXT}  $PROGRESS_TEXT"
@@ -751,84 +748,73 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	spinner & # Start the spinner
 	spinner_pid=$! # Save the spinner's PID
 	
-	# If this is the first run we apply history
-	if [ $RUN_COUNT -eq 0 ]; then
-		# Check if the history file exists
+		# If this is the first run we apply history
+		if [ $RUN_COUNT -eq 0 ]; then
+			# Check if the history file exists
 			if [ -f "$HISTORY_FILE" ]; then
 				# Read the history file
-				HISTORY_MESSAGES=$(sed 's/^\[\(.*\)\]$/,\1/' "$HISTORY_FILE")
+				HISTORY_MESSAGES=$(jq -c 'if type == "array" then . else [] end' "$HISTORY_FILE" 2>/dev/null || echo '[]')
+			fi
 		fi
-	fi
 	
 	# Prepare system message
 	if [ "$SKIP_SYSTEM_MSG" != true ]; then
 		sys_msg=""
 		# Directory and content exposure
 		# Check if EXPOSE_CURRENT_DIR is true
-		if [ "$EXPOSE_CURRENT_DIR" = true ]; then
-			sys_msg+="User is working from directory \\\"$(json_safe "$(pwd)")\\\"."
-		fi
+			if [ "$EXPOSE_CURRENT_DIR" = true ]; then
+				sys_msg+="User is working from directory \"$(pwd)\"."
+			fi
 		# Apply date
 		sys_msg+=" The current date is Y-m-d H:M \\\"$(date "+%Y-%m-%d %H:%M")\\\"."
 		# Apply dynamic system query
 		sys_msg+="$DYNAMIC_SYSTEM_QUERY"
-		# Apply the system message to history
-		LAST_HISTORY_MESSAGE=',{
-			"role": "system",
-			"content": "'"${sys_msg}"'"
-		}'
-		HISTORY_MESSAGES+="$LAST_HISTORY_MESSAGE"
-	fi
-	
-	# Apply the user to the message history
-	if [ ${#USER_QUERY} -gt 0 ]; then
-		HISTORY_MESSAGES+=',{
-			"role": "user",
-			"content": "'${USER_QUERY}'"
-		}'
-	fi
-	
-	# Construct the JSON payload if we don't already have one
-	if [ -z "$JSON_PAYLOAD" ]; then
-		JSON_PAYLOAD='{
-			"model": "'"$OPENAI_MODEL"'",
-			"max_tokens": '"$OPENAI_TOKENS"',
-			"temperature": '"$OPENAI_TEMP"',
-			'"$JSON_MODE"'
-			"messages": ['"$OPENAI_TEMPLATE_MESSAGES $HISTORY_MESSAGES
-				,{\"role\": \"system\", \"content\": \"$CURRENT_QUERY_TYPE_MSG Respond in less than $OPENAI_TOKENS tokens.\"}
-			"']'
-		
-		# Apply tools to payload
-		if [ ${#OPENAI_TOOLS} -gt 0 ]; then
-			JSON_PAYLOAD+=', "tools": ['"$OPENAI_TOOLS"'], "tool_choice": "auto"'
+			append_history_message "system" "$sys_msg"
 		fi
 		
-		# Close the JSON payload
-		JSON_PAYLOAD+='}'
-	fi
-	
-	# Prettify the JSON payload and verify it
-	JSON_PAYLOAD=$(echo "$JSON_PAYLOAD" | jq .)
-	
-	# Do we have a special URL?
-	if [ -z "$SPECIAL_API_URL" ]; then
-		URL="$OPENAI_URL"
+		# Apply the user to the message history
+		if [ ${#USER_QUERY} -gt 0 ]; then
+			append_history_message "user" "$USER_QUERY"
+		fi
+		
+		# Construct the JSON payload if we don't already have one
+		if [ -z "$JSON_PAYLOAD" ]; then
+			MESSAGES_JSON=$(jq -cn \
+				--argjson template "$OPENAI_TEMPLATE_MESSAGES" \
+				--argjson history "$HISTORY_MESSAGES" \
+				--arg extra_prompt "$CURRENT_QUERY_TYPE_MSG Respond in less than $OPENAI_TOKENS tokens." \
+				'$template + $history + [{"role": "system", "content": $extra_prompt}]')
+			JSON_PAYLOAD=$(build_payload "$MESSAGES_JSON")
+		fi
+		
+		# Do we have a special URL?
+		if [ -z "$SPECIAL_API_URL" ]; then
+			URL="$OPENAI_URL"
 	else
 		URL="$SPECIAL_API_URL"
 	fi
 	
-	# Save the payload to a tmp JSON file
+		# Save the payload to a tmp JSON file
 		echo "$JSON_PAYLOAD" > "$PAYLOAD_FILE"
-	
-	# Send request to OpenAI API
-	RESPONSE=$(curl -s -X POST -H "Authorization:Bearer $OPENAI_KEY" -H "Content-Type:application/json" -d "$JSON_PAYLOAD" "$URL")
-	
-	# Save reponse to a tmp JSON file
-		echo "$RESPONSE" > "$RESPONSE_FILE"
-	
-	# Stop the spinner
-	kill $spinner_pid
+		
+		# Send request to OpenAI API
+		: > "$CURL_ERROR_FILE"
+		HTTP_CODE=$(curl \
+			--silent \
+			--show-error \
+			--output "$RESPONSE_FILE" \
+			--write-out '%{http_code}' \
+			-X POST \
+			-H "Authorization:Bearer $OPENAI_KEY" \
+			-H "Content-Type:application/json" \
+			-d "$JSON_PAYLOAD" \
+			"$URL" 2>"$CURL_ERROR_FILE")
+		CURL_STATUS=$?
+		
+		RESPONSE=$(cat "$RESPONSE_FILE" 2>/dev/null)
+		
+		# Stop the spinner
+		kill $spinner_pid
 	wait $spinner_pid 2>/dev/null
 	
 	# Reset the JSON_PAYLOAD
@@ -843,29 +829,58 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	# Reset SKIP_SYSTEM_MSG flag
 	SKIP_SYSTEM_MSG=false
 	
-	# Reset user query
-	USER_QUERY=""
-	
-	# Is response empty?
-	if [ -z "$RESPONSE" ]; then
+		# Reset user query
+		USER_QUERY=""
+
+		if [ $CURL_STATUS -ne 0 ]; then
+			echo -ne "$CLEAR_LINE\r"
+			CURL_ERROR=$(cat "$CURL_ERROR_FILE" 2>/dev/null)
+			if [ -z "$CURL_ERROR" ]; then
+				CURL_ERROR="Request failed before the API responded."
+			fi
+			print_error "$CURL_ERROR"
+			printf "%b" "$SHOW_CURSOR"
+			exit 1
+		fi
+
+		if ! jq -e . "$RESPONSE_FILE" >/dev/null 2>&1; then
+			echo -ne "$CLEAR_LINE\r"
+			print_error "The API returned a non-JSON response (HTTP $HTTP_CODE)."
+			printf "%b" "$SHOW_CURSOR"
+			exit 1
+		fi
+
+		if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+			echo -ne "$CLEAR_LINE\r"
+			API_ERROR=$(jq -r '.error.message // empty' "$RESPONSE_FILE")
+			if [ -z "$API_ERROR" ]; then
+				API_ERROR="The API request failed with HTTP status $HTTP_CODE."
+			fi
+			print_error "$API_ERROR"
+			printf "%b" "$SHOW_CURSOR"
+			exit 1
+		fi
+		
+		# Is response empty?
+		if [ -z "$RESPONSE" ]; then
 		# We didn't get a reply
 		print_info "$NO_REPLY_TEXT"
 		printf "%b" "$SHOW_CURSOR"
 		exit 1
 	fi
 	
-	# Extract the reply from the JSON response
-	REPLY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // ""')
-	
-	# Was there an error?
-	if [ ${#REPLY} -le 1 ]; then
-		REPLY=$(echo "$RESPONSE" | jq -r '.error.message // "An unknown error occurred."')
-	fi
+		# Extract the reply from the JSON response
+		REPLY=$(jq -r '.choices[0].message.content // ""' "$RESPONSE_FILE")
+		
+		# Was there an error?
+		if [ ${#REPLY} -le 1 ]; then
+			REPLY=$(jq -r '.error.message // "An unknown error occurred."' "$RESPONSE_FILE")
+		fi
 	
 	echo -ne "$CLEAR_LINE\r"
 	
 	# Check if there was a reason for stopping
-	FINISH_REASON=$(echo "$RESPONSE" | jq -r '.choices[0].finish_reason // ""')
+		FINISH_REASON=$(jq -r '.choices[0].finish_reason // ""' "$RESPONSE_FILE")
 	
 	# If the reason IS NOT stop
 	if [ "$FINISH_REASON" != "stop" ]; then
@@ -879,52 +894,34 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			REPLY="Your query was rejected."
 		elif [ "$FINISH_REASON" == "tool_calls" ]; then
 			# One or multiple tools were called for
-			TOOL_CALLS_COUNT=$(echo "$RESPONSE" | jq '.choices[0].message.tool_calls | length')
-			
-			for ((i=0; i<TOOL_CALLS_COUNT; i++)); do
-				TOOL_ID=$(echo "$RESPONSE" | jq -r '.choices[0].message.tool_calls['"$i"'].id')
-				TOOL_NAME=$(echo "$RESPONSE" | jq -r '.choices[0].message.tool_calls['"$i"'].function.name')
-				TOOL_ARGS=$(echo "$RESPONSE" | jq -r '.choices[0].message.tool_calls['"$i"'].function.arguments')
+				TOOL_CALLS_COUNT=$(jq '.choices[0].message.tool_calls | length' "$RESPONSE_FILE")
 				
-				# Get return from run_tool and apply to our history
-				HISTORY_MESSAGES+=',{
-					"role": "assistant",
-					"content": null,
-					"tool_calls": [
-						{
-							"id": "'"$TOOL_ID"'",
-							"type": "function",
-							"function": {
-								"name": "'"$TOOL_NAME"'",
-								"arguments": "'"$(json_safe "$TOOL_ARGS")"'"
-							}
-						}
-					]
-				}'
-				
-				run_tool "$TOOL_ID" "$TOOL_NAME" "$TOOL_ARGS"
-			done
+				for ((i=0; i<TOOL_CALLS_COUNT; i++)); do
+					TOOL_ID=$(jq -r '.choices[0].message.tool_calls['"$i"'].id' "$RESPONSE_FILE")
+					TOOL_NAME=$(jq -r '.choices[0].message.tool_calls['"$i"'].function.name' "$RESPONSE_FILE")
+					TOOL_ARGS=$(jq -r '.choices[0].message.tool_calls['"$i"'].function.arguments' "$RESPONSE_FILE")
+					
+					# Get return from run_tool and apply to our history
+					append_history_assistant_tool_call "$TOOL_ID" "$TOOL_NAME" "$TOOL_ARGS"
+					
+					run_tool "$TOOL_ID" "$TOOL_NAME" "$TOOL_ARGS"
+				done
 			REPLY=""
 		fi
 	fi
 	
-	# If we still have a reply
-	if [ ${#REPLY} -gt 1 ]; then
-		# Try to assemble a JSON object from the REPLY
-		JSON_CONTENT=$(echo "$REPLY" | perl -0777 -pe 's/.*?(\{.*?\})(\n| ).*/$1/s')
-		JSON_CONTENT=$(echo "$JSON_CONTENT" | jq -r . 2>/dev/null)
-		
-		# Was there JSON content?
-		if [ ${#JSON_CONTENT} -le 1 ]; then
-			# No JSON content, use the REPLY as is
-			JSON_CONTENT="{\"info\": \"$REPLY\"}"
-		fi
-		
-		# Apply the message to history
-		HISTORY_MESSAGES+=',{
-			"role": "assistant",
-			"content": "'"$(json_safe "$JSON_CONTENT")"'"
-		}'
+		# If we still have a reply
+		if [ ${#REPLY} -gt 1 ]; then
+			JSON_CONTENT=$(printf '%s' "$REPLY" | jq -c . 2>/dev/null)
+			
+			# Was there JSON content?
+			if [ ${#JSON_CONTENT} -le 1 ]; then
+				# No JSON content, use the REPLY as structured info text
+				JSON_CONTENT=$(jq -cn --arg info "$REPLY" '{"info": $info}')
+			fi
+			
+			# Apply the message to history
+			append_history_message "assistant" "$JSON_CONTENT"
 		
 		# Extract cmd
 		CMD=$(echo "$JSON_CONTENT" | jq -r '.cmd // ""' 2>/dev/null)
@@ -988,22 +985,12 @@ done
 
 # Save the history messages
 if [ "$INTERACTIVE_MODE" = false ]; then
-	# Add a dummy message at the beginning to make HISTORY_MESSAGES a valid JSON array
-	HISTORY_MESSAGES_JSON="[null$HISTORY_MESSAGES]"
-	
-	# Get the number of messages
-	HISTORY_COUNT=$(echo "$HISTORY_MESSAGES_JSON" | jq 'length')
-	
-	# Convert MAX_HISTORY_COUNT to an integer
 	MAX_HISTORY_COUNT_INT=$((MAX_HISTORY_COUNT))
-	
-	# If the history is too long, remove the oldest messages
-	if (( HISTORY_COUNT > MAX_HISTORY_COUNT_INT )); then
-		HISTORY_MESSAGES_JSON=$(echo "$HISTORY_MESSAGES_JSON" | jq ".[-$MAX_HISTORY_COUNT_INT:]")
-	fi
-	
-	# Remove the dummy message and write the history to the file
-		echo "$HISTORY_MESSAGES_JSON" | jq '.[1:]' | jq -c . > "$HISTORY_FILE"
+	HISTORY_MESSAGES_JSON=$(jq -cn \
+		--argjson history "$HISTORY_MESSAGES" \
+		--argjson max_history "$MAX_HISTORY_COUNT_INT" \
+		'if ($history | length) > $max_history then $history[-$max_history:] else $history end')
+	echo "$HISTORY_MESSAGES_JSON" > "$HISTORY_FILE"
 fi
 
 # We're done
