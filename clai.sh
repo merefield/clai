@@ -62,6 +62,7 @@ STATE_DIR="${STATE_HOME}/clai"
 SESSION_TMPDIR="${TMPDIR:-/tmp}"
 TEMP_FILES=()
 CURSOR_HIDDEN=false
+HISTORY_FILES=()
 
 # Default query constants, these are used as default values for different types of queries
 DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd' and 'info' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omittied as a last resort if no command can be suggested."
@@ -75,7 +76,6 @@ GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell sc
 # Configuration file path
 CONFIG_FILE=~/.config/clai.cfg
 CONFIG_DIR="${CONFIG_FILE%/*}"
-#GLOBAL_QUERY+=" Your configuration file path \"$CONFIG_FILE\"."
 
 create_private_dir() {
 	local dir_path="$1"
@@ -164,6 +164,18 @@ load_history() {
 	HISTORY_LOADED=true
 }
 
+clear_history_runtime() {
+	local history_path
+
+	for history_path in "${HISTORY_FILES[@]}"; do
+		[ -n "$history_path" ] && rm -f "$history_path"
+	done
+
+	HISTORY_MESSAGES='[]'
+	HISTORY_DIRTY=false
+	HISTORY_LOADED=true
+}
+
 save_history() {
 	local max_history_count_int
 	local persisted_history
@@ -219,6 +231,25 @@ exit_clai() {
 
 	save_history
 	exit "$status"
+}
+
+handle_clear_history() {
+	clear_history_runtime
+	printf "%b%s%b\n\n" "${PRE_TEXT}${INFO_TEXT_COLOR}" "Cleared CLAI history." "${RESET_COLOR}"
+}
+
+is_clear_history_request() {
+	local normalized_query
+
+	normalized_query=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/[[:punct:]]*$//')
+
+	case "$normalized_query" in
+		"clear history"|"clear your history"|"clear our history"|"forget history"|"forget your history"|"forget our history"|"reset history"|"flush history")
+			return 0
+			;;
+	esac
+
+	return 1
 }
 
 conceal_cursor() {
@@ -277,6 +308,20 @@ else
 		# Use the default history file
 		HISTORY_FILE="${STATE_DIR}/history_com.json"
 fi
+HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
+
+# Built-in request handling
+USER_QUERY=$*
+if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
+	handle_clear_history
+	restore_cursor
+	exit_clai 0
+fi
+if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
+	handle_clear_history
+	restore_cursor
+	exit_clai 0
+fi
 
 # Update info about history file
 #GLOBAL_QUERY+=" Your message history file path is \"$HISTORY_FILE\"."
@@ -284,6 +329,10 @@ fi
 # Tools
 OPENAI_TOOLS=""
 TOOLS_PATH=~/.clai_tools
+
+GLOBAL_QUERY+=" CLAI's canonical config file path is \"~/.config/clai.cfg\" (expanded path \"$CONFIG_FILE\")."
+GLOBAL_QUERY+=" CLAI's tools directory is \"~/.clai_tools\" (expanded path \"$TOOLS_PATH\")."
+GLOBAL_QUERY+=" CLAI persists state under \"\${XDG_STATE_HOME:-~/.local/state}/clai\" (expanded path \"$STATE_DIR\")."
 
 # Create the directory only if it doesn't exist
 create_private_dir "$TOOLS_PATH"
@@ -809,9 +858,6 @@ run_tool() {
 	SKIP_SYSTEM_MSG=true
 }
 
-# User AI query and Interactive Mode
-USER_QUERY=$*
-
 # Are we entering interactive mode?
 if [ -z "$USER_QUERY" ]; then
 	INTERACTIVE_MODE=true
@@ -857,6 +903,20 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	
 	# Pretty up user query
 	USER_QUERY=$(echo "$USER_QUERY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+	if is_clear_history_request "$USER_QUERY"; then
+		echo -ne "$CLEAR_LINE\r"
+		handle_clear_history
+		QUERY_TYPE=""
+		USER_QUERY=""
+		SKIP_USER_QUERY=false
+		SKIP_USER_QUERY_RESET=false
+		restore_cursor
+		if [ "$INTERACTIVE_MODE" != true ]; then
+			exit_clai 0
+		fi
+		continue
+	fi
 	
 	# Determine if we should use the question query or the execution query
 	if [ -z "$QUERY_TYPE" ]; then
