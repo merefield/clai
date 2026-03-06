@@ -120,10 +120,13 @@ write_private_file_atomic() {
 
 	target_dir="${target%/*}"
 	ensure_dir_exists "$target_dir"
-	tmp_target=$(mktemp "${target}.tmp.XXXXXX") || return 1
 
 	old_umask=$(umask)
 	umask 077
+	tmp_target=$(mktemp "${target}.tmp.XXXXXX") || {
+		umask "$old_umask"
+		return 1
+	}
 	if ! cat > "$tmp_target"; then
 		umask "$old_umask"
 		rm -f "$tmp_target"
