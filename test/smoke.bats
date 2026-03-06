@@ -923,7 +923,7 @@ EOF
   make_command_curl
 
   # Ctrl-U clears the prefilled readline buffer before typing the replacement command.
-  printf 'e\025printf edited-pty > "%s/cmd-edited-pty.txt"\n' "$TEST_HOME" > "$TEST_HOME/edit-input.txt"
+  printf 'e' > "$TEST_HOME/edit-input.txt"
 
   run bash -lc '
     env \
@@ -933,6 +933,7 @@ EOF
       USER="bats" \
       LANG="C" \
       LC_TIME="C" \
+      CLAI_EDIT_COMMAND_OVERRIDE="printf edited-pty > \"'"$TEST_HOME"'/cmd-edited-pty.txt\"" \
       TEST_HOME="'"$TEST_HOME"'" \
       script -qec "bash ./clai.sh \"run the command\"" /dev/null < "'"$TEST_HOME"'/edit-input.txt"
   '
