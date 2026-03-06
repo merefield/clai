@@ -718,6 +718,28 @@ EOF
   [ ! -e "$TEST_HOME/.config/clai.cfg" ]
 }
 
+@test "--clear-history returns an error when persisted history cannot be removed" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  mkdir -p "$TEST_HOME/.local/state/clai/history_com.json"
+
+  make_marker_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh --clear-history
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed to clear CLAI history."* ]]
+  [ -d "$TEST_HOME/.local/state/clai/history_com.json" ]
+  [ ! -e "$TEST_HOME/curl-called" ]
+}
+
 @test "tool calls trigger tool execution and resume with tool output in history" {
   write_config <<'EOF'
 key=test-key

@@ -166,14 +166,23 @@ load_history() {
 
 clear_history_runtime() {
 	local history_path
+	local failed=false
 
 	for history_path in "${HISTORY_FILES[@]}"; do
-		[ -n "$history_path" ] && rm -f "$history_path"
+		if [ -n "$history_path" ] && ! rm -f -- "$history_path"; then
+			failed=true
+		fi
 	done
 
 	HISTORY_MESSAGES='[]'
 	HISTORY_DIRTY=false
 	HISTORY_LOADED=true
+
+	if [ "$failed" = true ]; then
+		return 1
+	fi
+
+	return 0
 }
 
 save_history() {
@@ -234,8 +243,13 @@ exit_clai() {
 }
 
 handle_clear_history() {
-	clear_history_runtime
-	printf "%b%s%b\n\n" "${PRE_TEXT}${INFO_TEXT_COLOR}" "Cleared CLAI history." "${RESET_COLOR}"
+	if clear_history_runtime; then
+		printf "%b%s%b\n\n" "${PRE_TEXT}${INFO_TEXT_COLOR}" "Cleared CLAI history." "${RESET_COLOR}"
+		return 0
+	fi
+
+	printf "%b%s%b\n\n" "${ERROR_TEXT_COLOR}" "Failed to clear CLAI history." "${RESET_COLOR}"
+	return 1
 }
 
 is_clear_history_request() {
@@ -314,13 +328,21 @@ HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
 USER_QUERY=$*
 if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 	handle_clear_history
+	clear_history_status=$?
 	restore_cursor
-	exit_clai 0
+	if [ "$clear_history_status" -eq 0 ]; then
+		exit_clai 0
+	fi
+	exit_clai 1
 fi
 if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
 	handle_clear_history
+	clear_history_status=$?
 	restore_cursor
-	exit_clai 0
+	if [ "$clear_history_status" -eq 0 ]; then
+		exit_clai 0
+	fi
+	exit_clai 1
 fi
 
 # Update info about history file
@@ -905,15 +927,23 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	USER_QUERY=$(echo "$USER_QUERY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
 	if is_clear_history_request "$USER_QUERY"; then
+		clear_history_status=0
 		echo -ne "$CLEAR_LINE\r"
 		handle_clear_history
+		clear_history_status=$?
 		QUERY_TYPE=""
 		USER_QUERY=""
 		SKIP_USER_QUERY=false
 		SKIP_USER_QUERY_RESET=false
 		restore_cursor
 		if [ "$INTERACTIVE_MODE" != true ]; then
-			exit_clai 0
+			if [ "$clear_history_status" -eq 0 ]; then
+				exit_clai 0
+			fi
+			exit_clai 1
+		fi
+		if [ "$clear_history_status" -ne 0 ]; then
+			continue
 		fi
 		continue
 	fi
