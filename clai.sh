@@ -88,6 +88,8 @@ create_secure_temp() {
 	printf "%s\n" "$tmpfile"
 }
 
+# cleanup is invoked indirectly via trap EXIT.
+# shellcheck disable=SC2317
 cleanup() {
 	local path
 
