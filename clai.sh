@@ -117,6 +117,8 @@ load_history() {
 	HISTORY_LOADED=true
 }
 
+# save_history is reached indirectly via cleanup -> trap EXIT.
+# shellcheck disable=SC2317
 save_history() {
 	local max_history_count_int
 	local history_count
