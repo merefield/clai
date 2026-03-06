@@ -75,7 +75,6 @@ GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell sc
 # Configuration file path
 CONFIG_FILE=~/.config/clai.cfg
 CONFIG_DIR="${CONFIG_FILE%/*}"
-#GLOBAL_QUERY+=" Your configuration file path \"$CONFIG_FILE\"."
 
 create_private_dir() {
 	local dir_path="$1"
@@ -284,6 +283,10 @@ fi
 # Tools
 OPENAI_TOOLS=""
 TOOLS_PATH=~/.clai_tools
+
+GLOBAL_QUERY+=" CLAI's canonical config file path is \"~/.config/clai.cfg\" (expanded path \"$CONFIG_FILE\")."
+GLOBAL_QUERY+=" CLAI's tools directory is \"~/.clai_tools\" (expanded path \"$TOOLS_PATH\")."
+GLOBAL_QUERY+=" CLAI persists state under \"\${XDG_STATE_HOME:-~/.local/state}/clai\" (expanded path \"$STATE_DIR\")."
 
 # Create the directory only if it doesn't exist
 create_private_dir "$TOOLS_PATH"

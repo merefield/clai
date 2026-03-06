@@ -334,6 +334,10 @@ EOF
   [[ "$output" == *"stub answer"* ]]
   jq -e '.messages | length > 0' "$TEST_HOME/curl-request.json" >/dev/null
   jq -e '.response_format.type == "json_object"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "system" and (.content | contains("~/.config/clai.cfg")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "system" and (.content | contains("~/.clai_tools")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
 }
 
 @test "clai surfaces API error messages from non-2xx responses" {
