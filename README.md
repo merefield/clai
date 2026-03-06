@@ -56,10 +56,13 @@ make test
 The initial Bats smoke test verifies that `clai.sh`:
 
 - creates `~/.config/clai.cfg` when it does not exist
+- creates a private state directory for CLAI data
 - exits with status `1` when no API key is configured
 - prints guidance telling the user to add an OpenAI API key
 
-This keeps the first test deterministic and avoids making live API calls.
+There is also a transport-failure smoke test that verifies CLAI cleans up its transient session files after a failed API request.
+
+These tests stay deterministic and avoid making successful live API calls.
 
 ## Features
 
@@ -178,6 +181,10 @@ You must provide a [OpenAI API key](https://platform.openai.com/api-keys) in the
 > Keeping the key in a plain text file is dangerous, and it is your responsibility to keep it secure.
 
 You can also change the [GPT model](https://platform.openai.com/docs/models), [temperature](https://platform.openai.com/docs/api-reference/chat/create#chat-create-temperature) and many other things in this file.
+
+Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.
+
+Transient request payloads, API responses, and tool logs are written to secure temporary files created with `mktemp` and are deleted automatically when the session exits.
 
 ## Usage
 
