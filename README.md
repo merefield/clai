@@ -113,6 +113,23 @@ CLAI offers the following features:
 - **Vim Awareness**\
 	Automatically detects if you are using Vim and provides Vim-specific suggestions.
 
+## Roadmap Themes
+
+These are candidate product directions for CLAI after the current hardening and test coverage work. Each theme is tagged with a rough implementation priority, how well it fits CLAI's current product shape, and expected complexity.
+
+| Theme | Priority | Fit | Complexity | Description |
+| --- | --- | --- | --- | --- |
+| Built-in docs and help index | High | High | Low | Add a local, curated self-documentation layer for CLAI's own paths, config, tools, history, and troubleshooting so self-questions do not depend entirely on the model. |
+| Repo-aware mode | High | High | Medium | Detect repository context such as current branch, changed files, project scripts, and likely test commands so CLAI can give project-aware answers instead of generic shell suggestions. |
+| Approval policies | High | High | Medium | Let users define command safety rules such as auto-approve read-only commands, always confirm package installs, or always block destructive patterns. |
+| `clai doctor` diagnostics | Medium | High | Medium | Add a built-in diagnostics command that checks common local problems such as missing dependencies, broken PATH entries, config mistakes, permission problems, and basic connectivity issues. |
+| Command plan mode | Medium | Medium | Medium | For larger tasks, let CLAI propose a short plan of steps before suggesting or executing commands, so the user can approve the approach before any action is taken. |
+| Session snapshots | Low | Medium | Medium | Save and restore named working contexts including conversation state, current directory, and relevant notes so users can resume project-specific sessions more deliberately. |
+| Safer file edit workflow | Medium | High | High | Move beyond plain shell command suggestions for editing by supporting structured previews, diffs, patch application, and possibly an undo path for CLAI-driven edits. |
+| Tool sandbox classes | Medium | High | High | Classify tools as read-only, local-write, networked, or dangerous and use that metadata in prompts, approval flow, and future policy controls. |
+| Structured task workflows | Medium | Medium | High | Add reusable higher-level workflows for common tasks such as setting up a Python environment, triaging a failing test, or walking through a release checklist. |
+| Command result learning | Low | Medium | High | Let users mark CLAI suggestions as correct, unsafe, or unhelpful and use that local feedback to steer future prompt context and approval behavior. |
+
 ## Setup
 
 1. To setup CLAI quickly, you can run the following command:
