@@ -352,6 +352,8 @@ EOF
   [ -f "$TEST_HOME/.local/state/clai/history_com.json" ]
   jq -e 'map(select(.role == "user" and .content == "what is the current time?")) | length >= 1' \
     "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e 'map(select(.role == "system")) | length == 0' \
+    "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "command mode loads prior history into the next request payload" {
@@ -410,7 +412,7 @@ EOF
 
   mkdir -p "$TEST_HOME/.local/state/clai"
   cat > "$TEST_HOME/.local/state/clai/history_com.json" <<'EOF'
-[{"role":"user","content":"one"},{"role":"assistant","content":"{\"info\":\"two\"}"}]
+[{"role":"user","content":"one"},{"role":"assistant","content":"{\"info\":\"two\"}"},{"role":"user","content":"three"},{"role":"assistant","content":"{\"info\":\"four\"}"}]
 EOF
 
   make_success_curl
@@ -426,7 +428,9 @@ EOF
     bash ./clai.sh "what is the current time?"
 
   [ "$status" -eq 0 ]
-  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 2 ]
+  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 4 ]
+  jq -e '.[0].content == "three"' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e 'map(select(.content == "one")) | length == 0' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "invalid max_history falls back safely during persistence" {
@@ -464,7 +468,46 @@ EOF
 
   [ "$status" -eq 0 ]
   [[ "$output" != *"syntax error"* ]]
-  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 1 ]
+  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 2 ]
+  jq -e '.[0].content == "what is the current time?"' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e 'map(select(.content == "one")) | length == 0' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+}
+
+@test "invalid history files warn and reset to empty history" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  printf '{not json' > "$TEST_HOME/.local/state/clai/history_com.json"
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Could not parse history file"* ]]
+  jq -e 'map(select(.role == "user" and .content == "what is the current time?")) | length == 1' \
+    "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "tool calls trigger tool execution and resume with tool output in history" {

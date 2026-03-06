@@ -108,28 +108,64 @@ create_secure_temp() {
 	printf "%s\n" "$tmpfile"
 }
 
+warn() {
+	printf "WARNING: %s\n" "$1" >&2
+}
+
+write_private_file_atomic() {
+	local target="$1"
+	local target_dir
+	local tmp_target
+	local old_umask
+
+	target_dir="${target%/*}"
+	ensure_dir_exists "$target_dir"
+	tmp_target=$(mktemp "${target}.tmp.XXXXXX") || return 1
+
+	old_umask=$(umask)
+	umask 077
+	if ! cat > "$tmp_target"; then
+		umask "$old_umask"
+		rm -f "$tmp_target"
+		return 1
+	fi
+	umask "$old_umask"
+	chmod 600 "$tmp_target" 2>/dev/null || true
+
+	if ! mv -f "$tmp_target" "$target"; then
+		rm -f "$tmp_target"
+		return 1
+	fi
+
+	return 0
+}
+
 load_history() {
+	local loaded_history
+
 	if [ -f "$HISTORY_FILE" ]; then
-		HISTORY_MESSAGES=$(jq -c 'if type == "array" then . else [] end' "$HISTORY_FILE" 2>/dev/null || echo '[]')
+		if loaded_history=$(jq -ce 'if type == "array" then map(select(.role != "system")) else error("history must be an array") end' "$HISTORY_FILE" 2>/dev/null); then
+			HISTORY_MESSAGES="$loaded_history"
+		else
+			warn "Could not parse history file at $HISTORY_FILE; starting with empty history."
+			HISTORY_MESSAGES='[]'
+		fi
 	else
 		HISTORY_MESSAGES='[]'
 	fi
 	HISTORY_LOADED=true
 }
 
-# save_history is reached indirectly via cleanup -> trap EXIT.
-# shellcheck disable=SC2317
 save_history() {
 	local max_history_count_int
-	local history_count
-	local trimmed_history
+	local persisted_history
 
 	if [ "$HISTORY_LOADED" != true ]; then
-		return
+		return 0
 	fi
 
 	if [ "$HISTORY_DIRTY" != true ]; then
-		return
+		return 0
 	fi
 
 	max_history_count_int=$((MAX_HISTORY_COUNT))
@@ -137,17 +173,44 @@ save_history() {
 		max_history_count_int=1
 	fi
 
-	history_count=$(jq 'length' <<< "$HISTORY_MESSAGES")
-	if [ "$history_count" -le 0 ] && [ ! -f "$HISTORY_FILE" ]; then
-		return
+	if ! persisted_history=$(jq -cn \
+		--argjson history "$HISTORY_MESSAGES" \
+		--argjson max_history "$max_history_count_int" '
+		def persisted_entries:
+			map(select(.role != "system"));
+		def trim_turns($limit):
+			. as $messages
+			| ([range(0; ($messages | length)) | select($messages[.].role == "user")]) as $user_indexes
+			| if ($messages | length) == 0 then []
+			  elif ($user_indexes | length) == 0 then
+				if ($messages | length) > $limit then $messages[-$limit:] else $messages end
+			  elif ($user_indexes | length) > $limit then
+				$messages[$user_indexes[-$limit]:]
+			  else
+				$messages
+			  end;
+		$history
+		| persisted_entries
+		| trim_turns($max_history)' 2>/dev/null); then
+		warn "Failed to prepare history for persistence."
+		return 1
 	fi
 
-	trimmed_history=$(jq -cn \
-		--argjson history "$HISTORY_MESSAGES" \
-		--argjson max_history "$max_history_count_int" \
-		'if ($history | length) > $max_history then $history[-$max_history:] else $history end')
-	write_private_file "$HISTORY_FILE" <<< "$trimmed_history"
+	if ! write_private_file_atomic "$HISTORY_FILE" <<< "$persisted_history"; then
+		warn "Failed to write history file at $HISTORY_FILE."
+		return 1
+	fi
+
+	HISTORY_MESSAGES="$persisted_history"
 	HISTORY_DIRTY=false
+	return 0
+}
+
+exit_clai() {
+	local status="${1:-0}"
+
+	save_history
+	exit "$status"
 }
 
 conceal_cursor() {
@@ -216,13 +279,13 @@ TOOLS_PATH=~/.clai_tools
 
 # Create the directory only if it doesn't exist
 create_private_dir "$TOOLS_PATH"
-TOOL_LOG_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-tool-output.XXXXXX.log") || exit 1
+TOOL_LOG_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-tool-output.XXXXXX.log") || exit_clai 1
 TEMP_FILES+=("$TOOL_LOG_FILE")
-PAYLOAD_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-payload.XXXXXX.json") || exit 1
+PAYLOAD_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-payload.XXXXXX.json") || exit_clai 1
 TEMP_FILES+=("$PAYLOAD_FILE")
-RESPONSE_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-response.XXXXXX.json") || exit 1
+RESPONSE_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-response.XXXXXX.json") || exit_clai 1
 TEMP_FILES+=("$RESPONSE_FILE")
-CURL_ERROR_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-curl-error.XXXXXX.log") || exit 1
+CURL_ERROR_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-curl-error.XXXXXX.log") || exit_clai 1
 TEMP_FILES+=("$CURL_ERROR_FILE")
 : > "$TOOL_LOG_FILE"
 
@@ -337,7 +400,7 @@ do
 				# Test if the output is a valid JSON and pretty-print it
 				if ! pretty_json=$(echo "$init_output" | jq . 2>/dev/null); then
 					echo "ERROR: $tool init function has JSON syntax errors."
-					exit 1
+					exit_clai 1
 				else
 				# Extract the type from the JSON
 				type=$(echo "$pretty_json" | jq -r '.type')
@@ -350,7 +413,7 @@ do
 					# Check if the function name already exists in the map
 					if tool_map_exists "$function_name"; then
 						echo "ERROR: $tool tried to claim function name \"$function_name\" which is already claimed"
-						exit 1
+						exit_clai 1
 					else
 						# It's a valid function name, append the tool_reason
 						# These go into .function.parameters.properties as a tool_reason JSON object, which has type and description
@@ -420,7 +483,7 @@ if [ -z "$OPENAI_KEY" ]; then
 	 # Prompt user to input OpenAI key if not found
 	echo "To use CLAI, please input your OpenAI key into the config file located at $CONFIG_FILE"
 	restore_cursor
-	exit 1
+	exit_clai 1
 fi
 
 # Extract OpenAI URL from configuration
@@ -454,7 +517,7 @@ fi
 # Test if we should expose current dir
 EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 
-# Extract maximum history message count from configuration
+# Extract the maximum number of persisted conversation turns from configuration
 MAX_HISTORY_COUNT=$(cfg_val "max_history")
 MAX_HISTORY_COUNT=$(jq -Rn --arg value "$MAX_HISTORY_COUNT" '$value | tonumber? // 0')
 
@@ -770,7 +833,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 				if [ "$USER_QUERY" == "exit" ]; then
 						restore_cursor
 					print_info "Bye!"
-					exit 0
+					exit_clai 0
 				fi
 		done
 		
@@ -904,14 +967,14 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 				fi
 				print_error "$CURL_ERROR"
 				restore_cursor
-				exit 1
+				exit_clai 1
 			fi
 
 			if ! jq -e . "$RESPONSE_FILE" >/dev/null 2>&1; then
 				echo -ne "$CLEAR_LINE\r"
 				print_error "The API returned a non-JSON response (HTTP $HTTP_CODE)."
 				restore_cursor
-				exit 1
+				exit_clai 1
 			fi
 
 		if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
@@ -922,7 +985,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 				fi
 				print_error "$API_ERROR"
 				restore_cursor
-				exit 1
+				exit_clai 1
 			fi
 		
 		# Is response empty?
@@ -930,7 +993,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			# We didn't get a reply
 			print_info "$NO_REPLY_TEXT"
 			restore_cursor
-			exit 1
+			exit_clai 1
 		fi
 	
 		# Extract the reply from the JSON response
@@ -1047,4 +1110,4 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 done
 
 # We're done
-exit 0
+exit_clai 0
