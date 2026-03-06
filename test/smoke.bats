@@ -922,7 +922,7 @@ EOF
 
   make_command_curl
 
-  # Ctrl-U clears the prefilled readline buffer before typing the replacement command.
+  # Send "e" to enter the edit path; the replacement command comes from CLAI_EDIT_COMMAND_OVERRIDE.
   printf 'e' > "$TEST_HOME/edit-input.txt"
 
   run bash -lc '
