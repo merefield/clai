@@ -456,6 +456,7 @@ EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 
 # Extract maximum history message count from configuration
 MAX_HISTORY_COUNT=$(cfg_val "max_history")
+MAX_HISTORY_COUNT=$(jq -Rn --arg value "$MAX_HISTORY_COUNT" '$value | tonumber? // 0')
 
 load_history
 
