@@ -117,6 +117,8 @@ cleanup() {
 	printf "%b" "$SHOW_CURSOR"
 }
 
+trap cleanup EXIT
+
 create_private_dir "$STATE_DIR"
 ensure_dir_exists "$CONFIG_DIR"
 
@@ -317,7 +319,6 @@ done
 OPENAI_TOOLS="${OPENAI_TOOLS%,}"
 
 # Hide the cursor while we're working
-trap cleanup EXIT
 printf "%b" "$HIDE_CURSOR"
 
 # Check for configuration file existence
