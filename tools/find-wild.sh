@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- Mode: sh; coding: utf-8; indent-tabs-mode: t; tab-width: 4 -*-
 
-# Enables Bash AI to search for files and directories and forces wildcards
+# Enables CLAI to search for files and directories and forces wildcards
 
 init() {
 	echo '{

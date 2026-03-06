@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- Mode: sh; coding: utf-8; indent-tabs-mode: t; tab-width: 4 -*-
 
-# Enables Bash AI to list directory content
+# Enables CLAI to list directory content
 
 init() {
 	echo '{

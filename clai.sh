@@ -1,16 +1,16 @@
 #!/bin/bash
 # -*- Mode: sh; coding: utf-8; indent-tabs-mode: t; tab-width: 4 -*-
 
-# Bash AI
-# https://github.com/Hezkore/bash-ai
+# CLAI
+# https://github.com/merefield/clai
 
 # Make sure required tools are installed
 if [ ! -x "$(command -v jq)" ]; then
-	echo "ERROR: Bash AI requires jq to be installed."
+	echo "ERROR: CLAI requires jq to be installed."
 	exit 1
 fi
 if [ ! -x "$(command -v curl)" ]; then
-	echo "ERROR: Bash AI requires curl to be installed."
+	echo "ERROR: CLAI requires curl to be installed."
 	exit 1
 fi
 
@@ -28,7 +28,7 @@ if [ ${#DISTRO_INFO} -le 1 ]; then
 	DISTRO_INFO="Unknown"
 fi
 
-# Version of Bash AI
+# Version of CLAI
 VERSION="1.0.5"
 
 # Global variables
@@ -46,7 +46,7 @@ INFO_TEXT_COLOR="\e[90;3m"  # Text color for all information messages
 ERROR_TEXT_COLOR="\e[91m"  # Text color for cmd errors messages
 CANCEL_TEXT_COLOR="\e[93m"  # Text color cmd for cancellation message
 OK_TEXT_COLOR="\e[92m"  # Text color for cmd success message
-TITLE_TEXT_COLOR="\e[1m"  # Text color for the Bash AI title
+	TITLE_TEXT_COLOR="\e[1m"  # Text color for the CLAI title
 
 # Terminal control constants
 CLEAR_LINE="\033[2K\r"
@@ -61,10 +61,10 @@ DEFAULT_ERROR_QUERY="Return only a single compact JSON object containing 'cmd' a
 DYNAMIC_SYSTEM_QUERY="" # After most user queries, we'll add some dynamic system information to the query
 
 # Global query variable, this will be updated with specific user and system information
-GLOBAL_QUERY="You are Bash AI (bai) v${VERSION}. You are an advanced Bash shell script. You are located at \"$0\". You do not have feelings or emotions, do not convey them. Please give precise curt answers. Please do not include any sign off phrases or platitudes, only respond precisely to the user. Bash AI is made by Hezkore. You execute the tasks the user asks from you by utilizing the terminal and shell commands. No task is too big. Always assume the query is terminal and shell related. You support user plugins called \"tools\" that extends your capabilities, more info and plugins can be found on the Bash AI homepage. The Bash AI homepage is \"https://github.com/hezkore/bash-ai\". You always respond with a single JSON object containing 'cmd' and 'info' fields. We are always in the terminal. The user is using \"$UNIX_NAME\" and specifically distribution \"$DISTRO_INFO\". The users username is \"$USER\" with home \"$HOME\". You must always use LANG $LANG and LC_TIME $LC_TIME."
+GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell script. You are located at \"$0\". You do not have feelings or emotions, do not convey them. Please give precise curt answers. Please do not include any sign off phrases or platitudes, only respond precisely to the user. CLAI is made by Hezkore. You execute the tasks the user asks from you by utilizing the terminal and shell commands. No task is too big. Always assume the query is terminal and shell related. You support user plugins called \"tools\" that extends your capabilities, more info and plugins can be found on the CLAI homepage. The CLAI homepage is \"https://github.com/merefield/clai\". You always respond with a single JSON object containing 'cmd' and 'info' fields. We are always in the terminal. The user is using \"$UNIX_NAME\" and specifically distribution \"$DISTRO_INFO\". The users username is \"$USER\" with home \"$HOME\". You must always use LANG $LANG and LC_TIME $LC_TIME."
 
 # Configuration file path
-CONFIG_FILE=~/.config/bai.cfg
+CONFIG_FILE=~/.config/clai.cfg
 #GLOBAL_QUERY+=" Your configuration file path \"$CONFIG_FILE\"."
 
 # Test if we're in Vim
@@ -85,10 +85,10 @@ if [ -n "$VIMRUNTIME" ]; then
 	DYNAMIC_SYSTEM_QUERY+="User is inside \"$VIM\". You are in the Vim terminal."
 	
 	# Use the Vim history file
-	HISTORY_FILE=/tmp/baihistory_vim.txt
+	HISTORY_FILE=/tmp/claihistory_vim.txt
 else
 	# Use the default history file
-	HISTORY_FILE=/tmp/baihistory_com.txt
+	HISTORY_FILE=/tmp/claihistory_com.txt
 fi
 
 # Update info about history file
@@ -96,13 +96,13 @@ fi
 
 # Tools
 OPENAI_TOOLS=""
-TOOLS_PATH=~/.bai_tools
+TOOLS_PATH=~/.clai_tools
 
 # Create the directory only if it doesn't exist
 if [ ! -d "$TOOLS_PATH" ]; then
 	mkdir -p "$TOOLS_PATH"
 fi
-echo "" > /tmp/bai_tool_output.txt
+echo "" > /tmp/clai_tool_output.txt
 
 # -------------------------------------------------------------
 # Cross-shell compatibility helpers (Bash <4, zsh support)
@@ -299,7 +299,7 @@ cfg_val() {
 OPENAI_KEY=$(cfg_val "key")
 if [ -z "$OPENAI_KEY" ]; then
 	 # Prompt user to input OpenAI key if not found
-	echo "To use Bash AI, please input your OpenAI key into the config file located at $CONFIG_FILE"
+	echo "To use CLAI, please input your OpenAI key into the config file located at $CONFIG_FILE"
 	printf "%b" "$SHOW_CURSOR"
 	exit 1
 fi
@@ -470,13 +470,13 @@ run_tool() {
 		print_info "$TOOL_REASON"
 		print_info "Using tool \"$TOOL_NAME\" $TOOL_ARGS_READABLE"
 		
-		echo "$TOOL_NAME" >> /tmp/bai_tool_output.txt
-		echo "$TOOL_ARGS_READABLE" >> /tmp/bai_tool_output.txt
+			echo "$TOOL_NAME" >> /tmp/clai_tool_output.txt
+			echo "$TOOL_ARGS_READABLE" >> /tmp/clai_tool_output.txt
 		
 		# Run the execute function from the TOOL_SCRIPT
 		TOOL_OUTPUT=$(source "$TOOL_SCRIPT"; execute "$TOOL_ARGS")
-		echo "$TOOL_OUTPUT" >> /tmp/bai_tool_output.txt
-		echo "" >> /tmp/bai_tool_output.txt
+			echo "$TOOL_OUTPUT" >> /tmp/clai_tool_output.txt
+			echo "" >> /tmp/clai_tool_output.txt
 		# Trim the output to 1000 characters
 		TOOL_OUTPUT=${TOOL_OUTPUT:0:1000}
 		# Make it JSON safe
@@ -510,7 +510,7 @@ USER_QUERY=$*
 # Are we entering interactive mode?
 if [ -z "$USER_QUERY" ]; then
 	INTERACTIVE_MODE=true
-	print "🤖 ${TITLE_TEXT_COLOR}Bash AI v${VERSION}${RESET_COLOR}"
+	print "🤖 ${TITLE_TEXT_COLOR}CLAI v${VERSION}${RESET_COLOR}"
 	# List all tools loaded in TOOL_MAP
 	# Get number of tools
 	if [ "$(tool_map_size)" -gt 0 ]; then
@@ -538,7 +538,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		while [ -z "$USER_QUERY" ]; do
 			# No query, prompt user for query
 			printf "%b" "$SHOW_CURSOR"
-			read -e -r -p "Bash AI> " USER_QUERY
+				read -e -r -p "CLAI> " USER_QUERY
 			printf "%b" "$HIDE_CURSOR"
 			
 			# Check if user wants to quit
@@ -782,13 +782,13 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 	fi
 	
 	# Save the payload to a tmp JSON file
-	echo "$JSON_PAYLOAD" > /tmp/bai_payload.json
+	echo "$JSON_PAYLOAD" > /tmp/clai_payload.json
 	
 	# Send request to OpenAI API
 	RESPONSE=$(curl -s -X POST -H "Authorization:Bearer $OPENAI_KEY" -H "Content-Type:application/json" -d "$JSON_PAYLOAD" "$URL")
 	
 	# Save reponse to a tmp JSON file
-	echo "$RESPONSE" > /tmp/bai_response.json
+	echo "$RESPONSE" > /tmp/clai_response.json
 	
 	# Stop the spinner
 	kill $spinner_pid
