@@ -20,7 +20,7 @@ EOF
 
   run env \
     PATH="$TEST_ROOT/fakebin:$PATH" \
-    BIN_DIR="$TEST_ROOT/bin" \
+    CLAI_BIN_DIR="$TEST_ROOT/bin" \
     bash ./install.sh
 
   [ "$status" -eq 1 ]
@@ -54,7 +54,7 @@ EOF
 
   run env \
     PATH="$TEST_ROOT/fakebin:$PATH" \
-    BIN_DIR="$TEST_ROOT/bin" \
+    CLAI_BIN_DIR="$TEST_ROOT/bin" \
     bash ./install.sh
 
   [ "$status" -eq 0 ]
