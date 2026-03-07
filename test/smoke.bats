@@ -160,40 +160,6 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
-make_quiet_failing_result_command_curl() {
-  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
-#!/bin/bash
-output=""
-payload=""
-status_code="200"
-response_body='{"choices":[{"message":{"content":"{\"cmd\":\"bash -lc '\\''printf \\\"failure-output\\\\n\\\"; exit 42'\\''\",\"info\":\"run the quiet failing result-capture stub command\"}"},"finish_reason":"stop"}]}'
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --output)
-      output="$2"
-      shift 2
-      ;;
-    --write-out)
-      shift 2
-      ;;
-    -d)
-      payload="$2"
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-  esac
-done
-if [ -n "$TEST_HOME" ]; then
-  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
-fi
-printf '%s' "$response_body" > "$output"
-printf '%s' "$status_code"
-EOF
-  chmod +x "$TEST_HOME/fakebin/curl"
-}
-
 make_no_reply_curl() {
   cat > "$TEST_HOME/fakebin/curl" <<'EOF'
 #!/bin/bash
