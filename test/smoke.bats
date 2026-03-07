@@ -126,6 +126,40 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
+make_result_command_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"choices":[{"message":{"content":"{\"cmd\":\"printf \\\"one\\\\ntwo\\\\nthree\\\\nfour\\\\n\\\"; printf \\\"err-one\\\\nerr-two\\\\nerr-three\\\\n\\\" >&2\",\"info\":\"run the result-capture stub command\"}"},"finish_reason":"stop"}]}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
 make_no_reply_curl() {
   cat > "$TEST_HOME/fakebin/curl" <<'EOF'
 #!/bin/bash
@@ -907,6 +941,97 @@ EOF
   [ -f "$TEST_HOME/cmd-ran.txt" ]
   [ "$(cat "$TEST_HOME/cmd-ran.txt")" = "executed" ]
   [[ "$output" == *"run the stub command"* ]]
+}
+
+@test "command results can be stored in history with configured line limits" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+store_command_results=true
+result_lines=2
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_result_command_curl
+
+  run bash -lc '
+    printf "y" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the command"
+  '
+
+  [ "$status" -eq 0 ]
+  jq -e '
+    map(select(.role == "assistant" and ((.content | fromjson? // {}) | has("command_result")))) | length == 1
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.stdout == "[truncated to last 2 lines]\nthree\nfour"
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.stderr == "[truncated to last 2 lines]\nerr-two\nerr-three"
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+}
+
+@test "command results are not stored when disabled" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+store_command_results=false
+result_lines=2
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_result_command_curl
+
+  run bash -lc '
+    printf "y" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the command"
+  '
+
+  [ "$status" -eq 0 ]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | length == 0
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "command responses can be declined without execution" {
