@@ -597,7 +597,7 @@ else
 fi
 
 RESULT_LINES=$(cfg_val "result_lines")
-RESULT_LINES=$(jq -Rn --arg value "$RESULT_LINES" '$value | tonumber? // 20')
+RESULT_LINES=$(jq -Rn --arg value "$RESULT_LINES" '$value | (tonumber? // 20) | floor')
 if [ "$RESULT_LINES" -lt 1 ]; then
 	RESULT_LINES=20
 fi
@@ -755,31 +755,31 @@ append_command_result_message() {
 	HISTORY_DIRTY=true
 }
 
-trim_result_output() {
-	local output_text="$1"
+read_result_output_file() {
+	local output_file="$1"
 	local max_lines="$2"
 	local line_count
 	local trimmed_output
 
-	if [ -z "$output_text" ]; then
+	line_count=$(awk 'END { print NR }' "$output_file")
+	if [ -z "$line_count" ] || [ "$line_count" -le 0 ]; then
 		return 0
 	fi
 
-	line_count=$(awk 'END { print NR }' <<< "$output_text")
-	if [ -z "$line_count" ] || [ "$line_count" -le "$max_lines" ]; then
-		printf '%s' "$output_text"
+	if [ "$line_count" -le "$max_lines" ]; then
+		cat "$output_file"
 		return 0
 	fi
 
-	trimmed_output=$(tail -n "$max_lines" <<< "$output_text")
+	trimmed_output=$(tail -n "$max_lines" "$output_file")
 	printf '[truncated to last %s lines]\n%s' "$max_lines" "$trimmed_output"
 }
 
 maybe_store_command_result() {
 	local command="$1"
 	local exit_code="$2"
-	local stdout_text="$3"
-	local stderr_text="$4"
+	local stdout_file="$3"
+	local stderr_file="$4"
 	local edited="$5"
 	local trimmed_stdout
 	local trimmed_stderr
@@ -788,8 +788,8 @@ maybe_store_command_result() {
 		return 0
 	fi
 
-	trimmed_stdout=$(trim_result_output "$stdout_text" "$RESULT_LINES")
-	trimmed_stderr=$(trim_result_output "$stderr_text" "$RESULT_LINES")
+	trimmed_stdout=$(read_result_output_file "$stdout_file" "$RESULT_LINES")
+	trimmed_stderr=$(read_result_output_file "$stderr_file" "$RESULT_LINES")
 	append_command_result_message "$command" "$exit_code" "$trimmed_stdout" "$trimmed_stderr" "$edited"
 }
 
@@ -891,8 +891,7 @@ run_cmd() {
 	local edited="${2:-false}"
 	local stdout_tmp
 	local stderr_tmp
-	local stdout_output
-	local stderr_output
+	local exit_status
 
 	stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.XXXXXX.log") || return 1
 	stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.XXXXXX.log") || {
@@ -901,19 +900,16 @@ run_cmd() {
 	}
 
 	if eval "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
-		stdout_output=$(cat "$stdout_tmp")
-		stderr_output=$(cat "$stderr_tmp")
-		maybe_store_command_result "$command" 0 "$stdout_output" "$stderr_output" "$edited"
+		maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
 		# OK
 		print_ok "[ok]"
 		rm -f "$stdout_tmp" "$stderr_tmp"
 		return 0
 	else
 		# ERROR
+		exit_status=$?
 		output=$(cat "$stderr_tmp")
-		stdout_output=$(cat "$stdout_tmp")
-		stderr_output="$output"
-		maybe_store_command_result "$command" 1 "$stdout_output" "$stderr_output" "$edited"
+		maybe_store_command_result "$command" "$exit_status" "$stdout_tmp" "$stderr_tmp" "$edited"
 		LAST_ERROR="${output#*"$0": line *: }"
 		echo "$LAST_ERROR"
 		rm -f "$stdout_tmp" "$stderr_tmp"
