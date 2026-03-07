@@ -538,6 +538,8 @@ model=gpt-4o-mini
 json_mode=false
 temp=0.1
 tokens=500
+store_command_results=false
+result_lines=20
 exec_query=
 question_query=
 error_query=
@@ -586,6 +588,19 @@ OPENAI_ERROR_QUERY=$(cfg_val "error_query")
 # Extract maximum token count from configuration
 OPENAI_TOKENS=$(cfg_val "tokens")
 #GLOBAL_QUERY+=" All your messages must be less than \"$OPENAI_TOKENS\" tokens."
+
+STORE_COMMAND_RESULTS=$(cfg_val "store_command_results")
+if [ "$STORE_COMMAND_RESULTS" = true ]; then
+	STORE_COMMAND_RESULTS=true
+else
+	STORE_COMMAND_RESULTS=false
+fi
+
+RESULT_LINES=$(cfg_val "result_lines")
+RESULT_LINES=$(jq -Rn --arg value "$RESULT_LINES" '$value | tonumber? // 20')
+if [ "$RESULT_LINES" -lt 1 ]; then
+	RESULT_LINES=20
+fi
 
 # Test if high contrast mode is set in configuration
 HI_CONTRAST=$(cfg_val "hi_contrast")
@@ -709,6 +724,75 @@ append_history_assistant_tool_call() {
 	HISTORY_DIRTY=true
 }
 
+append_command_result_message() {
+	local command="$1"
+	local exit_code="$2"
+	local stdout_text="$3"
+	local stderr_text="$4"
+	local edited="$5"
+
+	HISTORY_MESSAGES=$(jq -cn \
+		--argjson history "$HISTORY_MESSAGES" \
+		--arg command "$command" \
+		--argjson exit_code "$exit_code" \
+		--arg stdout_text "$stdout_text" \
+		--arg stderr_text "$stderr_text" \
+		--argjson edited "$edited" \
+		'$history + [{
+			"role": "assistant",
+			"content": (
+				{
+					"command_result": {
+						"command": $command,
+						"exit_code": $exit_code,
+						"stdout": $stdout_text,
+						"stderr": $stderr_text,
+						"edited": $edited
+					}
+				} | tojson
+			)
+		}]')
+	HISTORY_DIRTY=true
+}
+
+trim_result_output() {
+	local output_text="$1"
+	local max_lines="$2"
+	local line_count
+	local trimmed_output
+
+	if [ -z "$output_text" ]; then
+		return 0
+	fi
+
+	line_count=$(awk 'END { print NR }' <<< "$output_text")
+	if [ -z "$line_count" ] || [ "$line_count" -le "$max_lines" ]; then
+		printf '%s' "$output_text"
+		return 0
+	fi
+
+	trimmed_output=$(tail -n "$max_lines" <<< "$output_text")
+	printf '[truncated to last %s lines]\n%s' "$max_lines" "$trimmed_output"
+}
+
+maybe_store_command_result() {
+	local command="$1"
+	local exit_code="$2"
+	local stdout_text="$3"
+	local stderr_text="$4"
+	local edited="$5"
+	local trimmed_stdout
+	local trimmed_stderr
+
+	if [ "$STORE_COMMAND_RESULTS" != true ]; then
+		return 0
+	fi
+
+	trimmed_stdout=$(trim_result_output "$stdout_text" "$RESULT_LINES")
+	trimmed_stderr=$(trim_result_output "$stderr_text" "$RESULT_LINES")
+	append_command_result_message "$command" "$exit_code" "$trimmed_stdout" "$trimmed_stderr" "$edited"
+}
+
 repair_truncated_json() {
 	local reply="$1"
 	local repaired="$reply"
@@ -803,18 +887,36 @@ build_payload() {
 }
 
 run_cmd() {
-	tmpfile=$(mktemp)
-	if eval "$1" 2>"$tmpfile"; then
+	local command="$1"
+	local edited="${2:-false}"
+	local stdout_tmp
+	local stderr_tmp
+	local stdout_output
+	local stderr_output
+
+	stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.XXXXXX.log") || return 1
+	stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.XXXXXX.log") || {
+		rm -f "$stdout_tmp"
+		return 1
+	}
+
+	if eval "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
+		stdout_output=$(cat "$stdout_tmp")
+		stderr_output=$(cat "$stderr_tmp")
+		maybe_store_command_result "$command" 0 "$stdout_output" "$stderr_output" "$edited"
 		# OK
 		print_ok "[ok]"
-		rm "$tmpfile"
+		rm -f "$stdout_tmp" "$stderr_tmp"
 		return 0
 	else
 		# ERROR
-		output=$(cat "$tmpfile")
+		output=$(cat "$stderr_tmp")
+		stdout_output=$(cat "$stdout_tmp")
+		stderr_output="$output"
+		maybe_store_command_result "$command" 1 "$stdout_output" "$stderr_output" "$edited"
 		LAST_ERROR="${output#*"$0": line *: }"
 		echo "$LAST_ERROR"
-		rm "$tmpfile"
+		rm -f "$stdout_tmp" "$stderr_tmp"
 		
 		# Ask if we should examine the error
 		if [ ${#LAST_ERROR} -gt 1 ]; then
@@ -1190,7 +1292,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
 				# RUN
 				echo "yes";echo
-				run_cmd "$CMD"
+				run_cmd "$CMD" false
 			elif [ "$answer" == "E" ] || [ "$answer" == "e" ]; then
 				# EDIT
 				echo -ne "$CLEAR_LINE\r"
@@ -1200,7 +1302,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 					read -e -r -p "${PRE_TEXT}edit command: " -i "$CMD" CMD
 				fi
 				echo
-				run_cmd "$CMD"
+				run_cmd "$CMD" true
 			else
 				# CANCEL
 				echo "no";echo
