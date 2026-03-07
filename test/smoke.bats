@@ -991,6 +991,18 @@ EOF
     | map(select(has("command_result")))
     | .[0].command_result.stderr == "[truncated to last 2 lines]\nerr-two\nerr-three"
   ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.exit_code == 0
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.edited == false
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "command results are not stored when disabled" {
@@ -1122,6 +1134,8 @@ model=gpt-4o-mini
 json_mode=false
 temp=0.1
 tokens=500
+store_command_results=true
+result_lines=2
 exec_query=
 question_query=
 error_query=
@@ -1146,6 +1160,24 @@ EOF
   [ ! -e "$TEST_HOME/cmd-ran.txt" ]
   [ -f "$TEST_HOME/cmd-edited.txt" ]
   [ "$(cat "$TEST_HOME/cmd-edited.txt")" = "edited" ]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | length == 1
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.exit_code == 0
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.edited == true
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "command responses can be edited through a real PTY session" {
