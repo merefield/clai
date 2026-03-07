@@ -1038,6 +1038,7 @@ EOF
       bash ./clai.sh "run the command"
   '
 
+  [ "$status" -eq 0 ]
   [ -f "$TEST_HOME/.local/state/clai/history_com.json" ]
   jq -e '
     map(select(.role == "assistant"))
