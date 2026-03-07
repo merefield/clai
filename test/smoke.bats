@@ -1034,6 +1034,48 @@ EOF
   ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
+@test "float result_lines is coerced to an integer safely" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+store_command_results=true
+result_lines=2.5
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_result_command_curl
+
+  run bash -lc '
+    printf "y" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the command"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"integer expression expected"* ]]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.stdout == "[truncated to last 2 lines]\nthree\nfour"
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+}
+
 @test "command responses can be declined without execution" {
   write_config <<'EOF'
 key=test-key

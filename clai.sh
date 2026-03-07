@@ -597,7 +597,7 @@ else
 fi
 
 RESULT_LINES=$(cfg_val "result_lines")
-RESULT_LINES=$(jq -Rn --arg value "$RESULT_LINES" '$value | tonumber? // 20')
+RESULT_LINES=$(jq -Rn --arg value "$RESULT_LINES" '$value | (tonumber? // 20) | floor')
 if [ "$RESULT_LINES" -lt 1 ]; then
 	RESULT_LINES=20
 fi
