@@ -893,6 +893,7 @@ run_cmd() {
 	local stderr_tmp
 	local stdout_output
 	local stderr_output
+	local exit_status
 
 	stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.XXXXXX.log") || return 1
 	stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.XXXXXX.log") || {
@@ -910,10 +911,11 @@ run_cmd() {
 		return 0
 	else
 		# ERROR
+		exit_status=$?
 		output=$(cat "$stderr_tmp")
 		stdout_output=$(cat "$stdout_tmp")
 		stderr_output="$output"
-		maybe_store_command_result "$command" 1 "$stdout_output" "$stderr_output" "$edited"
+		maybe_store_command_result "$command" "$exit_status" "$stdout_output" "$stderr_output" "$edited"
 		LAST_ERROR="${output#*"$0": line *: }"
 		echo "$LAST_ERROR"
 		rm -f "$stdout_tmp" "$stderr_tmp"
