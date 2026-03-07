@@ -373,6 +373,7 @@ EOF
     TEST_HOME="$TEST_HOME" \
     bash ./clai.sh "what is the current time?"
 
+  [ "$status" -eq 0 ]
   [ -f "$TEST_HOME/.local/state/clai/history_com.json" ]
   [[ "$output" == *"stub answer"* ]]
   jq -e '.messages | length > 0' "$TEST_HOME/curl-request.json" >/dev/null
