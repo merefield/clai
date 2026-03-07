@@ -160,6 +160,40 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
+make_quiet_failing_result_command_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"choices":[{"message":{"content":"{\"cmd\":\"bash -lc '\\''printf \\\"failure-output\\\\n\\\"; exit 42'\\''\",\"info\":\"run the quiet failing result-capture stub command\"}"},"finish_reason":"stop"}]}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
 make_no_reply_curl() {
   cat > "$TEST_HOME/fakebin/curl" <<'EOF'
 #!/bin/bash
@@ -1046,6 +1080,141 @@ EOF
     | map(select(has("command_result")))
     | length == 0
   ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+}
+
+@test "run_cmd stores the real non-zero exit code in command results" {
+  run bash -lc '
+    HISTORY_MESSAGES="[]"
+    HISTORY_DIRTY=false
+    STORE_COMMAND_RESULTS=true
+    RESULT_LINES=5
+    SESSION_TMPDIR="'"$TEST_HOME"'/tmp"
+
+    create_secure_temp() {
+      local template="$1"
+      local tmpfile
+      tmpfile=$(mktemp "$template") || return 1
+      chmod 600 "$tmpfile" 2>/dev/null || true
+      printf "%s\n" "$tmpfile"
+    }
+
+    append_command_result_message() {
+      local command="$1"
+      local exit_code="$2"
+      local stdout_text="$3"
+      local stderr_text="$4"
+      local edited="$5"
+
+      HISTORY_MESSAGES=$(jq -cn \
+        --argjson history "$HISTORY_MESSAGES" \
+        --arg command "$command" \
+        --argjson exit_code "$exit_code" \
+        --arg stdout_text "$stdout_text" \
+        --arg stderr_text "$stderr_text" \
+        --argjson edited "$edited" \
+        '"'"'$history + [{
+          "role": "assistant",
+          "content": (
+            {
+              "command_result": {
+                "command": $command,
+                "exit_code": $exit_code,
+                "stdout": $stdout_text,
+                "stderr": $stderr_text,
+                "edited": $edited
+              }
+            } | tojson
+          )
+        }]'"'"')
+      HISTORY_DIRTY=true
+    }
+
+    read_result_output_file() {
+      local output_file="$1"
+      local max_lines="$2"
+      local line_count
+      local trimmed_output
+
+      line_count=$(awk "END { print NR }" "$output_file")
+      if [ -z "$line_count" ] || [ "$line_count" -le 0 ]; then
+        return 0
+      fi
+      if [ "$line_count" -le "$max_lines" ]; then
+        cat "$output_file"
+        return 0
+      fi
+      trimmed_output=$(tail -n "$max_lines" "$output_file")
+      printf "[truncated to last %s lines]\n%s" "$max_lines" "$trimmed_output"
+    }
+
+    maybe_store_command_result() {
+      local command="$1"
+      local exit_code="$2"
+      local stdout_file="$3"
+      local stderr_file="$4"
+      local edited="$5"
+      local trimmed_stdout
+      local trimmed_stderr
+
+      if [ "$STORE_COMMAND_RESULTS" != true ]; then
+        return 0
+      fi
+
+      trimmed_stdout=$(read_result_output_file "$stdout_file" "$RESULT_LINES")
+      trimmed_stderr=$(read_result_output_file "$stderr_file" "$RESULT_LINES")
+      append_command_result_message "$command" "$exit_code" "$trimmed_stdout" "$trimmed_stderr" "$edited"
+    }
+
+    print_ok() { :; }
+    print_error() { :; }
+    print_cancel() { :; }
+    restore_cursor() { :; }
+
+    run_cmd() {
+      local command="$1"
+      local edited="${2:-false}"
+      local stdout_tmp
+      local stderr_tmp
+      local exit_status
+      local output
+
+      stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.XXXXXX.log") || return 1
+      stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.XXXXXX.log") || {
+        rm -f "$stdout_tmp"
+        return 1
+      }
+
+      if eval "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
+        maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
+        rm -f "$stdout_tmp" "$stderr_tmp"
+        return 0
+      else
+        exit_status=$?
+        output=$(cat "$stderr_tmp")
+        maybe_store_command_result "$command" "$exit_status" "$stdout_tmp" "$stderr_tmp" "$edited"
+        LAST_ERROR="${output#*"$0": line *: }"
+        rm -f "$stdout_tmp" "$stderr_tmp"
+        return 1
+      fi
+    }
+
+    run_cmd "bash -lc \"printf \\\"failure-output\\\\n\\\"; exit 42\"" false >/dev/null 2>&1 || true
+    printf "%s" "$HISTORY_MESSAGES"
+  '
+
+  [ "$status" -eq 0 ]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.exit_code == 42
+  ' <<< "$output" >/dev/null
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(has("command_result")))
+    | .[0].command_result.edited == false
+  ' <<< "$output" >/dev/null
 }
 
 @test "float result_lines is coerced to an integer safely" {
