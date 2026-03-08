@@ -159,13 +159,13 @@ The defaults are:
 You can re-run that setup wizard at any time with either:
 
 ```bash
-clai install
+clai setup
 ```
 
 or:
 
 ```bash
-clai --install
+clai --setup
 ```
 
 <details>
@@ -229,7 +229,7 @@ CLAI will create `~/.config` automatically if needed and will write `clai.cfg` w
 > [!IMPORTANT]
 > Always remove `clai.cfg` before updating CLAI to avoid compatibility issues.
 
-If there is no configured API key, CLAI will start the setup wizard automatically on invocation and prompt for the API key, base URL, and model. You can also re-run that flow explicitly with `clai install` or `clai --install`.
+If there is no configured API key, CLAI will start the setup wizard automatically on invocation and prompt for the API key, base URL, and model. You can also re-run that flow explicitly with `clai setup` or `clai --setup`.
 
 You can still edit the file manually. The `key=` value should contain your [OpenAI API key](https://platform.openai.com/api-keys), which you can obtain from your [OpenAI account](https://platform.openai.com/api-keys).
 

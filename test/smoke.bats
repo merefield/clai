@@ -340,7 +340,7 @@ EOF
   grep -qx 'model=gpt-4.1' "$TEST_HOME/.config/clai.cfg"
 }
 
-@test "--install updates config without calling the API" {
+@test "--setup updates config without calling the API" {
   write_config <<'EOF'
 key=old-key
 hi_contrast=false
@@ -369,7 +369,7 @@ EOF
       LANG="C" \
       LC_TIME="C" \
       TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh --install
+      bash ./clai.sh --setup
   '
 
   [ "$status" -eq 0 ]
@@ -380,7 +380,7 @@ EOF
   [ ! -e "$TEST_HOME/curl-called" ]
 }
 
-@test "\"install\" command reruns setup wizard without calling the API" {
+@test "\"setup\" command reruns setup wizard without calling the API" {
   write_config <<'EOF'
 key=existing-key
 hi_contrast=false
@@ -409,7 +409,7 @@ EOF
       LANG="C" \
       LC_TIME="C" \
       TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh install
+      bash ./clai.sh setup
   '
 
   [ "$status" -eq 0 ]
@@ -420,7 +420,7 @@ EOF
   [ ! -e "$TEST_HOME/curl-called" ]
 }
 
-@test "--install fails when updated config cannot be persisted" {
+@test "--setup fails when updated config cannot be persisted" {
   write_config <<'EOF'
 key=old-key
 hi_contrast=false
@@ -455,7 +455,7 @@ EOF
       LANG="C" \
       LC_TIME="C" \
       TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh --install
+      bash ./clai.sh --setup
   '
 
   [ "$status" -eq 1 ]

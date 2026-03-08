@@ -342,10 +342,10 @@ if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 	fi
 	exit_clai 1
 fi
-if [ "$1" = "--install" ] && [ "$#" -eq 1 ]; then
+if [ "$1" = "--setup" ] && [ "$#" -eq 1 ]; then
 	INSTALL_REQUESTED=true
 fi
-if [ "$USER_QUERY" = "install" ] && [ "$#" -eq 1 ]; then
+if [ "$USER_QUERY" = "setup" ] && [ "$#" -eq 1 ]; then
 	INSTALL_REQUESTED=true
 fi
 if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
@@ -656,7 +656,7 @@ run_install_wizard() {
 OPENAI_KEY=$(cfg_val "key")
 if [ "$INSTALL_REQUESTED" = true ]; then
 	run_install_wizard || exit_clai 1
-	if [ "$1" = "--install" ] || [ "$USER_QUERY" = "install" ]; then
+	if [ "$1" = "--setup" ] || [ "$USER_QUERY" = "setup" ]; then
 		exit_clai 0
 	fi
 	OPENAI_KEY=$(cfg_val "key")
