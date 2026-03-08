@@ -91,12 +91,18 @@ ensure_dir_exists() {
 write_private_file() {
 	local target="$1"
 	local old_umask
+	local write_status
 
 	old_umask=$(umask)
 	umask 077
 	cat > "$target"
+	write_status=$?
 	umask "$old_umask"
+	if [ "$write_status" -ne 0 ]; then
+		return "$write_status"
+	fi
 	chmod 600 "$target" 2>/dev/null || true
+	return 0
 }
 
 create_secure_temp() {
@@ -590,8 +596,7 @@ set_cfg_val() {
 }
 
 save_config() {
-	write_private_file "$CONFIG_FILE" <<< "$config"
-	chmod 600 "$CONFIG_FILE" 2>/dev/null || true
+	write_private_file_atomic "$CONFIG_FILE" <<< "$config"
 }
 
 run_install_wizard() {
@@ -637,7 +642,10 @@ run_install_wizard() {
 	set_cfg_val "key" "$key_prompt_value"
 	set_cfg_val "api" "$api_prompt_value"
 	set_cfg_val "model" "$model_prompt_value"
-	save_config
+	if ! save_config; then
+		echo "Failed to save CLAI configuration." >&2
+		return 1
+	fi
 
 	config=$(cat "$CONFIG_FILE")
 	echo "CLAI configuration updated."

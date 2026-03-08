@@ -420,6 +420,52 @@ EOF
   [ ! -e "$TEST_HOME/curl-called" ]
 }
 
+@test "--install fails when updated config cannot be persisted" {
+  write_config <<'EOF'
+key=old-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+store_command_results=false
+result_lines=20
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_marker_curl
+
+  cat > "$TEST_HOME/fakebin/mv" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+  chmod +x "$TEST_HOME/fakebin/mv"
+
+  run bash -lc '
+    printf "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh --install
+  '
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed to save CLAI configuration."* ]]
+  grep -qx 'key=old-key' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'api=https://api.openai.com/v1/chat/completions' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'model=gpt-4.1' "$TEST_HOME/.config/clai.cfg"
+  [ ! -e "$TEST_HOME/curl-called" ]
+}
+
 @test "clai cleans transient session files after API transport failure" {
   write_config <<'EOF'
 key=test-key
