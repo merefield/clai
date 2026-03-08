@@ -332,7 +332,7 @@ HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
 
 # Built-in request handling
 USER_QUERY=$*
-INSTALL_REQUESTED=false
+SETUP_REQUESTED=false
 if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 	handle_clear_history
 	clear_history_status=$?
@@ -343,10 +343,10 @@ if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 	exit_clai 1
 fi
 if [ "$1" = "--setup" ] && [ "$#" -eq 1 ]; then
-	INSTALL_REQUESTED=true
+	SETUP_REQUESTED=true
 fi
 if [ "$USER_QUERY" = "setup" ] && [ "$#" -eq 1 ]; then
-	INSTALL_REQUESTED=true
+	SETUP_REQUESTED=true
 fi
 if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
 	handle_clear_history
@@ -599,7 +599,7 @@ save_config() {
 	write_private_file_atomic "$CONFIG_FILE" <<< "$config"
 }
 
-run_install_wizard() {
+run_setup_wizard() {
 	local key_prompt_value
 	local api_prompt_value
 	local model_prompt_value
@@ -654,15 +654,15 @@ run_install_wizard() {
 
 # API Key
 OPENAI_KEY=$(cfg_val "key")
-if [ "$INSTALL_REQUESTED" = true ]; then
-	run_install_wizard || exit_clai 1
+if [ "$SETUP_REQUESTED" = true ]; then
+	run_setup_wizard || exit_clai 1
 	if [ "$1" = "--setup" ] || [ "$USER_QUERY" = "setup" ]; then
 		exit_clai 0
 	fi
 	OPENAI_KEY=$(cfg_val "key")
 fi
 if [ -z "$OPENAI_KEY" ]; then
-	run_install_wizard || exit_clai 1
+	run_setup_wizard || exit_clai 1
 	OPENAI_KEY=$(cfg_val "key")
 fi
 
