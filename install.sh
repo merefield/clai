@@ -53,7 +53,7 @@ fi
 echo "Creating symlink in $BIN_DIR..."
 sudo mkdir -p "$BIN_DIR"
 sudo ln -sf "$INSTALL_PATH" "$LINK_PATH"
-if [ ! -L "$LINK_PATH" ] && [ ! -x "$LINK_PATH" ]; then
+if [ ! -L "$LINK_PATH" ] || [ ! -x "$LINK_PATH" ]; then
 	echo "Failed to create CLAI symlink in $BIN_DIR"
 	exit 1
 fi

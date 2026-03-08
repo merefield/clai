@@ -68,3 +68,46 @@ EOF
   [ "$status" -eq 0 ]
   [ "$output" = "installed clai" ]
 }
+
+@test "install script fails when the exposed symlink target is not executable" {
+  cat > "$TEST_ROOT/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s\n' '#!/bin/bash' 'echo installed clai' > "$output"
+EOF
+  chmod +x "$TEST_ROOT/fakebin/curl"
+
+  cat > "$TEST_ROOT/fakebin/sudo" <<'EOF'
+#!/bin/bash
+"$@"
+EOF
+  chmod +x "$TEST_ROOT/fakebin/sudo"
+
+  cat > "$TEST_ROOT/fakebin/ln" <<'EOF'
+#!/bin/bash
+dest="${@: -1}"
+rm -f "$dest"
+/bin/ln -s /nonexistent/clai.sh "$dest"
+EOF
+  chmod +x "$TEST_ROOT/fakebin/ln"
+
+  run env \
+    PATH="$TEST_ROOT/fakebin:$PATH" \
+    CLAI_INSTALL_DIR="$TEST_ROOT/lib/clai" \
+    CLAI_BIN_DIR="$TEST_ROOT/bin" \
+    bash ./install.sh
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed to create CLAI symlink in $TEST_ROOT/bin"* ]]
+}
