@@ -5,6 +5,7 @@ setup() {
   TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/clai-install.XXXXXX")"
   mkdir -p "$TEST_ROOT/fakebin"
   mkdir -p "$TEST_ROOT/bin"
+  mkdir -p "$TEST_ROOT/lib"
 }
 
 teardown() {
@@ -27,7 +28,7 @@ EOF
   [[ "$output" == *"Failed to download clai.sh"* ]]
 }
 
-@test "install script installs into an overridden bin dir" {
+@test "install script installs a real script and symlink into an overridden bin dir" {
   cat > "$TEST_ROOT/fakebin/curl" <<'EOF'
 #!/bin/bash
 output=""
@@ -54,10 +55,14 @@ EOF
 
   run env \
     PATH="$TEST_ROOT/fakebin:$PATH" \
+    CLAI_INSTALL_DIR="$TEST_ROOT/lib/clai" \
     CLAI_BIN_DIR="$TEST_ROOT/bin" \
     bash ./install.sh
 
   [ "$status" -eq 0 ]
+  [ -f "$TEST_ROOT/lib/clai/clai.sh" ]
+  [ -x "$TEST_ROOT/lib/clai/clai.sh" ]
+  [ -L "$TEST_ROOT/bin/clai" ]
   [ -x "$TEST_ROOT/bin/clai" ]
   run "$TEST_ROOT/bin/clai"
   [ "$status" -eq 0 ]

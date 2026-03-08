@@ -6,8 +6,11 @@ REPO_NAME="${CLAI_REPO_NAME:-clai}"
 REPO_BRANCH="${CLAI_REPO_BRANCH:-main}"
 REPO_SCRIPT="${CLAI_REPO_SCRIPT:-clai.sh}"
 SCRIPT_URL="${CLAI_SCRIPT_URL:-https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/${REPO_SCRIPT}}"
+INSTALL_DIR="${CLAI_INSTALL_DIR:-/usr/local/lib/clai}"
 BIN_DIR="${CLAI_BIN_DIR:-/usr/local/bin}"
 BIN_NAME="${CLAI_BIN_NAME:-clai}"
+INSTALL_PATH="${INSTALL_DIR}/${REPO_SCRIPT}"
+LINK_PATH="${BIN_DIR}/${BIN_NAME}"
 TMP_FILE=$(mktemp)
 
 # Download the script file
@@ -31,18 +34,27 @@ if [ ! -s "$TMP_FILE" ]; then # file exists but is empty
 	exit 1
 fi
 
-# Move the temp file to bin dir with a proper name
-echo "Installing CLAI to $BIN_DIR..."
-sudo mv "$TMP_FILE" "$BIN_DIR/$BIN_NAME"
-if [ ! -f "$BIN_DIR/$BIN_NAME" ]; then
-	echo "Failed to install CLAI to $BIN_DIR"
+# Install the real script to a stable location and expose it via a symlink on PATH
+echo "Installing CLAI script to $INSTALL_DIR..."
+sudo mkdir -p "$INSTALL_DIR"
+sudo mv "$TMP_FILE" "$INSTALL_PATH"
+if [ ! -f "$INSTALL_PATH" ]; then
+	echo "Failed to install CLAI to $INSTALL_DIR"
 	exit 1
 fi
 
-# Make the bin executable
-sudo chmod +x "$BIN_DIR/$BIN_NAME"
-if [ ! -x "$BIN_DIR/$BIN_NAME" ]; then
+# Make the script executable
+sudo chmod +x "$INSTALL_PATH"
+if [ ! -x "$INSTALL_PATH" ]; then
 	echo "Failed to make CLAI executable"
+	exit 1
+fi
+
+echo "Creating symlink in $BIN_DIR..."
+sudo mkdir -p "$BIN_DIR"
+sudo ln -sf "$INSTALL_PATH" "$LINK_PATH"
+if [ ! -L "$LINK_PATH" ] && [ ! -x "$LINK_PATH" ]; then
+	echo "Failed to create CLAI symlink in $BIN_DIR"
 	exit 1
 fi
 
@@ -50,5 +62,7 @@ fi
 echo
 echo "Installation completed successfully!"
 echo "Run '${BIN_NAME}' to start CLAI (you may need to restart your terminal)"
+echo "Installed script: $INSTALL_PATH"
+echo "Command symlink: $LINK_PATH"
 echo "Visit https://github.com/${REPO_OWNER}/${REPO_NAME} for more information"
 exit 0

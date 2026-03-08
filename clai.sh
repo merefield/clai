@@ -326,6 +326,7 @@ HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
 
 # Built-in request handling
 USER_QUERY=$*
+INSTALL_REQUESTED=false
 if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 	handle_clear_history
 	clear_history_status=$?
@@ -334,6 +335,12 @@ if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 		exit_clai 0
 	fi
 	exit_clai 1
+fi
+if [ "$1" = "--install" ] && [ "$#" -eq 1 ]; then
+	INSTALL_REQUESTED=true
+fi
+if [ "$USER_QUERY" = "install" ] && [ "$#" -eq 1 ]; then
+	INSTALL_REQUESTED=true
 fi
 if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
 	handle_clear_history
@@ -534,7 +541,7 @@ hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
 api=https://api.openai.com/v1/chat/completions
-model=gpt-4o-mini
+model=gpt-4.1
 json_mode=false
 temp=0.1
 tokens=500
@@ -558,13 +565,97 @@ cfg_val() {
     echo "$config" | grep -E "^${key}=" | head -n1 | cut -d'=' -f2-
 }
 
+set_cfg_val() {
+	local key="$1"
+	local value="$2"
+	local updated_config
+
+	updated_config=$(printf '%s\n' "$config" | awk -v key="$key" -v value="$value" '
+		BEGIN { updated=0 }
+		index($0, key "=") == 1 {
+			if (!updated) {
+				print key "=" value
+				updated=1
+			}
+			next
+		}
+		{ print }
+		END {
+			if (!updated) {
+				print key "=" value
+			}
+		}
+	')
+	config="$updated_config"
+}
+
+save_config() {
+	write_private_file "$CONFIG_FILE" <<< "$config"
+	chmod 600 "$CONFIG_FILE" 2>/dev/null || true
+}
+
+run_install_wizard() {
+	local key_prompt_value
+	local api_prompt_value
+	local model_prompt_value
+	local key_input
+	local api_input
+	local model_input
+
+	key_prompt_value=$(cfg_val "key")
+	api_prompt_value=$(cfg_val "api")
+	model_prompt_value=$(cfg_val "model")
+
+	[ -z "$api_prompt_value" ] && api_prompt_value="https://api.openai.com/v1/chat/completions"
+	[ -z "$model_prompt_value" ] && model_prompt_value="gpt-4.1"
+
+	restore_cursor
+	printf "CLAI setup\n"
+	if [ -n "$key_prompt_value" ]; then
+		printf "Press Enter on API key to keep the current value.\n"
+	fi
+	read -r -s -p "API key: " key_input
+	echo
+	if [ -n "$key_input" ]; then
+		key_prompt_value="$key_input"
+	fi
+	if [ -z "$key_prompt_value" ]; then
+		echo "No API key provided. CLAI is not configured."
+		return 1
+	fi
+
+	read -r -p "API base URL [$api_prompt_value]: " api_input
+	if [ -n "$api_input" ]; then
+		api_prompt_value="$api_input"
+	fi
+
+	read -r -p "Model [$model_prompt_value]: " model_input
+	if [ -n "$model_input" ]; then
+		model_prompt_value="$model_input"
+	fi
+
+	set_cfg_val "key" "$key_prompt_value"
+	set_cfg_val "api" "$api_prompt_value"
+	set_cfg_val "model" "$model_prompt_value"
+	save_config
+
+	config=$(cat "$CONFIG_FILE")
+	echo "CLAI configuration updated."
+	return 0
+}
+
 # API Key
 OPENAI_KEY=$(cfg_val "key")
+if [ "$INSTALL_REQUESTED" = true ]; then
+	run_install_wizard || exit_clai 1
+	if [ "$1" = "--install" ] || [ "$USER_QUERY" = "install" ]; then
+		exit_clai 0
+	fi
+	OPENAI_KEY=$(cfg_val "key")
+fi
 if [ -z "$OPENAI_KEY" ]; then
-	 # Prompt user to input OpenAI key if not found
-	echo "To use CLAI, please input your OpenAI key into the config file located at $CONFIG_FILE"
-	restore_cursor
-	exit_clai 1
+	run_install_wizard || exit_clai 1
+	OPENAI_KEY=$(cfg_val "key")
 fi
 
 # Extract OpenAI URL from configuration
