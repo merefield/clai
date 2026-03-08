@@ -16,6 +16,24 @@ write_config() {
   cat > "$TEST_HOME/.config/clai.cfg"
 }
 
+run_with_setup_io() {
+  local input="$1"
+  local command="$2"
+
+  printf "%b" "$input" > "$TEST_HOME/setup-input"
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    CLAI_SETUP_INPUT="$TEST_HOME/setup-input" \
+    CLAI_SETUP_OUTPUT="/dev/stdout" \
+    bash -lc "$command"
+}
+
 make_success_curl() {
   cat > "$TEST_HOME/fakebin/curl" <<'EOF'
 #!/bin/bash
@@ -297,7 +315,7 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
-@test "clai bootstraps config and asks for API key when missing" {
+@test "clai fails clearly when setup is required without an interactive terminal" {
   run env \
     HOME="$TEST_HOME" \
     TMPDIR="$TEST_HOME/tmp" \
@@ -307,13 +325,122 @@ EOF
     bash ./clai.sh
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"please input your OpenAI key"* ]]
+  [[ "$output" == *"CLAI setup requires an interactive terminal."* ]]
   [ -f "$TEST_HOME/.config/clai.cfg" ]
   [ -d "$TEST_HOME/.local/state/clai" ]
   grep -qx 'key=' "$TEST_HOME/.config/clai.cfg"
   [ "$(stat -c '%a' "$TEST_HOME/.config/clai.cfg")" = "600" ]
   [ "$(stat -c '%a' "$TEST_HOME/.local/state/clai")" = "700" ]
   [ "$(find "$TEST_HOME/tmp" -type f | wc -l)" -eq 0 ]
+}
+
+@test "missing key triggers setup wizard and continues the requested command" {
+  make_success_curl
+
+  run_with_setup_io "wizard-key\n\n\n" 'bash ./clai.sh "what is the current time?"'
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CLAI configuration updated."* ]]
+  [[ "$output" == *"stub answer"* ]]
+  grep -qx 'key=wizard-key' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'api=https://api.openai.com/v1/chat/completions' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'model=gpt-4.1' "$TEST_HOME/.config/clai.cfg"
+}
+
+@test "--setup updates config without calling the API" {
+  write_config <<'EOF'
+key=old-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+store_command_results=false
+result_lines=20
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_marker_curl
+
+  run_with_setup_io "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" 'bash ./clai.sh --setup'
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CLAI configuration updated."* ]]
+  grep -qx 'key=new-key' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'api=https://example.invalid/v1/chat/completions' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'model=custom-model' "$TEST_HOME/.config/clai.cfg"
+  [ ! -e "$TEST_HOME/curl-called" ]
+}
+
+@test "\"setup\" command reruns setup wizard without calling the API" {
+  write_config <<'EOF'
+key=existing-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+store_command_results=false
+result_lines=20
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_marker_curl
+
+  run_with_setup_io "\n\n\n" 'bash ./clai.sh setup'
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CLAI configuration updated."* ]]
+  grep -qx 'key=existing-key' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'api=https://api.openai.com/v1/chat/completions' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'model=gpt-4.1' "$TEST_HOME/.config/clai.cfg"
+  [ ! -e "$TEST_HOME/curl-called" ]
+}
+
+@test "--setup fails when updated config cannot be persisted" {
+  write_config <<'EOF'
+key=old-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+store_command_results=false
+result_lines=20
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_marker_curl
+
+  cat > "$TEST_HOME/fakebin/mv" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+  chmod +x "$TEST_HOME/fakebin/mv"
+
+  run_with_setup_io "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" 'bash ./clai.sh --setup'
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed to save CLAI configuration."* ]]
+  grep -qx 'key=old-key' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'api=https://api.openai.com/v1/chat/completions' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'model=gpt-4.1' "$TEST_HOME/.config/clai.cfg"
+  [ ! -e "$TEST_HOME/curl-called" ]
 }
 
 @test "clai cleans transient session files after API transport failure" {

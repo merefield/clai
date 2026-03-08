@@ -91,12 +91,18 @@ ensure_dir_exists() {
 write_private_file() {
 	local target="$1"
 	local old_umask
+	local write_status
 
 	old_umask=$(umask)
 	umask 077
 	cat > "$target"
+	write_status=$?
 	umask "$old_umask"
+	if [ "$write_status" -ne 0 ]; then
+		return "$write_status"
+	fi
 	chmod 600 "$target" 2>/dev/null || true
+	return 0
 }
 
 create_secure_temp() {
@@ -326,6 +332,7 @@ HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
 
 # Built-in request handling
 USER_QUERY=$*
+SETUP_REQUESTED=false
 if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 	handle_clear_history
 	clear_history_status=$?
@@ -334,6 +341,12 @@ if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 		exit_clai 0
 	fi
 	exit_clai 1
+fi
+if [ "$1" = "--setup" ] && [ "$#" -eq 1 ]; then
+	SETUP_REQUESTED=true
+fi
+if [ "$USER_QUERY" = "setup" ] && [ "$#" -eq 1 ]; then
+	SETUP_REQUESTED=true
 fi
 if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
 	handle_clear_history
@@ -534,7 +547,7 @@ hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
 api=https://api.openai.com/v1/chat/completions
-model=gpt-4o-mini
+model=gpt-4.1
 json_mode=false
 temp=0.1
 tokens=500
@@ -558,13 +571,115 @@ cfg_val() {
     echo "$config" | grep -E "^${key}=" | head -n1 | cut -d'=' -f2-
 }
 
+set_cfg_val() {
+	local key="$1"
+	local value="$2"
+	local updated_config
+
+	updated_config=$(printf '%s\n' "$config" | awk -v key="$key" -v value="$value" '
+		BEGIN { updated=0 }
+		index($0, key "=") == 1 {
+			if (!updated) {
+				print key "=" value
+				updated=1
+			}
+			next
+		}
+		{ print }
+		END {
+			if (!updated) {
+				print key "=" value
+			}
+		}
+	')
+	config="$updated_config"
+}
+
+save_config() {
+	write_private_file_atomic "$CONFIG_FILE" <<< "$config"
+}
+
+run_setup_wizard() {
+	local key_prompt_value
+	local api_prompt_value
+	local model_prompt_value
+	local key_input
+	local api_input
+	local model_input
+	local setup_input_path="${CLAI_SETUP_INPUT:-/dev/tty}"
+	local setup_output_path="${CLAI_SETUP_OUTPUT:-/dev/tty}"
+
+	key_prompt_value=$(cfg_val "key")
+	api_prompt_value=$(cfg_val "api")
+	model_prompt_value=$(cfg_val "model")
+
+	[ -z "$api_prompt_value" ] && api_prompt_value="https://api.openai.com/v1/chat/completions"
+	[ -z "$model_prompt_value" ] && model_prompt_value="gpt-4.1"
+
+	if ! exec 3<"$setup_input_path" 4>"$setup_output_path"; then
+		echo "CLAI setup requires an interactive terminal. Run 'clai setup' in a TTY." >&2
+		return 1
+	fi
+
+	restore_cursor
+	printf "CLAI setup\n" >&4
+	if [ -n "$key_prompt_value" ]; then
+		printf "Press Enter on API key to keep the current value.\n" >&4
+	fi
+	printf "API key: " >&4
+	read -r -s -u 3 key_input
+	printf "\n" >&4
+	if [ -n "$key_input" ]; then
+		key_prompt_value="$key_input"
+	fi
+	if [ -z "$key_prompt_value" ]; then
+		echo "No API key provided. CLAI is not configured." >&2
+		exec 3<&-
+		exec 4>&-
+		return 1
+	fi
+
+	printf "API base URL [%s]: " "$api_prompt_value" >&4
+	read -r -u 3 api_input
+	if [ -n "$api_input" ]; then
+		api_prompt_value="$api_input"
+	fi
+
+	printf "Model [%s]: " "$model_prompt_value" >&4
+	read -r -u 3 model_input
+	if [ -n "$model_input" ]; then
+		model_prompt_value="$model_input"
+	fi
+
+	set_cfg_val "key" "$key_prompt_value"
+	set_cfg_val "api" "$api_prompt_value"
+	set_cfg_val "model" "$model_prompt_value"
+	if ! save_config; then
+		echo "Failed to save CLAI configuration." >&2
+		exec 3<&-
+		exec 4>&-
+		return 1
+	fi
+
+	config=$(cat "$CONFIG_FILE")
+	echo "CLAI configuration updated."
+	exec 3<&-
+	exec 4>&-
+	return 0
+}
+
 # API Key
 OPENAI_KEY=$(cfg_val "key")
+if [ "$SETUP_REQUESTED" = true ]; then
+	run_setup_wizard || exit_clai 1
+	if [ "$1" = "--setup" ] || [ "$USER_QUERY" = "setup" ]; then
+		exit_clai 0
+	fi
+	OPENAI_KEY=$(cfg_val "key")
+fi
 if [ -z "$OPENAI_KEY" ]; then
-	 # Prompt user to input OpenAI key if not found
-	echo "To use CLAI, please input your OpenAI key into the config file located at $CONFIG_FILE"
-	restore_cursor
-	exit_clai 1
+	run_setup_wizard || exit_clai 1
+	OPENAI_KEY=$(cfg_val "key")
 fi
 
 # Extract OpenAI URL from configuration

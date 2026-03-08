@@ -143,6 +143,31 @@ curl -sS https://raw.githubusercontent.com/merefield/clai/main/install.sh | bash
 
 2. Run `clai` to start CLAI.
 
+By default, the installer downloads the real script to `/usr/local/lib/clai/clai.sh` and exposes `clai` by creating a symlink in `/usr/local/bin`, which is typically already on your `PATH`.
+
+On the first invocation without a configured API key, CLAI starts a setup wizard and prompts for:
+
+- API key
+- API base URL
+- model
+
+The defaults are:
+
+- API base URL: `https://api.openai.com/v1/chat/completions`
+- model: `gpt-4.1`
+
+You can re-run that setup wizard at any time with either:
+
+```bash
+clai setup
+```
+
+or:
+
+```bash
+clai --setup
+```
+
 <details>
 <summary><b>Manual Setup</b></summary>
 
@@ -157,21 +182,28 @@ curl -sS https://raw.githubusercontent.com/merefield/clai/main/install.sh | bash
 	chmod +x clai.sh
 	```
 
-3. Execute CLAI:
+3. Execute CLAI directly:
 
 	```bash
 	./clai.sh
 	```
 
-*  _(Optional)_ For convenience, you can create a shortcut to the `clai.sh` script. There are two ways to do this:
+4. Expose `clai` on your command line. The recommended approach is to place a symlink in a directory that is already on your `PATH`:
 
-	* Create a symbolic link in `/usr/local/bin`. This will allow you to run the script from anywhere, without having to type the full path. Replace `path/to/clai.sh` with the actual path to the `clai.sh` script:
+	* System-wide default: symlink into `/usr/local/bin`:
 
 		```bash
 		ln -s path/to/clai.sh /usr/local/bin/clai
 		```
 
-	* Alternatively, you can create an alias for the `clai.sh` script in your `.bashrc` file. This will also allow you to execute the script using the `clai` command, reducing the need for typing the full path to the script each time. Replace `path/to/clai.sh` with the actual path to the `clai.sh` script:
+	* User-local alternative without `sudo`: symlink into `~/.local/bin` and ensure that directory is on your `PATH`:
+
+		```bash
+		mkdir -p ~/.local/bin
+		ln -s path/to/clai.sh ~/.local/bin/clai
+		```
+
+	* An alias is possible, but it is less universal than a symlink because it only applies to a specific shell configuration:
 
 		```conf
 		alias clai='path/to/clai.sh'
@@ -197,12 +229,14 @@ CLAI will create `~/.config` automatically if needed and will write `clai.cfg` w
 > [!IMPORTANT]
 > Always remove `clai.cfg` before updating CLAI to avoid compatibility issues.
 
-You must provide a [OpenAI API key](https://platform.openai.com/api-keys) in the `key=` field of this file. The [OpenAI API key](https://platform.openai.com/api-keys) can be obtained from your [OpenAI account](https://platform.openai.com/api-keys).
+If there is no configured API key, CLAI will start the setup wizard automatically on invocation and prompt for the API key, base URL, and model. You can also re-run that flow explicitly with `clai setup` or `clai --setup`.
+
+You can still edit the file manually. The `key=` value should contain your [OpenAI API key](https://platform.openai.com/api-keys), which you can obtain from your [OpenAI account](https://platform.openai.com/api-keys).
 
 > [!CAUTION]
 > Keeping the key in a plain text file is dangerous, and it is your responsibility to keep it secure.
 
-You can also change the [GPT model](https://platform.openai.com/docs/models), [temperature](https://platform.openai.com/docs/api-reference/chat/create#chat-create-temperature) and many other things in this file.
+You can also change the [GPT model](https://platform.openai.com/docs/models), [temperature](https://platform.openai.com/docs/api-reference/chat/create#chat-create-temperature), base URL, and many other settings in this file.
 
 The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions. The older `max_history=` key is still accepted temporarily, but it is deprecated.
 
@@ -215,7 +249,7 @@ The history retention setting is `max_history_turns=`. It controls how many user
 | `expose_current_dir` | `true` | Includes the current working directory in the runtime context sent to the model. |
 | `max_history_turns` | `10` | Number of user conversation turns to persist across sessions. |
 | `api` | `https://api.openai.com/v1/chat/completions` | Chat Completions API endpoint. |
-| `model` | `gpt-4o-mini` | Model name sent in the request payload. |
+| `model` | `gpt-4.1` | Model name sent in the request payload. |
 | `json_mode` | `false` | Requests JSON object output mode from the API. |
 | `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
 | `tokens` | `500` | Maximum token count requested from the API. Invalid values fall back to `500`. |
