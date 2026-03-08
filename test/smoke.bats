@@ -16,6 +16,24 @@ write_config() {
   cat > "$TEST_HOME/.config/clai.cfg"
 }
 
+run_with_setup_io() {
+  local input="$1"
+  local command="$2"
+
+  printf "%b" "$input" > "$TEST_HOME/setup-input"
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    CLAI_SETUP_INPUT="$TEST_HOME/setup-input" \
+    CLAI_SETUP_OUTPUT="/dev/stdout" \
+    bash -lc "$command"
+}
+
 make_success_curl() {
   cat > "$TEST_HOME/fakebin/curl" <<'EOF'
 #!/bin/bash
@@ -297,7 +315,7 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
-@test "clai bootstraps config and asks for API key when missing" {
+@test "clai fails clearly when setup is required without an interactive terminal" {
   run env \
     HOME="$TEST_HOME" \
     TMPDIR="$TEST_HOME/tmp" \
@@ -307,8 +325,7 @@ EOF
     bash ./clai.sh
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"CLAI setup"* ]]
-  [[ "$output" == *"No API key provided. CLAI is not configured."* ]]
+  [[ "$output" == *"CLAI setup requires an interactive terminal."* ]]
   [ -f "$TEST_HOME/.config/clai.cfg" ]
   [ -d "$TEST_HOME/.local/state/clai" ]
   grep -qx 'key=' "$TEST_HOME/.config/clai.cfg"
@@ -320,17 +337,7 @@ EOF
 @test "missing key triggers setup wizard and continues the requested command" {
   make_success_curl
 
-  run bash -lc '
-    printf "wizard-key\n\n\n" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "what is the current time?"
-  '
+  run_with_setup_io "wizard-key\n\n\n" 'bash ./clai.sh "what is the current time?"'
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"CLAI configuration updated."* ]]
@@ -360,17 +367,7 @@ EOF
 
   make_marker_curl
 
-  run bash -lc '
-    printf "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh --setup
-  '
+  run_with_setup_io "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" 'bash ./clai.sh --setup'
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"CLAI configuration updated."* ]]
@@ -400,17 +397,7 @@ EOF
 
   make_marker_curl
 
-  run bash -lc '
-    printf "\n\n\n" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh setup
-  '
+  run_with_setup_io "\n\n\n" 'bash ./clai.sh setup'
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"CLAI configuration updated."* ]]
@@ -446,17 +433,7 @@ exit 1
 EOF
   chmod +x "$TEST_HOME/fakebin/mv"
 
-  run bash -lc '
-    printf "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh --setup
-  '
+  run_with_setup_io "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" 'bash ./clai.sh --setup'
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"Failed to save CLAI configuration."* ]]

@@ -606,6 +606,8 @@ run_setup_wizard() {
 	local key_input
 	local api_input
 	local model_input
+	local setup_input_path="${CLAI_SETUP_INPUT:-/dev/tty}"
+	local setup_output_path="${CLAI_SETUP_OUTPUT:-/dev/tty}"
 
 	key_prompt_value=$(cfg_val "key")
 	api_prompt_value=$(cfg_val "api")
@@ -614,27 +616,37 @@ run_setup_wizard() {
 	[ -z "$api_prompt_value" ] && api_prompt_value="https://api.openai.com/v1/chat/completions"
 	[ -z "$model_prompt_value" ] && model_prompt_value="gpt-4.1"
 
-	restore_cursor
-	printf "CLAI setup\n"
-	if [ -n "$key_prompt_value" ]; then
-		printf "Press Enter on API key to keep the current value.\n"
+	if ! exec 3<"$setup_input_path" 4>"$setup_output_path"; then
+		echo "CLAI setup requires an interactive terminal. Run 'clai setup' in a TTY." >&2
+		return 1
 	fi
-	read -r -s -p "API key: " key_input
-	echo
+
+	restore_cursor
+	printf "CLAI setup\n" >&4
+	if [ -n "$key_prompt_value" ]; then
+		printf "Press Enter on API key to keep the current value.\n" >&4
+	fi
+	printf "API key: " >&4
+	read -r -s -u 3 key_input
+	printf "\n" >&4
 	if [ -n "$key_input" ]; then
 		key_prompt_value="$key_input"
 	fi
 	if [ -z "$key_prompt_value" ]; then
-		echo "No API key provided. CLAI is not configured."
+		echo "No API key provided. CLAI is not configured." >&2
+		exec 3<&-
+		exec 4>&-
 		return 1
 	fi
 
-	read -r -p "API base URL [$api_prompt_value]: " api_input
+	printf "API base URL [%s]: " "$api_prompt_value" >&4
+	read -r -u 3 api_input
 	if [ -n "$api_input" ]; then
 		api_prompt_value="$api_input"
 	fi
 
-	read -r -p "Model [$model_prompt_value]: " model_input
+	printf "Model [%s]: " "$model_prompt_value" >&4
+	read -r -u 3 model_input
 	if [ -n "$model_input" ]; then
 		model_prompt_value="$model_input"
 	fi
@@ -644,11 +656,15 @@ run_setup_wizard() {
 	set_cfg_val "model" "$model_prompt_value"
 	if ! save_config; then
 		echo "Failed to save CLAI configuration." >&2
+		exec 3<&-
+		exec 4>&-
 		return 1
 	fi
 
 	config=$(cat "$CONFIG_FILE")
 	echo "CLAI configuration updated."
+	exec 3<&-
+	exec 4>&-
 	return 0
 }
 
