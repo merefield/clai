@@ -783,7 +783,6 @@ run_setup_wizard() {
 
 # API Key
 if [ "$SHOW_HISTORY_REQUESTED" = true ]; then
-	load_history
 	if handle_show_history; then
 		exit_clai 0
 	fi

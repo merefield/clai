@@ -950,6 +950,23 @@ EOF
   [[ "$output" == *"tool output"* ]]
 }
 
+@test "--show-history does not rewrite malformed persisted history" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  printf '%s' '{not-json' > "$TEST_HOME/.local/state/clai/history_com.json"
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --show-history
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed to read CLAI history."* ]]
+  [ "$(cat "$TEST_HOME/.local/state/clai/history_com.json")" = "{not-json" ]
+}
+
 @test "tool calls trigger tool execution and resume with tool output in history" {
   write_config <<'EOF'
 key=test-key
