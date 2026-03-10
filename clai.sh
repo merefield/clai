@@ -392,6 +392,7 @@ USER_QUERY_ARGC=$#
 FIRST_USER_ARG="$1"
 SETUP_REQUESTED=false
 SHOW_HISTORY_REQUESTED=false
+SHOW_RESULTS_SHARING_REQUESTED=false
 TOGGLE_RESULTS_SHARING_REQUESTED=false
 if [ "$FIRST_USER_ARG" = "--clear-history" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	handle_clear_history
@@ -410,6 +411,9 @@ if [ "$USER_QUERY" = "setup" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 fi
 if [ "$FIRST_USER_ARG" = "--show-history" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	SHOW_HISTORY_REQUESTED=true
+fi
+if [ "$FIRST_USER_ARG" = "--show-results-sharing" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
+	SHOW_RESULTS_SHARING_REQUESTED=true
 fi
 if [ "$FIRST_USER_ARG" = "--toggle-results-sharing" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	TOGGLE_RESULTS_SHARING_REQUESTED=true
@@ -690,6 +694,19 @@ toggle_results_sharing() {
 	return 0
 }
 
+show_results_sharing() {
+	local share_command_results
+
+	share_command_results=$(cfg_val "share_command_results")
+	if [ "$share_command_results" = true ]; then
+		echo "Command result sharing is enabled."
+	else
+		echo "Command result sharing is disabled."
+	fi
+
+	return 0
+}
+
 run_setup_wizard() {
 	local key_prompt_value
 	local api_prompt_value
@@ -762,6 +779,13 @@ run_setup_wizard() {
 # API Key
 if [ "$SHOW_HISTORY_REQUESTED" = true ]; then
 	if handle_show_history; then
+		exit_clai 0
+	fi
+	exit_clai 1
+fi
+
+if [ "$SHOW_RESULTS_SHARING_REQUESTED" = true ]; then
+	if show_results_sharing; then
 		exit_clai 0
 	fi
 	exit_clai 1

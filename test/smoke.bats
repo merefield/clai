@@ -1323,6 +1323,73 @@ EOF
   grep -qx 'share_command_results=true' "$TEST_HOME/.config/clai.cfg"
 }
 
+@test "--show-results-sharing reports disabled state without changing config" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+share_command_results=false
+result_lines=2
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_marker_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh --show-results-sharing
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Command result sharing is disabled."* ]]
+  grep -qx 'share_command_results=false' "$TEST_HOME/.config/clai.cfg"
+  [ ! -e "$TEST_HOME/curl-called" ]
+}
+
+@test "--show-results-sharing reports enabled state without requiring API configuration" {
+  write_config <<'EOF'
+key=
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+share_command_results=true
+result_lines=20
+exec_query=
+question_query=
+error_query=
+EOF
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --show-results-sharing
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Command result sharing is enabled."* ]]
+  grep -qx 'share_command_results=true' "$TEST_HOME/.config/clai.cfg"
+}
+
 @test "run_cmd stores the real non-zero exit code in command results" {
   run bash -lc '
     HISTORY_MESSAGES="[]"

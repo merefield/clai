@@ -264,6 +264,12 @@ To toggle `share_command_results` directly from the CLI, run:
 clai --toggle-results-sharing
 ```
 
+To see whether command results are currently being shared, run:
+
+```bash
+clai --show-results-sharing
+```
+
 To view the currently persisted CLAI history in a readable form, run:
 
 ```bash
