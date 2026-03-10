@@ -383,30 +383,8 @@ trap cleanup EXIT
 create_private_dir "$STATE_DIR"
 ensure_dir_exists "$CONFIG_DIR"
 
-# Test if we're in Vim
-if [ -n "$VIMRUNTIME" ]; then
-	CMD_BG_COLOR=""
-	CMD_TEXT_COLOR=""
-	INFO_TEXT_COLOR=""
-	ERROR_TEXT_COLOR=""
-	CANCEL_TEXT_COLOR=""
-	OK_TEXT_COLOR=""
-	TITLE_TEXT_COLOR=""
-	CLEAR_LINE=""
-	HIDE_CURSOR=""
-	SHOW_CURSOR=""
-	RESET_COLOR=""
-	
-	# Make sure system message reflects that we're in Vim
-	DYNAMIC_SYSTEM_QUERY+="User is inside \"$VIM\". You are in the Vim terminal."
-		
-		# Use the Vim history file
-		HISTORY_FILE="${STATE_DIR}/history_vim.json"
-else
-		# Use the default history file
-		HISTORY_FILE="${STATE_DIR}/history_com.json"
-fi
-HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
+HISTORY_FILE="${STATE_DIR}/history_com.json"
+HISTORY_FILES=("$HISTORY_FILE")
 
 # Built-in request handling
 USER_QUERY=$*

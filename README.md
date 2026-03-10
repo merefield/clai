@@ -110,9 +110,6 @@ CLAI offers the following features:
 - **Locale Awareness**\
 	Automatically detects your system's locale and uses it to provide localized responses.
 
-- **Vim Awareness**\
-	Automatically detects if you are using Vim and provides Vim-specific suggestions.
-
 ## Roadmap Themes
 
 These are candidate product directions for CLAI after the current hardening and test coverage work. Each theme is tagged with a rough implementation priority, how well it fits CLAI's current product shape, and expected complexity.
@@ -281,7 +278,7 @@ To clear persisted CLAI history explicitly, run:
 clai --clear-history
 ```
 
-This clears both the normal shell history file and the separate Vim-session history file under the CLAI state directory.
+This clears CLAI's persisted history file under the CLAI state directory.
 
 Transient request payloads, API responses, and tool logs are written to secure temporary files created with `mktemp` and are deleted automatically when the session exits.
 

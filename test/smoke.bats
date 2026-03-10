@@ -833,7 +833,6 @@ EOF
 @test "--clear-history removes persisted history without requiring API config" {
   mkdir -p "$TEST_HOME/.local/state/clai"
   printf '[]' > "$TEST_HOME/.local/state/clai/history_com.json"
-  printf '[]' > "$TEST_HOME/.local/state/clai/history_vim.json"
 
   make_marker_curl
 
@@ -850,7 +849,6 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"Cleared CLAI history."* ]]
   [ ! -e "$TEST_HOME/.local/state/clai/history_com.json" ]
-  [ ! -e "$TEST_HOME/.local/state/clai/history_vim.json" ]
   [ ! -e "$TEST_HOME/curl-called" ]
   [ ! -e "$TEST_HOME/.config/clai.cfg" ]
 }
@@ -858,7 +856,6 @@ EOF
 @test "clear your history request is handled locally without an API call" {
   mkdir -p "$TEST_HOME/.local/state/clai"
   printf '[]' > "$TEST_HOME/.local/state/clai/history_com.json"
-  printf '[]' > "$TEST_HOME/.local/state/clai/history_vim.json"
 
   make_marker_curl
 
@@ -875,7 +872,6 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"Cleared CLAI history."* ]]
   [ ! -e "$TEST_HOME/.local/state/clai/history_com.json" ]
-  [ ! -e "$TEST_HOME/.local/state/clai/history_vim.json" ]
   [ ! -e "$TEST_HOME/curl-called" ]
   [ ! -e "$TEST_HOME/.config/clai.cfg" ]
 }
