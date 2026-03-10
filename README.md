@@ -253,13 +253,25 @@ The history retention setting is `max_history_turns=`. It controls how many user
 | `json_mode` | `false` | Requests JSON object output mode from the API. |
 | `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
 | `tokens` | `500` | Maximum token count requested from the API. Invalid values fall back to `500`. |
-| `store_command_results` | `false` | Stores structured command stdout, stderr, exit code, and edited state in history after execution. |
+| `share_command_results` | `false` | Shares structured command stdout, stderr, exit code, and edited state with later CLAI turns by storing it in history after execution. |
 | `result_lines` | `20` | Maximum number of stdout and stderr lines to keep per stored command result. Invalid values fall back to `20`. |
 | `exec_query` | empty | Optional extra system guidance for normal command-generation mode. |
 | `question_query` | empty | Optional extra system guidance for question-answering mode. |
 | `error_query` | empty | Optional extra system guidance for error-recovery mode. |
 
 If `exec_query`, `question_query`, or `error_query` are left empty, CLAI uses its built-in defaults.
+
+To toggle `share_command_results` directly from the CLI, run:
+
+```bash
+clai --toggle-results-sharing
+```
+
+To view the currently persisted CLAI history in a readable form, run:
+
+```bash
+clai --show-history
+```
 
 Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.
 

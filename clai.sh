@@ -258,6 +258,84 @@ handle_clear_history() {
 	return 1
 }
 
+show_history_runtime() {
+	local history_json
+
+	if [ ! -f "$HISTORY_FILE" ]; then
+		echo "No CLAI history."
+		return 0
+	fi
+
+	if ! history_json=$(jq -ce 'if type == "array" then map(select(.role != "system")) else error("history must be an array") end' "$HISTORY_FILE" 2>/dev/null); then
+		echo "Failed to read CLAI history." >&2
+		return 1
+	fi
+
+	if [ "$(jq 'length' <<< "$history_json")" -eq 0 ]; then
+		echo "No CLAI history."
+		return 0
+	fi
+
+	jq -r '
+		def indent2:
+			split("\n") | map("  " + .) | join("\n");
+		def indent4:
+			split("\n") | map("    " + .) | join("\n");
+		def content_text:
+			if . == null then ""
+			elif type == "string" then .
+			else tostring
+			end;
+		to_entries[]
+		| (.key + 1) as $i
+		| .value as $m
+		| if $m.role == "user" then
+			"[\($i)] user\n" + (($m.content | content_text) | indent2)
+		  elif $m.role == "tool" then
+			"[\($i)] tool \($m.tool_call_id // "")\n" + (($m.content | content_text) | indent2)
+		  elif (($m.tool_calls? // []) | length) > 0 then
+			"[\($i)] assistant tool call\n"
+			+ (
+				$m.tool_calls
+				| map(
+					.function.name as $name
+					| (.function.arguments | fromjson? // .function.arguments) as $args
+					| "  name: \($name)\n  arguments:\n" + (($args | tostring) | indent4)
+				)
+				| join("\n")
+			)
+		  elif $m.role == "assistant" then
+			($m.content | fromjson? // $m.content) as $content
+			| if ($content | type) == "object" and ($content.command_result? != null) then
+				($content.command_result) as $cr
+				| "[\($i)] command result\n"
+				+ "  command: \($cr.command // "")\n"
+				+ "  exit_code: \($cr.exit_code // "")\n"
+				+ "  edited: \($cr.edited // false)"
+				+ (if (($cr.stdout // "") | length) > 0 then "\n  stdout:\n" + (($cr.stdout | content_text) | indent4) else "" end)
+				+ (if (($cr.stderr // "") | length) > 0 then "\n  stderr:\n" + (($cr.stderr | content_text) | indent4) else "" end)
+			  elif ($content | type) == "object" and (($content.info? != null) or ($content.cmd? != null)) then
+				"[\($i)] assistant\n"
+				+ (if $content.info? != null then "  info: \($content.info)\n" else "" end)
+				+ (if $content.cmd? != null then "  cmd: \($content.cmd)" else "" end)
+				| sub("\n$"; "")
+			  else
+				"[\($i)] assistant\n" + (($m.content | content_text) | indent2)
+			  end
+		  else
+			"[\($i)] \($m.role // "unknown")\n" + (($m.content | content_text) | indent2)
+		  end
+		+ "\n"' <<< "$history_json"
+}
+
+handle_show_history() {
+	if show_history_runtime; then
+		return 0
+	fi
+
+	return 1
+}
+
 is_clear_history_request() {
 	local normalized_query
 
@@ -332,8 +410,12 @@ HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
 
 # Built-in request handling
 USER_QUERY=$*
+USER_QUERY_ARGC=$#
+FIRST_USER_ARG="$1"
 SETUP_REQUESTED=false
-if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
+SHOW_HISTORY_REQUESTED=false
+TOGGLE_RESULTS_SHARING_REQUESTED=false
+if [ "$FIRST_USER_ARG" = "--clear-history" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	handle_clear_history
 	clear_history_status=$?
 	restore_cursor
@@ -342,11 +424,17 @@ if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 	fi
 	exit_clai 1
 fi
-if [ "$1" = "--setup" ] && [ "$#" -eq 1 ]; then
+if [ "$FIRST_USER_ARG" = "--setup" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	SETUP_REQUESTED=true
 fi
-if [ "$USER_QUERY" = "setup" ] && [ "$#" -eq 1 ]; then
+if [ "$USER_QUERY" = "setup" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	SETUP_REQUESTED=true
+fi
+if [ "$FIRST_USER_ARG" = "--show-history" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
+	SHOW_HISTORY_REQUESTED=true
+fi
+if [ "$FIRST_USER_ARG" = "--toggle-results-sharing" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
+	TOGGLE_RESULTS_SHARING_REQUESTED=true
 fi
 if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
 	handle_clear_history
@@ -551,7 +639,7 @@ model=gpt-4.1
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=false
+share_command_results=false
 result_lines=20
 exec_query=
 question_query=
@@ -597,6 +685,31 @@ set_cfg_val() {
 
 save_config() {
 	write_private_file_atomic "$CONFIG_FILE" <<< "$config"
+}
+
+toggle_results_sharing() {
+	local share_command_results
+
+	share_command_results=$(cfg_val "share_command_results")
+	if [ "$share_command_results" = true ]; then
+		set_cfg_val "share_command_results" "false"
+		if ! save_config; then
+			echo "Failed to save CLAI configuration." >&2
+			return 1
+		fi
+		config=$(cat "$CONFIG_FILE")
+		echo "Command result sharing is now disabled."
+	else
+		set_cfg_val "share_command_results" "true"
+		if ! save_config; then
+			echo "Failed to save CLAI configuration." >&2
+			return 1
+		fi
+		config=$(cat "$CONFIG_FILE")
+		echo "Command result sharing is now enabled."
+	fi
+
+	return 0
 }
 
 run_setup_wizard() {
@@ -669,6 +782,21 @@ run_setup_wizard() {
 }
 
 # API Key
+if [ "$SHOW_HISTORY_REQUESTED" = true ]; then
+	load_history
+	if handle_show_history; then
+		exit_clai 0
+	fi
+	exit_clai 1
+fi
+
+if [ "$TOGGLE_RESULTS_SHARING_REQUESTED" = true ]; then
+	if toggle_results_sharing; then
+		exit_clai 0
+	fi
+	exit_clai 1
+fi
+
 OPENAI_KEY=$(cfg_val "key")
 if [ "$SETUP_REQUESTED" = true ]; then
 	run_setup_wizard || exit_clai 1
@@ -704,11 +832,11 @@ OPENAI_ERROR_QUERY=$(cfg_val "error_query")
 OPENAI_TOKENS=$(cfg_val "tokens")
 #GLOBAL_QUERY+=" All your messages must be less than \"$OPENAI_TOKENS\" tokens."
 
-STORE_COMMAND_RESULTS=$(cfg_val "store_command_results")
-if [ "$STORE_COMMAND_RESULTS" = true ]; then
-	STORE_COMMAND_RESULTS=true
+SHARE_COMMAND_RESULTS=$(cfg_val "share_command_results")
+if [ "$SHARE_COMMAND_RESULTS" = true ]; then
+	SHARE_COMMAND_RESULTS=true
 else
-	STORE_COMMAND_RESULTS=false
+	SHARE_COMMAND_RESULTS=false
 fi
 
 RESULT_LINES=$(cfg_val "result_lines")
@@ -899,7 +1027,7 @@ maybe_store_command_result() {
 	local trimmed_stdout
 	local trimmed_stderr
 
-	if [ "$STORE_COMMAND_RESULTS" != true ]; then
+	if [ "$SHARE_COMMAND_RESULTS" != true ]; then
 		return 0
 	fi
 
