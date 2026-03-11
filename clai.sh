@@ -886,7 +886,7 @@ EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 
 # Extract the maximum number of persisted conversation turns from configuration
 MAX_HISTORY_COUNT=$(cfg_val "max_history_turns")
-MAX_HISTORY_COUNT=$(jq -Rn --arg value "$MAX_HISTORY_COUNT" '$value | tonumber? // 0')
+MAX_HISTORY_COUNT=$(jq -Rn --arg value "$MAX_HISTORY_COUNT" '$value | tonumber? // 10')
 
 load_history
 

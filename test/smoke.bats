@@ -716,9 +716,9 @@ EOF
 
   [ "$status" -eq 0 ]
   [[ "$output" != *"syntax error"* ]]
-  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 2 ]
-  jq -e '.[0].content == "what is the current time?"' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
-  jq -e 'map(select(.content == "one")) | length == 0' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 4 ]
+  jq -e '.[0].content == "one"' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e 'map(select(.content == "what is the current time?")) | length == 1' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "invalid history files warn and reset to empty history" {
