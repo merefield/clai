@@ -1267,6 +1267,7 @@ EOF
     bash ./clai.sh --toggle-results-sharing
 
   [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: Shared command results may contain sensitive stdout/stderr"* ]]
   [[ "$output" == *"Command result sharing is now enabled."* ]]
   grep -qx 'share_command_results=true' "$TEST_HOME/.config/clai.cfg"
   [ ! -e "$TEST_HOME/curl-called" ]
