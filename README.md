@@ -110,9 +110,6 @@ CLAI offers the following features:
 - **Locale Awareness**\
 	Automatically detects your system's locale and uses it to provide localized responses.
 
-- **Vim Awareness**\
-	Automatically detects if you are using Vim and provides Vim-specific suggestions.
-
 ## Roadmap Themes
 
 These are candidate product directions for CLAI after the current hardening and test coverage work. Each theme is tagged with a rough implementation priority, how well it fits CLAI's current product shape, and expected complexity.
@@ -238,7 +235,7 @@ You can still edit the file manually. The `key=` value should contain your [Open
 
 You can also change the [GPT model](https://platform.openai.com/docs/models), [temperature](https://platform.openai.com/docs/api-reference/chat/create#chat-create-temperature), base URL, and many other settings in this file.
 
-The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions. The older `max_history=` key is still accepted temporarily, but it is deprecated.
+The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions.
 
 ### Config keys
 
@@ -253,13 +250,41 @@ The history retention setting is `max_history_turns=`. It controls how many user
 | `json_mode` | `false` | Requests JSON object output mode from the API. |
 | `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
 | `tokens` | `500` | Maximum token count requested from the API. Invalid values fall back to `500`. |
-| `store_command_results` | `false` | Stores structured command stdout, stderr, exit code, and edited state in history after execution. |
+| `share_command_results` | `false` | Shares structured command stdout, stderr, exit code, and edited state with later CLAI turns by storing it in history after execution. Enabling this can expose sensitive command output to later model context. |
 | `result_lines` | `20` | Maximum number of stdout and stderr lines to keep per stored command result. Invalid values fall back to `20`. |
 | `exec_query` | empty | Optional extra system guidance for normal command-generation mode. |
 | `question_query` | empty | Optional extra system guidance for question-answering mode. |
 | `error_query` | empty | Optional extra system guidance for error-recovery mode. |
 
 If `exec_query`, `question_query`, or `error_query` are left empty, CLAI uses its built-in defaults.
+
+To toggle `share_command_results` directly from the CLI, run:
+
+```bash
+clai --toggle-results-sharing
+```
+
+When you enable it, CLAI warns that shared command results may contain sensitive stdout/stderr, will be stored in history, and may be sent back to CLAI in later context.
+
+To see whether command results are currently being shared, run:
+
+```bash
+clai --show-results-sharing
+```
+
+To view the currently persisted CLAI history in a readable form, run:
+
+```bash
+clai --show-history
+```
+
+By default, stored command-result stdout and stderr are shown as compact previews containing the first 3 lines of each block.
+
+For full stored stdout/stderr blocks in command results, use:
+
+```bash
+clai --show-history --verbose
+```
 
 Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.
 
@@ -269,7 +294,7 @@ To clear persisted CLAI history explicitly, run:
 clai --clear-history
 ```
 
-This clears both the normal shell history file and the separate Vim-session history file under the CLAI state directory.
+This clears CLAI's persisted history file under the CLAI state directory.
 
 Transient request payloads, API responses, and tool logs are written to secure temporary files created with `mktemp` and are deleted automatically when the session exits.
 

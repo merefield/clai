@@ -258,6 +258,103 @@ handle_clear_history() {
 	return 1
 }
 
+show_history_runtime() {
+	local history_json
+	local verbose="${1:-false}"
+
+	if [ ! -f "$HISTORY_FILE" ]; then
+		echo "No CLAI history."
+		return 0
+	fi
+
+	if ! history_json=$(jq -ce 'if type == "array" then map(select(.role != "system")) else error("history must be an array") end' "$HISTORY_FILE" 2>/dev/null); then
+		echo "Failed to read CLAI history." >&2
+		return 1
+	fi
+
+	if [ "$(jq 'length' <<< "$history_json")" -eq 0 ]; then
+		echo "No CLAI history."
+		return 0
+	fi
+
+	jq -r '
+		def indent2:
+			split("\n") | map("  " + .) | join("\n");
+		def indent4:
+			split("\n") | map("    " + .) | join("\n");
+		def preview_block($name; $text):
+			if ($text | length) == 0 then
+				"  \($name): empty"
+			else
+				($text | split("\n")) as $lines
+				| if ($lines | length) <= 3 then
+					"  \($name):\n" + (($lines | join("\n")) | indent4)
+				  else
+					"  \($name):\n"
+					+ (($lines[0:3] | join("\n")) | indent4)
+					+ "\n    [truncated after first 3 lines]"
+				  end
+			end;
+		def content_text:
+			if . == null then ""
+			elif type == "string" then .
+			else tostring
+			end;
+		to_entries[]
+		| (.key + 1) as $i
+		| .value as $m
+		| if $m.role == "user" then
+			"[\($i)] user\n" + (($m.content | content_text) | indent2)
+		  elif $m.role == "tool" then
+			"[\($i)] tool \($m.tool_call_id // "")\n" + (($m.content | content_text) | indent2)
+		  elif (($m.tool_calls? // []) | length) > 0 then
+			"[\($i)] assistant tool call\n"
+			+ (
+				$m.tool_calls
+				| map(
+					.function.name as $name
+					| (.function.arguments | fromjson? // .function.arguments) as $args
+					| "  name: \($name)\n  arguments:\n" + (($args | tostring) | indent4)
+				)
+				| join("\n")
+			)
+		  elif $m.role == "assistant" then
+			($m.content | fromjson? // $m.content) as $content
+			| if ($content | type) == "object" and ($content.command_result? != null) then
+				($content.command_result) as $cr
+				| "[\($i)] command result\n"
+				+ "  command: \($cr.command // "")\n"
+				+ "  exit_code: \($cr.exit_code // "")\n"
+				+ "  edited: \($cr.edited // false)"
+				+ if $verbose then
+					(if (($cr.stdout // "") | length) > 0 then "\n  stdout:\n" + (($cr.stdout | content_text) | indent4) else "" end)
+					+ (if (($cr.stderr // "") | length) > 0 then "\n  stderr:\n" + (($cr.stderr | content_text) | indent4) else "" end)
+				  else
+					"\n" + preview_block("stdout"; ($cr.stdout // ""))
+					+ "\n" + preview_block("stderr"; ($cr.stderr // ""))
+				  end
+			  elif ($content | type) == "object" and (($content.info? != null) or ($content.cmd? != null)) then
+				"[\($i)] assistant\n"
+				+ (if $content.info? != null then "  info: \($content.info)\n" else "" end)
+				+ (if $content.cmd? != null then "  cmd: \($content.cmd)" else "" end)
+				| sub("\n$"; "")
+			  else
+				"[\($i)] assistant\n" + (($m.content | content_text) | indent2)
+			  end
+		  else
+			"[\($i)] \($m.role // "unknown")\n" + (($m.content | content_text) | indent2)
+		  end
+		+ "\n"' --argjson verbose "$verbose" <<< "$history_json"
+}
+
+handle_show_history() {
+	if show_history_runtime "$SHOW_HISTORY_VERBOSE"; then
+		return 0
+	fi
+
+	return 1
+}
+
 is_clear_history_request() {
 	local normalized_query
 
@@ -305,35 +402,19 @@ trap cleanup EXIT
 create_private_dir "$STATE_DIR"
 ensure_dir_exists "$CONFIG_DIR"
 
-# Test if we're in Vim
-if [ -n "$VIMRUNTIME" ]; then
-	CMD_BG_COLOR=""
-	CMD_TEXT_COLOR=""
-	INFO_TEXT_COLOR=""
-	ERROR_TEXT_COLOR=""
-	CANCEL_TEXT_COLOR=""
-	OK_TEXT_COLOR=""
-	TITLE_TEXT_COLOR=""
-	CLEAR_LINE=""
-	HIDE_CURSOR=""
-	SHOW_CURSOR=""
-	RESET_COLOR=""
-	
-	# Make sure system message reflects that we're in Vim
-	DYNAMIC_SYSTEM_QUERY+="User is inside \"$VIM\". You are in the Vim terminal."
-		
-		# Use the Vim history file
-		HISTORY_FILE="${STATE_DIR}/history_vim.json"
-else
-		# Use the default history file
-		HISTORY_FILE="${STATE_DIR}/history_com.json"
-fi
-HISTORY_FILES=("${STATE_DIR}/history_com.json" "${STATE_DIR}/history_vim.json")
+HISTORY_FILE="${STATE_DIR}/history_com.json"
+HISTORY_FILES=("$HISTORY_FILE")
 
 # Built-in request handling
 USER_QUERY=$*
+USER_QUERY_ARGC=$#
+FIRST_USER_ARG="$1"
 SETUP_REQUESTED=false
-if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
+SHOW_HISTORY_REQUESTED=false
+SHOW_HISTORY_VERBOSE=false
+SHOW_RESULTS_SHARING_REQUESTED=false
+TOGGLE_RESULTS_SHARING_REQUESTED=false
+if [ "$FIRST_USER_ARG" = "--clear-history" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	handle_clear_history
 	clear_history_status=$?
 	restore_cursor
@@ -342,11 +423,28 @@ if [ "$1" = "--clear-history" ] && [ "$#" -eq 1 ]; then
 	fi
 	exit_clai 1
 fi
-if [ "$1" = "--setup" ] && [ "$#" -eq 1 ]; then
+if [ "$FIRST_USER_ARG" = "--setup" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	SETUP_REQUESTED=true
 fi
-if [ "$USER_QUERY" = "setup" ] && [ "$#" -eq 1 ]; then
+if [ "$USER_QUERY" = "setup" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	SETUP_REQUESTED=true
+fi
+if [ "$FIRST_USER_ARG" = "--show-history" ]; then
+	if [ "$USER_QUERY_ARGC" -eq 1 ]; then
+		SHOW_HISTORY_REQUESTED=true
+	elif [ "$USER_QUERY_ARGC" -eq 2 ] && [ "$2" = "--verbose" ]; then
+		SHOW_HISTORY_REQUESTED=true
+		SHOW_HISTORY_VERBOSE=true
+	else
+		echo "ERROR: --show-history only supports the optional --verbose flag." >&2
+		exit 1
+	fi
+fi
+if [ "$FIRST_USER_ARG" = "--show-results-sharing" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
+	SHOW_RESULTS_SHARING_REQUESTED=true
+fi
+if [ "$FIRST_USER_ARG" = "--toggle-results-sharing" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
+	TOGGLE_RESULTS_SHARING_REQUESTED=true
 fi
 if [ -n "$USER_QUERY" ] && is_clear_history_request "$USER_QUERY"; then
 	handle_clear_history
@@ -551,7 +649,7 @@ model=gpt-4.1
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=false
+share_command_results=false
 result_lines=20
 exec_query=
 question_query=
@@ -597,6 +695,45 @@ set_cfg_val() {
 
 save_config() {
 	write_private_file_atomic "$CONFIG_FILE" <<< "$config"
+}
+
+toggle_results_sharing() {
+	local share_command_results
+
+	share_command_results=$(cfg_val "share_command_results")
+	if [ "$share_command_results" = true ]; then
+		set_cfg_val "share_command_results" "false"
+		if ! save_config; then
+			echo "Failed to save CLAI configuration." >&2
+			return 1
+		fi
+		config=$(cat "$CONFIG_FILE")
+		echo "Command result sharing is now disabled."
+	else
+		set_cfg_val "share_command_results" "true"
+		if ! save_config; then
+			echo "Failed to save CLAI configuration." >&2
+			return 1
+		fi
+		config=$(cat "$CONFIG_FILE")
+		warn "Shared command results may contain sensitive stdout/stderr, will be stored in history, and may be sent back to CLAI in later context."
+		echo "Command result sharing is now enabled."
+	fi
+
+	return 0
+}
+
+show_results_sharing() {
+	local share_command_results
+
+	share_command_results=$(cfg_val "share_command_results")
+	if [ "$share_command_results" = true ]; then
+		echo "Command result sharing is enabled."
+	else
+		echo "Command result sharing is disabled."
+	fi
+
+	return 0
 }
 
 run_setup_wizard() {
@@ -669,6 +806,27 @@ run_setup_wizard() {
 }
 
 # API Key
+if [ "$SHOW_HISTORY_REQUESTED" = true ]; then
+	if handle_show_history; then
+		exit_clai 0
+	fi
+	exit_clai 1
+fi
+
+if [ "$SHOW_RESULTS_SHARING_REQUESTED" = true ]; then
+	if show_results_sharing; then
+		exit_clai 0
+	fi
+	exit_clai 1
+fi
+
+if [ "$TOGGLE_RESULTS_SHARING_REQUESTED" = true ]; then
+	if toggle_results_sharing; then
+		exit_clai 0
+	fi
+	exit_clai 1
+fi
+
 OPENAI_KEY=$(cfg_val "key")
 if [ "$SETUP_REQUESTED" = true ]; then
 	run_setup_wizard || exit_clai 1
@@ -704,11 +862,11 @@ OPENAI_ERROR_QUERY=$(cfg_val "error_query")
 OPENAI_TOKENS=$(cfg_val "tokens")
 #GLOBAL_QUERY+=" All your messages must be less than \"$OPENAI_TOKENS\" tokens."
 
-STORE_COMMAND_RESULTS=$(cfg_val "store_command_results")
-if [ "$STORE_COMMAND_RESULTS" = true ]; then
-	STORE_COMMAND_RESULTS=true
+SHARE_COMMAND_RESULTS=$(cfg_val "share_command_results")
+if [ "$SHARE_COMMAND_RESULTS" = true ]; then
+	SHARE_COMMAND_RESULTS=true
 else
-	STORE_COMMAND_RESULTS=false
+	SHARE_COMMAND_RESULTS=false
 fi
 
 RESULT_LINES=$(cfg_val "result_lines")
@@ -728,13 +886,7 @@ EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 
 # Extract the maximum number of persisted conversation turns from configuration
 MAX_HISTORY_COUNT=$(cfg_val "max_history_turns")
-if [ -z "$MAX_HISTORY_COUNT" ]; then
-	MAX_HISTORY_COUNT=$(cfg_val "max_history")
-	if [ -n "$MAX_HISTORY_COUNT" ]; then
-		warn "The config key \"max_history\" is deprecated; use \"max_history_turns\" instead."
-	fi
-fi
-MAX_HISTORY_COUNT=$(jq -Rn --arg value "$MAX_HISTORY_COUNT" '$value | tonumber? // 0')
+MAX_HISTORY_COUNT=$(jq -Rn --arg value "$MAX_HISTORY_COUNT" '$value | tonumber? // 10')
 
 load_history
 
@@ -899,7 +1051,7 @@ maybe_store_command_result() {
 	local trimmed_stdout
 	local trimmed_stderr
 
-	if [ "$STORE_COMMAND_RESULTS" != true ]; then
+	if [ "$SHARE_COMMAND_RESULTS" != true ]; then
 		return 0
 	fi
 

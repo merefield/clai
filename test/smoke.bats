@@ -358,7 +358,7 @@ model=gpt-4.1
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=false
+share_command_results=false
 result_lines=20
 exec_query=
 question_query=
@@ -388,7 +388,7 @@ model=gpt-4.1
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=false
+share_command_results=false
 result_lines=20
 exec_query=
 question_query=
@@ -418,7 +418,7 @@ model=gpt-4.1
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=false
+share_command_results=false
 result_lines=20
 exec_query=
 question_query=
@@ -716,47 +716,9 @@ EOF
 
   [ "$status" -eq 0 ]
   [[ "$output" != *"syntax error"* ]]
-  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 2 ]
-  jq -e '.[0].content == "what is the current time?"' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
-  jq -e 'map(select(.content == "one")) | length == 0' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
-}
-
-@test "legacy max_history key still works with a deprecation warning" {
-  write_config <<'EOF'
-key=test-key
-hi_contrast=false
-expose_current_dir=true
-max_history=2
-api=https://example.invalid/v1/chat/completions
-model=gpt-4o-mini
-json_mode=false
-temp=0.1
-tokens=500
-exec_query=
-question_query=
-error_query=
-EOF
-
-  mkdir -p "$TEST_HOME/.local/state/clai"
-  cat > "$TEST_HOME/.local/state/clai/history_com.json" <<'EOF'
-[{"role":"user","content":"one"},{"role":"assistant","content":"{\"info\":\"two\"}"},{"role":"user","content":"three"},{"role":"assistant","content":"{\"info\":\"four\"}"}]
-EOF
-
-  make_success_curl
-
-  run env \
-    HOME="$TEST_HOME" \
-    TMPDIR="$TEST_HOME/tmp" \
-    PATH="$TEST_HOME/fakebin:$PATH" \
-    USER="bats" \
-    LANG="C" \
-    LC_TIME="C" \
-    TEST_HOME="$TEST_HOME" \
-    bash ./clai.sh "what is the current time?"
-
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"deprecated"* ]]
   [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 4 ]
+  jq -e '.[0].content == "one"' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e 'map(select(.content == "what is the current time?")) | length == 1' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "invalid history files warn and reset to empty history" {
@@ -833,7 +795,6 @@ EOF
 @test "--clear-history removes persisted history without requiring API config" {
   mkdir -p "$TEST_HOME/.local/state/clai"
   printf '[]' > "$TEST_HOME/.local/state/clai/history_com.json"
-  printf '[]' > "$TEST_HOME/.local/state/clai/history_vim.json"
 
   make_marker_curl
 
@@ -850,7 +811,6 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"Cleared CLAI history."* ]]
   [ ! -e "$TEST_HOME/.local/state/clai/history_com.json" ]
-  [ ! -e "$TEST_HOME/.local/state/clai/history_vim.json" ]
   [ ! -e "$TEST_HOME/curl-called" ]
   [ ! -e "$TEST_HOME/.config/clai.cfg" ]
 }
@@ -858,7 +818,6 @@ EOF
 @test "clear your history request is handled locally without an API call" {
   mkdir -p "$TEST_HOME/.local/state/clai"
   printf '[]' > "$TEST_HOME/.local/state/clai/history_com.json"
-  printf '[]' > "$TEST_HOME/.local/state/clai/history_vim.json"
 
   make_marker_curl
 
@@ -875,7 +834,6 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"Cleared CLAI history."* ]]
   [ ! -e "$TEST_HOME/.local/state/clai/history_com.json" ]
-  [ ! -e "$TEST_HOME/.local/state/clai/history_vim.json" ]
   [ ! -e "$TEST_HOME/curl-called" ]
   [ ! -e "$TEST_HOME/.config/clai.cfg" ]
 }
@@ -900,6 +858,97 @@ EOF
   [[ "$output" == *"Failed to clear CLAI history."* ]]
   [ -d "$TEST_HOME/.local/state/clai/history_com.json" ]
   [ ! -e "$TEST_HOME/curl-called" ]
+}
+
+@test "--show-history reports when no persisted history exists" {
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --show-history
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No CLAI history."* ]]
+}
+
+@test "--show-history prints compact persisted history by default" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  cat > "$TEST_HOME/.local/state/clai/history_com.json" <<'EOF'
+[
+  {"role":"user","content":"what happened?"},
+  {"role":"assistant","content":"{\"info\":\"here is the answer\",\"cmd\":\"printf hi\"}"},
+  {"role":"assistant","content":"{\"command_result\":{\"command\":\"printf hi\",\"exit_code\":0,\"stdout\":\"one\\ntwo\\nthree\\nfour\",\"stderr\":\"warn-one\\nwarn-two\\nwarn-three\\nwarn-four\",\"edited\":false}}"},
+  {"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"record-note","arguments":"{\"value\":\"hello\"}"}}]},
+  {"role":"tool","content":"tool output","tool_call_id":"call_1"}
+]
+EOF
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --show-history
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[1] user"* ]]
+  [[ "$output" == *"what happened?"* ]]
+  [[ "$output" == *"[2] assistant"* ]]
+  [[ "$output" == *"info: here is the answer"* ]]
+  [[ "$output" == *"cmd: printf hi"* ]]
+  [[ "$output" == *"[3] command result"* ]]
+  [[ "$output" == *"exit_code: 0"* ]]
+  [[ "$output" == *$'stdout:\n    one\n    two\n    three'* ]]
+  [[ "$output" == *$'stderr:\n    warn-one\n    warn-two\n    warn-three'* ]]
+  [[ "$output" == *"[truncated after first 3 lines]"* ]]
+  [[ "$output" != *"four"* ]]
+  [[ "$output" != *"warn-four"* ]]
+  [[ "$output" == *"[4] assistant tool call"* ]]
+  [[ "$output" == *"name: record-note"* ]]
+  [[ "$output" == *"[5] tool call_1"* ]]
+  [[ "$output" == *"tool output"* ]]
+}
+
+@test "--show-history --verbose prints full stored command result output" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  cat > "$TEST_HOME/.local/state/clai/history_com.json" <<'EOF'
+[
+  {"role":"assistant","content":"{\"command_result\":{\"command\":\"printf hi\",\"exit_code\":0,\"stdout\":\"hi\",\"stderr\":\"warn\",\"edited\":false}}"}
+]
+EOF
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --show-history --verbose
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[1] command result"* ]]
+  [[ "$output" == *$'stdout:\n    hi'* ]]
+  [[ "$output" == *$'stderr:\n    warn'* ]]
+}
+
+@test "--show-history does not rewrite malformed persisted history" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  printf '%s' '{not-json' > "$TEST_HOME/.local/state/clai/history_com.json"
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --show-history
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed to read CLAI history."* ]]
+  [ "$(cat "$TEST_HOME/.local/state/clai/history_com.json")" = "{not-json" ]
 }
 
 @test "tool calls trigger tool execution and resume with tool output in history" {
@@ -1082,7 +1131,7 @@ model=gpt-4o-mini
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=true
+share_command_results=true
 result_lines=2
 exec_query=
 question_query=
@@ -1144,7 +1193,7 @@ model=gpt-4o-mini
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=false
+share_command_results=false
 result_lines=2
 exec_query=
 question_query=
@@ -1175,11 +1224,166 @@ EOF
   ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
+@test "--toggle-results-sharing enables command result sharing in config" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+share_command_results=false
+result_lines=2
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_marker_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh --toggle-results-sharing
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: Shared command results may contain sensitive stdout/stderr"* ]]
+  [[ "$output" == *"Command result sharing is now enabled."* ]]
+  grep -qx 'share_command_results=true' "$TEST_HOME/.config/clai.cfg"
+  [ ! -e "$TEST_HOME/curl-called" ]
+}
+
+@test "--toggle-results-sharing disables command result sharing in config" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+share_command_results=true
+result_lines=2
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_marker_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh --toggle-results-sharing
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Command result sharing is now disabled."* ]]
+  grep -qx 'share_command_results=false' "$TEST_HOME/.config/clai.cfg"
+  [ ! -e "$TEST_HOME/curl-called" ]
+}
+
+@test "--toggle-results-sharing works without API configuration" {
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --toggle-results-sharing
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Command result sharing is now enabled."* ]]
+  [ -f "$TEST_HOME/.config/clai.cfg" ]
+  grep -qx 'share_command_results=true' "$TEST_HOME/.config/clai.cfg"
+}
+
+@test "--show-results-sharing reports disabled state without changing config" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+share_command_results=false
+result_lines=2
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_marker_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh --show-results-sharing
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Command result sharing is disabled."* ]]
+  grep -qx 'share_command_results=false' "$TEST_HOME/.config/clai.cfg"
+  [ ! -e "$TEST_HOME/curl-called" ]
+}
+
+@test "--show-results-sharing reports enabled state without requiring API configuration" {
+  write_config <<'EOF'
+key=
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+share_command_results=true
+result_lines=20
+exec_query=
+question_query=
+error_query=
+EOF
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --show-results-sharing
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Command result sharing is enabled."* ]]
+  grep -qx 'share_command_results=true' "$TEST_HOME/.config/clai.cfg"
+}
+
 @test "run_cmd stores the real non-zero exit code in command results" {
   run bash -lc '
     HISTORY_MESSAGES="[]"
     HISTORY_DIRTY=false
-    STORE_COMMAND_RESULTS=true
+    SHARE_COMMAND_RESULTS=true
     RESULT_LINES=5
     SESSION_TMPDIR="'"$TEST_HOME"'/tmp"
 
@@ -1249,7 +1453,7 @@ EOF
       local trimmed_stdout
       local trimmed_stderr
 
-      if [ "$STORE_COMMAND_RESULTS" != true ]; then
+      if [ "$SHARE_COMMAND_RESULTS" != true ]; then
         return 0
       fi
 
@@ -1321,7 +1525,7 @@ model=gpt-4o-mini
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=true
+share_command_results=true
 result_lines=2.5
 exec_query=
 question_query=
@@ -1398,7 +1602,7 @@ model=gpt-4o-mini
 json_mode=false
 temp=0.1
 tokens=500
-store_command_results=true
+share_command_results=true
 result_lines=2
 exec_query=
 question_query=
