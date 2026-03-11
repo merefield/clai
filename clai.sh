@@ -716,7 +716,7 @@ toggle_results_sharing() {
 			return 1
 		fi
 		config=$(cat "$CONFIG_FILE")
-		echo "WARNING: Shared command results may contain sensitive stdout/stderr, will be stored in history, and may be sent back to CLAI in later context."
+		warn "Shared command results may contain sensitive stdout/stderr, will be stored in history, and may be sent back to CLAI in later context."
 		echo "Command result sharing is now enabled."
 	fi
 
