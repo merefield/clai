@@ -250,7 +250,7 @@ The history retention setting is `max_history_turns=`. It controls how many user
 | `json_mode` | `false` | Requests JSON object output mode from the API. |
 | `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
 | `tokens` | `500` | Maximum token count requested from the API. Invalid values fall back to `500`. |
-| `share_command_results` | `false` | Shares structured command stdout, stderr, exit code, and edited state with later CLAI turns by storing it in history after execution. |
+| `share_command_results` | `false` | Shares structured command stdout, stderr, exit code, and edited state with later CLAI turns by storing it in history after execution. Enabling this can expose sensitive command output to later model context. |
 | `result_lines` | `20` | Maximum number of stdout and stderr lines to keep per stored command result. Invalid values fall back to `20`. |
 | `exec_query` | empty | Optional extra system guidance for normal command-generation mode. |
 | `question_query` | empty | Optional extra system guidance for question-answering mode. |
@@ -264,6 +264,8 @@ To toggle `share_command_results` directly from the CLI, run:
 clai --toggle-results-sharing
 ```
 
+When you enable it, CLAI warns that shared command results may contain sensitive stdout/stderr, will be stored in history, and may be sent back to CLAI in later context.
+
 To see whether command results are currently being shared, run:
 
 ```bash
@@ -275,6 +277,8 @@ To view the currently persisted CLAI history in a readable form, run:
 ```bash
 clai --show-history
 ```
+
+By default, stored command-result stdout and stderr are shown as compact previews containing the first 3 lines of each block.
 
 For full stored stdout/stderr blocks in command results, use:
 
