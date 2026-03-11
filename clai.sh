@@ -260,6 +260,7 @@ handle_clear_history() {
 
 show_history_runtime() {
 	local history_json
+	local verbose="${1:-false}"
 
 	if [ ! -f "$HISTORY_FILE" ]; then
 		echo "No CLAI history."
@@ -281,6 +282,12 @@ show_history_runtime() {
 			split("\n") | map("  " + .) | join("\n");
 		def indent4:
 			split("\n") | map("    " + .) | join("\n");
+		def line_summary($name; $text):
+			if ($text | length) == 0 then
+				"  \($name): empty"
+			else
+				"  \($name): \((($text | split("\n")) | length)) line(s)"
+			end;
 		def content_text:
 			if . == null then ""
 			elif type == "string" then .
@@ -312,8 +319,13 @@ show_history_runtime() {
 				+ "  command: \($cr.command // "")\n"
 				+ "  exit_code: \($cr.exit_code // "")\n"
 				+ "  edited: \($cr.edited // false)"
-				+ (if (($cr.stdout // "") | length) > 0 then "\n  stdout:\n" + (($cr.stdout | content_text) | indent4) else "" end)
-				+ (if (($cr.stderr // "") | length) > 0 then "\n  stderr:\n" + (($cr.stderr | content_text) | indent4) else "" end)
+				+ if $verbose then
+					(if (($cr.stdout // "") | length) > 0 then "\n  stdout:\n" + (($cr.stdout | content_text) | indent4) else "" end)
+					+ (if (($cr.stderr // "") | length) > 0 then "\n  stderr:\n" + (($cr.stderr | content_text) | indent4) else "" end)
+				  else
+					"\n" + line_summary("stdout"; ($cr.stdout // ""))
+					+ "\n" + line_summary("stderr"; ($cr.stderr // ""))
+				  end
 			  elif ($content | type) == "object" and (($content.info? != null) or ($content.cmd? != null)) then
 				"[\($i)] assistant\n"
 				+ (if $content.info? != null then "  info: \($content.info)\n" else "" end)
@@ -325,11 +337,11 @@ show_history_runtime() {
 		  else
 			"[\($i)] \($m.role // "unknown")\n" + (($m.content | content_text) | indent2)
 		  end
-		+ "\n"' <<< "$history_json"
+		+ "\n"' --argjson verbose "$verbose" <<< "$history_json"
 }
 
 handle_show_history() {
-	if show_history_runtime; then
+	if show_history_runtime "$SHOW_HISTORY_VERBOSE"; then
 		return 0
 	fi
 
@@ -392,6 +404,7 @@ USER_QUERY_ARGC=$#
 FIRST_USER_ARG="$1"
 SETUP_REQUESTED=false
 SHOW_HISTORY_REQUESTED=false
+SHOW_HISTORY_VERBOSE=false
 SHOW_RESULTS_SHARING_REQUESTED=false
 TOGGLE_RESULTS_SHARING_REQUESTED=false
 if [ "$FIRST_USER_ARG" = "--clear-history" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
@@ -409,8 +422,16 @@ fi
 if [ "$USER_QUERY" = "setup" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	SETUP_REQUESTED=true
 fi
-if [ "$FIRST_USER_ARG" = "--show-history" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
-	SHOW_HISTORY_REQUESTED=true
+if [ "$FIRST_USER_ARG" = "--show-history" ]; then
+	if [ "$USER_QUERY_ARGC" -eq 1 ]; then
+		SHOW_HISTORY_REQUESTED=true
+	elif [ "$USER_QUERY_ARGC" -eq 2 ] && [ "$2" = "--verbose" ]; then
+		SHOW_HISTORY_REQUESTED=true
+		SHOW_HISTORY_VERBOSE=true
+	else
+		echo "ERROR: --show-history only supports the optional --verbose flag." >&2
+		exit 1
+	fi
 fi
 if [ "$FIRST_USER_ARG" = "--show-results-sharing" ] && [ "$USER_QUERY_ARGC" -eq 1 ]; then
 	SHOW_RESULTS_SHARING_REQUESTED=true
@@ -858,12 +879,6 @@ EXPOSE_CURRENT_DIR=$(cfg_val "expose_current_dir")
 
 # Extract the maximum number of persisted conversation turns from configuration
 MAX_HISTORY_COUNT=$(cfg_val "max_history_turns")
-if [ -z "$MAX_HISTORY_COUNT" ]; then
-	MAX_HISTORY_COUNT=$(cfg_val "max_history")
-	if [ -n "$MAX_HISTORY_COUNT" ]; then
-		warn "The config key \"max_history\" is deprecated; use \"max_history_turns\" instead."
-	fi
-fi
 MAX_HISTORY_COUNT=$(jq -Rn --arg value "$MAX_HISTORY_COUNT" '$value | tonumber? // 0')
 
 load_history

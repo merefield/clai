@@ -235,7 +235,7 @@ You can still edit the file manually. The `key=` value should contain your [Open
 
 You can also change the [GPT model](https://platform.openai.com/docs/models), [temperature](https://platform.openai.com/docs/api-reference/chat/create#chat-create-temperature), base URL, and many other settings in this file.
 
-The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions. The older `max_history=` key is still accepted temporarily, but it is deprecated.
+The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions.
 
 ### Config keys
 
@@ -274,6 +274,12 @@ To view the currently persisted CLAI history in a readable form, run:
 
 ```bash
 clai --show-history
+```
+
+For full stored stdout/stderr blocks in command results, use:
+
+```bash
+clai --show-history --verbose
 ```
 
 Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.

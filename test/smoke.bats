@@ -721,44 +721,6 @@ EOF
   jq -e 'map(select(.content == "one")) | length == 0' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
-@test "legacy max_history key still works with a deprecation warning" {
-  write_config <<'EOF'
-key=test-key
-hi_contrast=false
-expose_current_dir=true
-max_history=2
-api=https://example.invalid/v1/chat/completions
-model=gpt-4o-mini
-json_mode=false
-temp=0.1
-tokens=500
-exec_query=
-question_query=
-error_query=
-EOF
-
-  mkdir -p "$TEST_HOME/.local/state/clai"
-  cat > "$TEST_HOME/.local/state/clai/history_com.json" <<'EOF'
-[{"role":"user","content":"one"},{"role":"assistant","content":"{\"info\":\"two\"}"},{"role":"user","content":"three"},{"role":"assistant","content":"{\"info\":\"four\"}"}]
-EOF
-
-  make_success_curl
-
-  run env \
-    HOME="$TEST_HOME" \
-    TMPDIR="$TEST_HOME/tmp" \
-    PATH="$TEST_HOME/fakebin:$PATH" \
-    USER="bats" \
-    LANG="C" \
-    LC_TIME="C" \
-    TEST_HOME="$TEST_HOME" \
-    bash ./clai.sh "what is the current time?"
-
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"deprecated"* ]]
-  [ "$(jq 'length' "$TEST_HOME/.local/state/clai/history_com.json")" -eq 4 ]
-}
-
 @test "invalid history files warn and reset to empty history" {
   write_config <<'EOF'
 key=test-key
@@ -911,7 +873,7 @@ EOF
   [[ "$output" == *"No CLAI history."* ]]
 }
 
-@test "--show-history prints persisted history in a readable format" {
+@test "--show-history prints compact persisted history by default" {
   mkdir -p "$TEST_HOME/.local/state/clai"
   cat > "$TEST_HOME/.local/state/clai/history_com.json" <<'EOF'
 [
@@ -939,11 +901,35 @@ EOF
   [[ "$output" == *"cmd: printf hi"* ]]
   [[ "$output" == *"[3] command result"* ]]
   [[ "$output" == *"exit_code: 0"* ]]
-  [[ "$output" == *"stdout:"* ]]
+  [[ "$output" == *"stdout: 1 line(s)"* ]]
+  [[ "$output" == *"stderr: empty"* ]]
+  [[ "$output" != *$'\n    hi'* ]]
   [[ "$output" == *"[4] assistant tool call"* ]]
   [[ "$output" == *"name: record-note"* ]]
   [[ "$output" == *"[5] tool call_1"* ]]
   [[ "$output" == *"tool output"* ]]
+}
+
+@test "--show-history --verbose prints full stored command result output" {
+  mkdir -p "$TEST_HOME/.local/state/clai"
+  cat > "$TEST_HOME/.local/state/clai/history_com.json" <<'EOF'
+[
+  {"role":"assistant","content":"{\"command_result\":{\"command\":\"printf hi\",\"exit_code\":0,\"stdout\":\"hi\",\"stderr\":\"warn\",\"edited\":false}}"}
+]
+EOF
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    bash ./clai.sh --show-history --verbose
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[1] command result"* ]]
+  [[ "$output" == *$'stdout:\n    hi'* ]]
+  [[ "$output" == *$'stderr:\n    warn'* ]]
 }
 
 @test "--show-history does not rewrite malformed persisted history" {
