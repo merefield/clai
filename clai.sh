@@ -282,11 +282,18 @@ show_history_runtime() {
 			split("\n") | map("  " + .) | join("\n");
 		def indent4:
 			split("\n") | map("    " + .) | join("\n");
-		def line_summary($name; $text):
+		def preview_block($name; $text):
 			if ($text | length) == 0 then
 				"  \($name): empty"
 			else
-				"  \($name): \((($text | split("\n")) | length)) line(s)"
+				($text | split("\n")) as $lines
+				| if ($lines | length) <= 3 then
+					"  \($name):\n" + (($lines | join("\n")) | indent4)
+				  else
+					"  \($name):\n"
+					+ (($lines[0:3] | join("\n")) | indent4)
+					+ "\n    [truncated after first 3 lines]"
+				  end
 			end;
 		def content_text:
 			if . == null then ""
@@ -323,8 +330,8 @@ show_history_runtime() {
 					(if (($cr.stdout // "") | length) > 0 then "\n  stdout:\n" + (($cr.stdout | content_text) | indent4) else "" end)
 					+ (if (($cr.stderr // "") | length) > 0 then "\n  stderr:\n" + (($cr.stderr | content_text) | indent4) else "" end)
 				  else
-					"\n" + line_summary("stdout"; ($cr.stdout // ""))
-					+ "\n" + line_summary("stderr"; ($cr.stderr // ""))
+					"\n" + preview_block("stdout"; ($cr.stdout // ""))
+					+ "\n" + preview_block("stderr"; ($cr.stderr // ""))
 				  end
 			  elif ($content | type) == "object" and (($content.info? != null) or ($content.cmd? != null)) then
 				"[\($i)] assistant\n"

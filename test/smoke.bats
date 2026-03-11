@@ -879,7 +879,7 @@ EOF
 [
   {"role":"user","content":"what happened?"},
   {"role":"assistant","content":"{\"info\":\"here is the answer\",\"cmd\":\"printf hi\"}"},
-  {"role":"assistant","content":"{\"command_result\":{\"command\":\"printf hi\",\"exit_code\":0,\"stdout\":\"hi\",\"stderr\":\"\",\"edited\":false}}"},
+  {"role":"assistant","content":"{\"command_result\":{\"command\":\"printf hi\",\"exit_code\":0,\"stdout\":\"one\\ntwo\\nthree\\nfour\",\"stderr\":\"warn-one\\nwarn-two\\nwarn-three\\nwarn-four\",\"edited\":false}}"},
   {"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"record-note","arguments":"{\"value\":\"hello\"}"}}]},
   {"role":"tool","content":"tool output","tool_call_id":"call_1"}
 ]
@@ -901,9 +901,11 @@ EOF
   [[ "$output" == *"cmd: printf hi"* ]]
   [[ "$output" == *"[3] command result"* ]]
   [[ "$output" == *"exit_code: 0"* ]]
-  [[ "$output" == *"stdout: 1 line(s)"* ]]
-  [[ "$output" == *"stderr: empty"* ]]
-  [[ "$output" != *$'\n    hi'* ]]
+  [[ "$output" == *$'stdout:\n    one\n    two\n    three'* ]]
+  [[ "$output" == *$'stderr:\n    warn-one\n    warn-two\n    warn-three'* ]]
+  [[ "$output" == *"[truncated after first 3 lines]"* ]]
+  [[ "$output" != *"four"* ]]
+  [[ "$output" != *"warn-four"* ]]
   [[ "$output" == *"[4] assistant tool call"* ]]
   [[ "$output" == *"name: record-note"* ]]
   [[ "$output" == *"[5] tool call_1"* ]]
