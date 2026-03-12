@@ -143,7 +143,7 @@ curl -sS https://raw.githubusercontent.com/merefield/clai/main/install.sh | bash
 
 By default, the installer downloads the real script to `/usr/local/lib/clai/clai.sh` and exposes `clai` by creating a symlink in `/usr/local/bin`, which is typically already on your `PATH`.
 
-On the first invocation without a configured API key, CLAI starts a setup wizard and prompts for:
+On the first invocation without a configured key, CLAI starts a setup wizard and prompts for:
 
 - API key
 - API base URL
@@ -153,6 +153,13 @@ The defaults are:
 
 - API base URL: `https://api.openai.com/v1/chat/completions`
 - model: `gpt-4.1`
+
+You can point CLAI at:
+
+- OpenAI
+- Anthropic
+- Gemini
+- a local or self-hosted OpenAI-compatible endpoint by setting `api=` and `model=` accordingly
 
 You can re-run that setup wizard at any time with either:
 
@@ -227,14 +234,14 @@ CLAI will create `~/.config` automatically if needed and will write `clai.cfg` w
 > [!IMPORTANT]
 > Always remove `clai.cfg` before updating CLAI to avoid compatibility issues.
 
-If there is no configured API key, CLAI will start the setup wizard automatically on invocation and prompt for the API key, base URL, and model. You can also re-run that flow explicitly with `clai setup` or `clai --setup`.
+If there is no configured key, CLAI will start the setup wizard automatically on invocation and prompt for the key, base URL, and model. You can also re-run that flow explicitly with `clai setup` or `clai --setup`.
 
-You can still edit the file manually. The `key=` value should contain the API key for your configured provider.
+You can still edit the file manually. The `key=` value should contain the credential for your configured provider. For local or self-hosted OpenAI-compatible endpoints, CLAI still expects `key=` to be non-empty, so use whatever token or placeholder value your endpoint accepts.
 
 > [!CAUTION]
 > Keeping the key in a plain text file is dangerous, and it is your responsibility to keep it secure.
 
-You can also change the [GPT model](https://platform.openai.com/docs/models), [temperature](https://platform.openai.com/docs/api-reference/chat/create#chat-create-temperature), base URL, and many other settings in this file.
+You can also change the model name, sampling temperature, base URL, and many other settings in this file.
 
 The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions.
 
@@ -242,7 +249,7 @@ The history retention setting is `max_history_turns=`. It controls how many user
 
 | Key | Default | Purpose |
 | --- | --- | --- |
-| `key` | empty | Your API key for the configured provider. Required before CLAI can make requests. |
+| `key` | empty | Credential for the configured provider. CLAI requires this to be non-empty before it will make requests. |
 | `hi_contrast` | `false` | Uses less muted info text output. |
 | `expose_current_dir` | `true` | Includes the current working directory in the runtime context sent to the model. |
 | `max_history_turns` | `10` | Number of user conversation turns to persist across sessions. |
@@ -264,6 +271,7 @@ Provider notes:
 
 - OpenAI-compatible and Anthropic endpoints send the configured `model` directly in the request body.
 - For Gemini endpoints, CLAI treats `model` as authoritative and rewrites the effective request URL to target that model, even if the configured `api` URL template contains a different model name.
+- Local or self-hosted OpenAI-compatible endpoints can be used by pointing `api` at the compatible base URL and setting the desired `model`.
 - Local CLAI tool calls are currently only sent on OpenAI-compatible endpoints. Anthropic and Gemini still use native structured outputs for normal responses, but CLAI tells those models not to rely on tool calls.
 
 When `json_mode=true`, CLAI asks the model to return structured `cmd`, `info`, `risk`, and `variables` fields. The `risk` value must be one of:
@@ -395,6 +403,11 @@ Feel free to move them to your `~/.clai_tools` directory to enable them!
 
 ## Prerequisites
 
-- [OpenAI account and API key](https://platform.openai.com/apps)
+- A supported LLM endpoint:
+  - OpenAI
+  - Anthropic
+  - Gemini
+  - or a local/self-hosted OpenAI-compatible endpoint
+- A configured non-empty `key=` value accepted by that endpoint
 - [curl](https://curl.se/download.html)
 - [jq](https://stedolan.github.io/jq/download/)
