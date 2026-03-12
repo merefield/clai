@@ -156,9 +156,9 @@ The defaults are:
 
 You can point CLAI at:
 
-- OpenAI
-- Anthropic
-- Gemini
+- [OpenAI](https://platform.openai.com/)
+- [Anthropic](https://console.anthropic.com/)
+- [Gemini / Google AI](https://ai.google.dev/)
 - a local or self-hosted OpenAI-compatible endpoint by setting `api=` and `model=` accordingly
 
 You can re-run that setup wizard at any time with either:
@@ -406,13 +406,10 @@ Feel free to move them to your `~/.clai_tools` directory to enable them!
 ## Prerequisites
 
 - A supported LLM endpoint:
-  - OpenAI
-  - Anthropic
-  - Gemini
+  - [OpenAI](https://platform.openai.com/)
+  - [Anthropic](https://console.anthropic.com/)
+  - [Gemini / Google AI](https://ai.google.dev/)
   - or a local/self-hosted OpenAI-compatible endpoint
 - A configured non-empty `key=` value accepted by that endpoint
-- [OpenAI](https://platform.openai.com/)
-- [Anthropic](https://console.anthropic.com/)
-- [Gemini / Google AI](https://ai.google.dev/)
 - [curl](https://curl.se/)
 - [jq](https://jqlang.org/)
