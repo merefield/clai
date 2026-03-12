@@ -43,7 +43,9 @@ HISTORY_DIRTY=false
 
 # Theme colors
 CMD_BG_COLOR="\e[48;5;236m"  # Background color for cmd suggestions
-CMD_TEXT_COLOR="\e[38;5;203m"  # Text color for cmd suggestions
+CMD_SAFE_TEXT_COLOR="\e[92m"  # Text color for read-only commands
+CMD_REVERSIBLE_TEXT_COLOR="\e[38;5;214m"  # Text color for reversible changes
+CMD_DANGER_TEXT_COLOR="\e[91m"  # Text color for dangerous commands
 INFO_TEXT_COLOR="\e[90;3m"  # Text color for all information messages
 ERROR_TEXT_COLOR="\e[91m"  # Text color for cmd errors messages
 CANCEL_TEXT_COLOR="\e[93m"  # Text color cmd for cancellation message
@@ -65,13 +67,13 @@ CURSOR_HIDDEN=false
 HISTORY_FILES=()
 
 # Default query constants, these are used as default values for different types of queries
-DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd' and 'info' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omittied as a last resort if no command can be suggested."
-DEFAULT_QUESTION_QUERY="Return only a single compact JSON object containing a 'info' field. 'info' must always contain a single-line string terminal-related answer to the user query."
-DEFAULT_ERROR_QUERY="Return only a single compact JSON object containing 'cmd' and 'info' fields. 'cmd' is optional. 'cmd' must always contain a suggestion on how to fix, solve or repair the error in the user query. 'info' must always be a single-line string explaining what the error in the user query means, why it happened, and why 'cmd' might fix it. Use your tools to find out why the error occured and offer alternatives."
+DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd', 'info' and 'risk' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. Judge 'risk' from both the user's requested action and the actual command you propose. If either the user request or the command implies mutation, deletion, force, overwrite, or broad impact, the risk must not be 'none'. Use 'none' only for read-only commands that inspect state without changing files, branches, packages, configuration, permissions, environment variables, or system state. Use 'reversible change' for commands that change state but are normally undoable, such as rename/move operations, branch renames, creating files or directories, editing configuration, installs, exports, or deleting only a symbolic link. Use 'danger zone' for commands that delete data, delete branches, reset history, overwrite files, force operations, or make destructive or hard-to-reverse changes. Deleting a symbolic link with rm symlink_name or unlink symlink_name is usually 'reversible change', because it removes only the link and not the target. Never classify a command that mutates git state, files, or system configuration as 'none'. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omitted as a last resort if no command can be suggested."
+DEFAULT_QUESTION_QUERY="Return only a single compact JSON object containing 'cmd', 'info' and 'risk' fields. For questions, set 'cmd' to an empty string and set 'risk' to 'none'. 'info' must always contain a single-line string terminal-related answer to the user query."
+DEFAULT_ERROR_QUERY="Return only a single compact JSON object containing 'cmd', 'info' and 'risk' fields. 'cmd' is optional. 'cmd' must contain a suggestion on how to fix, solve or repair the error in the user query. 'info' must always be a single-line string explaining what the error in the user query means, why it happened, and why 'cmd' might fix it. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. Use 'none' when no command is suggested. Carefully infer why the error occurred based on the available information and, when possible, offer safe alternative commands or approaches."
 DYNAMIC_SYSTEM_QUERY="" # After most user queries, we'll add some dynamic system information to the query
 
 # Global query variable, this will be updated with specific user and system information
-GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell script. You are located at \"$0\". You do not have feelings or emotions, do not convey them. Please give precise curt answers. Please do not include any sign off phrases or platitudes, only respond precisely to the user. CLAI is made by Hezkore. You execute the tasks the user asks from you by utilizing the terminal and shell commands. No task is too big. Always assume the query is terminal and shell related. You support user plugins called \"tools\" that extends your capabilities, more info and plugins can be found on the CLAI homepage. The CLAI homepage is \"https://github.com/merefield/clai\". You always respond with a single JSON object containing 'cmd' and 'info' fields. We are always in the terminal. The user is using \"$UNIX_NAME\" and specifically distribution \"$DISTRO_INFO\". The users username is \"$USER\" with home \"$HOME\". You must always use LANG $LANG and LC_TIME $LC_TIME."
+GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell script. You are located at \"$0\". You do not have feelings or emotions, do not convey them. Please give precise curt answers. Please do not include any sign off phrases or platitudes, only respond precisely to the user. CLAI is made by Hezkore. You execute the tasks the user asks from you by utilizing the terminal and shell commands. No task is too big. Always assume the query is terminal and shell related. The CLAI homepage is \"https://github.com/merefield/clai\". You always respond with a single JSON object containing 'cmd', 'info' and 'risk' fields. 'risk' must always be one of 'none', 'reversible change', or 'danger zone'. Judge risk from both the user's requested action and the command you propose. 'none' is only for read-only inspection commands. Commands that rename, move, create, install, export, edit configuration, or otherwise mutate state must never be classified as 'none'. Deleting only a symbolic link should usually be 'reversible change', not 'danger zone', because the target is not removed. Commands that delete data, delete git branches, reset history, force operations, or overwrite state must be classified as 'danger zone'. We are always in the terminal. The user is using \"$UNIX_NAME\" and specifically distribution \"$DISTRO_INFO\". The users username is \"$USER\" with home \"$HOME\". You must always use LANG $LANG and LC_TIME $LC_TIME."
 
 # Configuration file path
 CONFIG_FILE=~/.config/clai.cfg
@@ -336,6 +338,7 @@ show_history_runtime() {
 			  elif ($content | type) == "object" and (($content.info? != null) or ($content.cmd? != null)) then
 				"[\($i)] assistant\n"
 				+ (if $content.info? != null then "  info: \($content.info)\n" else "" end)
+				+ (if $content.risk? != null then "  risk: \($content.risk)\n" else "" end)
 				+ (if $content.cmd? != null then "  cmd: \($content.cmd)" else "" end)
 				| sub("\n$"; "")
 			  else
@@ -460,7 +463,7 @@ fi
 #GLOBAL_QUERY+=" Your message history file path is \"$HISTORY_FILE\"."
 
 # Tools
-OPENAI_TOOLS=""
+LOCAL_TOOLS_JSON=""
 TOOLS_PATH=~/.clai_tools
 
 GLOBAL_QUERY+=" CLAI's canonical config file path is \"~/.config/clai.cfg\" (expanded path \"$CONFIG_FILE\")."
@@ -619,7 +622,7 @@ do
 						pretty_json=$(echo "$pretty_json" | jq --arg new_param "tool_reason" '.function.parameters.required += [$new_param]')
 						
 						tool_map_set "$function_name" "$tool"
-						OPENAI_TOOLS+="$pretty_json,"
+						LOCAL_TOOLS_JSON+="$pretty_json,"
 					fi
 				else
 					echo "Unknown tool type \"$type\"."
@@ -629,8 +632,8 @@ do
 	fi
 done
 
-# Strip the ending , from OPENAI_TOOLS
-OPENAI_TOOLS="${OPENAI_TOOLS%,}"
+# Strip the ending , from LOCAL_TOOLS_JSON
+LOCAL_TOOLS_JSON="${LOCAL_TOOLS_JSON%,}"
 
 # Hide the cursor while we're working
 conceal_cursor
@@ -651,6 +654,7 @@ temp=0.1
 tokens=500
 share_command_results=false
 result_lines=20
+confirm_dangerous_commands=true
 exec_query=
 question_query=
 error_query=
@@ -827,46 +831,53 @@ if [ "$TOGGLE_RESULTS_SHARING_REQUESTED" = true ]; then
 	exit_clai 1
 fi
 
-OPENAI_KEY=$(cfg_val "key")
+API_KEY=$(cfg_val "key")
 if [ "$SETUP_REQUESTED" = true ]; then
 	run_setup_wizard || exit_clai 1
 	if [ "$1" = "--setup" ] || [ "$USER_QUERY" = "setup" ]; then
 		exit_clai 0
 	fi
-	OPENAI_KEY=$(cfg_val "key")
+	API_KEY=$(cfg_val "key")
 fi
-if [ -z "$OPENAI_KEY" ]; then
+if [ -z "$API_KEY" ]; then
 	run_setup_wizard || exit_clai 1
-	OPENAI_KEY=$(cfg_val "key")
+	API_KEY=$(cfg_val "key")
 fi
 
-# Extract OpenAI URL from configuration
-OPENAI_URL=$(cfg_val "api")
+# Extract API URL from configuration
+API_URL=$(cfg_val "api")
 
-# Extract OpenAI model from configuration
-OPENAI_MODEL=$(cfg_val "model")
+# Extract model from configuration
+MODEL=$(cfg_val "model")
 
-# Extract OpenAI temperature from configuration
-OPENAI_TEMP=$(cfg_val "temp")
+# Extract temperature from configuration
+MODEL_TEMP=$(cfg_val "temp")
 
-# Extract OpenAI system execution query from configuration
-OPENAI_EXEC_QUERY=$(cfg_val "exec_query")
+# Extract execution query override from configuration
+EXEC_QUERY_CONFIG=$(cfg_val "exec_query")
 
-# Extract OpenAI system question query from configuration
-OPENAI_QUESTION_QUERY=$(cfg_val "question_query")
+# Extract question query override from configuration
+QUESTION_QUERY_CONFIG=$(cfg_val "question_query")
 
-# Extract OpenAI system error query from configuration
-OPENAI_ERROR_QUERY=$(cfg_val "error_query")
+# Extract error query override from configuration
+ERROR_QUERY_CONFIG=$(cfg_val "error_query")
 
 # Extract maximum token count from configuration
-OPENAI_TOKENS=$(cfg_val "tokens")
-#GLOBAL_QUERY+=" All your messages must be less than \"$OPENAI_TOKENS\" tokens."
+MAX_TOKENS=$(cfg_val "tokens")
+#GLOBAL_QUERY+=" All your messages must be less than \"$MAX_TOKENS\" tokens."
 
 SHARE_COMMAND_RESULTS=$(cfg_val "share_command_results")
 if [ "$SHARE_COMMAND_RESULTS" = true ]; then
 	SHARE_COMMAND_RESULTS=true
 else
 	SHARE_COMMAND_RESULTS=false
+fi
+
+CONFIRM_DANGEROUS_COMMANDS=$(cfg_val "confirm_dangerous_commands")
+if [ "$CONFIRM_DANGEROUS_COMMANDS" = false ]; then
+	CONFIRM_DANGEROUS_COMMANDS=false
+else
+	CONFIRM_DANGEROUS_COMMANDS=true
 fi
 
 RESULT_LINES=$(cfg_val "result_lines")
@@ -892,24 +903,19 @@ load_history
 
 # Test if GPT JSON mode is set in configuration
 JSON_MODE_ENABLED=$(cfg_val "json_mode")
-if [ "$JSON_MODE_ENABLED" = true ]; then
-	RESPONSE_FORMAT_JSON='{"type":"json_object"}'
-else
-	RESPONSE_FORMAT_JSON='null'
-fi
 
-OPENAI_TEMP_JSON=$(jq -Rn --arg value "$OPENAI_TEMP" '$value | tonumber? // 0.1')
-OPENAI_TOKENS_JSON=$(jq -Rn --arg value "$OPENAI_TOKENS" '$value | tonumber? // 500')
+MODEL_TEMP_JSON=$(jq -Rn --arg value "$MODEL_TEMP" '$value | tonumber? // 0.1')
+MAX_TOKENS_JSON=$(jq -Rn --arg value "$MAX_TOKENS" '$value | tonumber? // 500')
 
 # Set default query if not provided in configuration
-if [ -z "$OPENAI_EXEC_QUERY" ]; then
-	OPENAI_EXEC_QUERY="$DEFAULT_EXEC_QUERY"
+if [ -z "$EXEC_QUERY_CONFIG" ]; then
+	EXEC_QUERY_CONFIG="$DEFAULT_EXEC_QUERY"
 fi
-if [ -z "$OPENAI_QUESTION_QUERY" ]; then
-	OPENAI_QUESTION_QUERY="$DEFAULT_QUESTION_QUERY"
+if [ -z "$QUESTION_QUERY_CONFIG" ]; then
+	QUESTION_QUERY_CONFIG="$DEFAULT_QUESTION_QUERY"
 fi
-if [ -z "$OPENAI_ERROR_QUERY" ]; then
-	OPENAI_ERROR_QUERY="$DEFAULT_ERROR_QUERY"
+if [ -z "$ERROR_QUERY_CONFIG" ]; then
+	ERROR_QUERY_CONFIG="$DEFAULT_ERROR_QUERY"
 fi
 
 # Helper functions
@@ -933,9 +939,58 @@ print_cancel() {
 	printf "%b%s%b\n\n" "${CANCEL_TEXT_COLOR}" "$1" "${RESET_COLOR}"
 }
 
+risk_text_color() {
+	case "$1" in
+		"none")
+			printf "%b" "$CMD_SAFE_TEXT_COLOR"
+			;;
+		"reversible change")
+			printf "%b" "$CMD_REVERSIBLE_TEXT_COLOR"
+			;;
+		*)
+			printf "%b" "$CMD_DANGER_TEXT_COLOR"
+			;;
+	esac
+}
+
+normalize_risk() {
+	local risk="$1"
+	local cmd="$2"
+
+	case "$risk" in
+		"none"|"reversible change"|"danger zone")
+			printf "%s" "$risk"
+			;;
+		*)
+			if [ -n "$cmd" ]; then
+				printf "danger zone"
+			else
+				printf "none"
+			fi
+			;;
+	esac
+}
+
 print_cmd() {
-	[ -z "$1" ] && return
-	printf "%b %s %b\n\n" "${PRE_TEXT}${CMD_BG_COLOR}${CMD_TEXT_COLOR}" "$1" "${RESET_COLOR}"
+	local command="$1"
+	local risk="$2"
+	local text_color
+
+	[ -z "$command" ] && return
+	text_color=$(risk_text_color "$risk")
+	printf "%b %s %b\n\n" "${PRE_TEXT}${CMD_BG_COLOR}${text_color}" "$command" "${RESET_COLOR}"
+}
+
+print_command_info() {
+	local info="$1"
+	local risk="$2"
+
+	[ -z "$info" ] && return
+	if [ "$risk" = "danger zone" ]; then
+		printf "%b%s%b%s%b\n\n" "${PRE_TEXT}${ERROR_TEXT_COLOR}" "DANGER ZONE: " "${INFO_TEXT_COLOR}" "$info" "${RESET_COLOR}"
+	else
+		print_info "$info"
+	fi
 }
 
 print() {
@@ -1088,60 +1143,176 @@ build_template_messages() {
 			jq -cn --arg system "$system_content" '[
 				{"role": "system", "content": $system},
 				{"role": "user", "content": "how do I list all files?"},
-				{"role": "assistant", "content": "{ \"info\": \"Use the \\\"ls\\\" command to with the \\\"-a\\\" flag to list all files, including hidden ones, in the current directory.\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"ls\\\" command with the \\\"-a\\\" flag to list all files, including hidden ones, in the current directory.\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "how do I recursively list all the files?"},
-				{"role": "assistant", "content": "{ \"info\": \"Use the \\\"ls\\\" command to with the \\\"-aR\\\" flag to list all files recursively, including hidden ones, in the current directory.\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"ls\\\" command with the \\\"-aR\\\" flag to list all files recursively, including hidden ones, in the current directory.\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "how do I print hello world?"},
-				{"role": "assistant", "content": "{ \"info\": \"Use the \\\"echo\\\" command to print text, and \\\"echo \\\"hello world\\\"\\\" to print your specified text.\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"echo\\\" command to print text, and \\\"echo \\\"hello world\\\"\\\" to print your specified text.\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "how do I autocomplete commands?"},
-				{"role": "assistant", "content": "{ \"info\": \"Press the Tab key to autocomplete commands, file names, and directories.\" }"}
+				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Press the Tab key to autocomplete commands, file names, and directories.\", \"risk\": \"none\" }"}
 			]'
 			;;
 		error)
 			jq -cn --arg system "$system_content" '[
 				{"role": "system", "content": $system},
 				{"role": "user", "content": "You executed \\\"start avidemux\\\". Which returned error \\\"avidemux: command not found\\\"."},
-				{"role": "assistant", "content": "{ \"cmd\": \"sudo install avidemux\", \"info\": \"This means that the application \\\"avidemux\\\" was not found. Try installing it.\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"sudo install avidemux\", \"info\": \"This means that the application \\\"avidemux\\\" was not found. Try installing it.\", \"risk\": \"reversible change\" }"},
 				{"role": "user", "content": "You executed \\\"cd \\\"hell word\\\"\\\". Which returned error \\\"cd: hell word: No such file or directory\\\"."},
-				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"wORLD helloz\\\"\", \"info\": \"The error indicates that the \\\"wORLD helloz\\\" directory does not exist. However, the current directory contains a \\\"hello world\\\" directory we can try instead.\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"The error indicates that the \\\"hell word\\\" directory does not exist. However, the current directory contains a \\\"hello world\\\" directory we can try instead.\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "You executed \\\"cat \\\"in .sh.\\\"\\\". Which returned error \\\"cat: in .sh: No such file or directory\\\"."},
-				{"role": "assistant", "content": "{ \"cmd\": \"cat \\\"install.sh\\\"\", \"info\": \"The cat command could not find the \\\"in .sh\\\" file in the current directory. However, the current directory contains a file called \\\"install.sh\\\".\" }"}
+				{"role": "assistant", "content": "{ \"cmd\": \"cat \\\"install.sh\\\"\", \"info\": \"The cat command could not find the \\\"in .sh\\\" file in the current directory. However, the current directory contains a file called \\\"install.sh\\\".\", \"risk\": \"none\" }"}
 			]'
 			;;
 		*)
 			jq -cn --arg system "$system_content" '[
 				{"role": "system", "content": $system},
 				{"role": "user", "content": "list all files"},
-				{"role": "assistant", "content": "{ \"cmd\": \"ls -a\", \"info\": \"\\\"ls\\\" with the flag \\\"-a\\\" will list all files, including hidden ones, in the current directory\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"ls -a\", \"info\": \"\\\"ls\\\" with the flag \\\"-a\\\" will list all files, including hidden ones, in the current directory\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "start avidemux"},
-				{"role": "assistant", "content": "{ \"cmd\": \"avidemux\", \"info\": \"start the Avidemux video editor, if it is installed on the system and available for the current user\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"avidemux\", \"info\": \"start the Avidemux video editor, if it is installed on the system and available for the current user\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "print hello world"},
-				{"role": "assistant", "content": "{ \"cmd\": \"echo \\\"hello world\\\"\", \"info\": \"\\\"echo\\\" will print text, while \\\"echo \\\"hello world\\\"\\\" will print your text\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"echo \\\"hello world\\\"\", \"info\": \"\\\"echo\\\" will print text, while \\\"echo \\\"hello world\\\"\\\" will print your text\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "remove the hello world folder"},
-				{"role": "assistant", "content": "{ \"cmd\": \"rm -r  \\\"hello world\\\"\", \"info\": \"\\\"rm\\\" with the \\\"-r\\\" flag will remove the \\\"hello world\\\" folder and its contents recursively\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"rm -r  \\\"hello world\\\"\", \"info\": \"\\\"rm\\\" with the \\\"-r\\\" flag will remove the \\\"hello world\\\" folder and its contents recursively\", \"risk\": \"danger zone\" }"},
 				{"role": "user", "content": "move into the hello world folder"},
-				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"\\\"cd\\\" will let you change directory to \\\"hello world\\\"\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"\\\"cd\\\" will let you change directory to \\\"hello world\\\"\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "add /home/user/.local/bin to PATH"},
-				{"role": "assistant", "content": "{ \"cmd\": \"export PATH=/home/user/.local/bin:PATH\", \"info\": \"\\\"export\\\" has the ability to add \\\"/some/path\\\" to your PATH environment variable for the current session. the specified path already exists in your PATH environment variable since before\" }"}
+				{"role": "assistant", "content": "{ \"cmd\": \"export PATH=/home/user/.local/bin:\\$PATH\", \"info\": \"\\\"export\\\" prepends \\\"/home/user/.local/bin\\\" to your PATH environment variable for the current session while preserving the existing PATH\", \"risk\": \"reversible change\" }"},
+				{"role": "user", "content": "whats the content of this directory"},
+				{"role": "assistant", "content": "{ \"cmd\": \"ls -la\", \"info\": \"lists all files, including hidden ones, in long format with detailed information in the current directory\", \"risk\": \"none\" }"},
+				{"role": "user", "content": "rename the current branch to release-prep"},
+				{"role": "assistant", "content": "{ \"cmd\": \"git branch -m release-prep\", \"info\": \"renames the current git branch to \\\"release-prep\\\"\", \"risk\": \"reversible change\" }"},
+				{"role": "user", "content": "rename the branch blahblah"},
+				{"role": "assistant", "content": "{ \"cmd\": \"git branch -m blahblah\", \"info\": \"renames the current git branch to \\\"blahblah\\\"\", \"risk\": \"reversible change\" }"},
+				{"role": "user", "content": "delete a symlink"},
+				{"role": "assistant", "content": "{ \"cmd\": \"rm symlink_name\", \"info\": \"removes the symbolic link named \\\"symlink_name\\\" but does not delete the target file or directory\", \"risk\": \"reversible change\" }"},
+				{"role": "user", "content": "delete the branch feature-x"},
+				{"role": "assistant", "content": "{ \"cmd\": \"git branch -d feature-x\", \"info\": \"deletes the local git branch \\\"feature-x\\\" if it is fully merged\", \"risk\": \"danger zone\" }"}
+				,
+				{"role": "user", "content": "force delete everything in this directory"},
+				{"role": "assistant", "content": "{ \"cmd\": \"rm -rf /path/to/current-directory/* /path/to/current-directory/.*\", \"info\": \"force deletes everything in the current directory, including hidden files\", \"risk\": \"danger zone\" }"}
 			]'
 			;;
 	esac
 }
 
-build_payload() {
+response_schema_json() {
+	jq -cn '{
+		"type": "object",
+		"additionalProperties": false,
+		"properties": {
+			"cmd": {
+				"type": "string",
+				"description": "Shell command to run. Use an empty string if no command should be suggested."
+			},
+			"info": {
+				"type": "string",
+				"description": "Short explanation of the answer or command."
+			},
+			"risk": {
+				"type": "string",
+				"enum": ["none", "reversible change", "danger zone"],
+				"description": "Risk classification for the suggested command."
+			}
+		},
+		"required": ["cmd", "info", "risk"]
+	}'
+}
+
+detect_api_provider() {
+	case "$1" in
+		*api.openai.com*)
+			echo "openai"
+			;;
+		*anthropic.com*)
+			echo "anthropic"
+			;;
+		*generativelanguage.googleapis.com*|*generativelanguage*googleapis.com*)
+			echo "gemini"
+			;;
+		*)
+			echo "generic"
+			;;
+	esac
+}
+
+build_provider_system_text() {
+	local messages_json="$1"
+
+	jq -r '
+		def content_text:
+			if . == null then ""
+			elif type == "string" then .
+			else tostring
+			end;
+		[ .[] | select(.role == "system") | (.content | content_text) ]
+		| join("\n\n")' <<< "$messages_json"
+}
+
+build_anthropic_messages() {
+	local messages_json="$1"
+
+	jq -c '
+		def content_text:
+			if . == null then ""
+			elif type == "string" then .
+			else tostring
+			end;
+		map(select(.role == "user" or .role == "assistant"))
+		| map({
+			"role": .role,
+			"content": (.content | content_text)
+		})' <<< "$messages_json"
+}
+
+build_gemini_messages() {
+	local messages_json="$1"
+
+	jq -c '
+		def content_text:
+			if . == null then ""
+			elif type == "string" then .
+			else tostring
+			end;
+		map(select(.role == "user" or .role == "assistant"))
+		| map({
+			"role": (if .role == "assistant" then "model" else "user" end),
+			"parts": [{"text": (.content | content_text)}]
+		})' <<< "$messages_json"
+}
+
+build_openai_payload() {
 	local messages_json="$1"
 	local tools_json='[]'
+	local response_format_json='null'
 
-	if [ -n "$OPENAI_TOOLS" ]; then
-		tools_json=$(printf '[%s]' "$OPENAI_TOOLS")
+	if [ "$JSON_MODE_ENABLED" = true ]; then
+		if [ "$API_PROVIDER" = "openai" ]; then
+			response_format_json=$(jq -cn \
+				--argjson schema "$RESPONSE_SCHEMA_JSON" \
+				'{
+					"type": "json_schema",
+					"json_schema": {
+						"name": "clai_response",
+						"strict": true,
+						"schema": $schema
+					}
+				}')
+		elif [ "$API_PROVIDER" = "generic" ]; then
+			response_format_json='{"type":"json_object"}'
+		fi
+	fi
+
+	if [ -n "$LOCAL_TOOLS_JSON" ] && { [ "$API_PROVIDER" = "openai" ] || [ "$API_PROVIDER" = "generic" ]; }; then
+		tools_json=$(printf '[%s]' "$LOCAL_TOOLS_JSON")
 	fi
 
 	jq -cn \
-		--arg model "$OPENAI_MODEL" \
-		--argjson max_tokens "$OPENAI_TOKENS_JSON" \
-		--argjson temperature "$OPENAI_TEMP_JSON" \
+		--arg model "$MODEL" \
+		--argjson max_tokens "$MAX_TOKENS_JSON" \
+		--argjson temperature "$MODEL_TEMP_JSON" \
 		--argjson messages "$messages_json" \
-		--argjson response_format "$RESPONSE_FORMAT_JSON" \
+		--argjson response_format "$response_format_json" \
 		--argjson tools "$tools_json" '
 		{
 			"model": $model,
@@ -1152,6 +1323,187 @@ build_payload() {
 		+ (if $response_format == null then {} else {"response_format": $response_format} end)
 		+ (if ($tools | length) == 0 then {} else {"tools": $tools, "tool_choice": "auto"} end)'
 }
+
+build_anthropic_payload() {
+	local messages_json="$1"
+	local system_text
+	local anthropic_messages
+	local output_config_json='null'
+
+	system_text=$(build_provider_system_text "$messages_json")
+	anthropic_messages=$(build_anthropic_messages "$messages_json")
+
+	if [ "$JSON_MODE_ENABLED" = true ]; then
+		output_config_json=$(jq -cn \
+			--argjson schema "$RESPONSE_SCHEMA_JSON" \
+			'{
+				"format": {
+					"type": "json_schema",
+					"name": "clai_response",
+					"schema": $schema
+				}
+			}')
+	fi
+
+	jq -cn \
+		--arg model "$MODEL" \
+		--argjson max_tokens "$MAX_TOKENS_JSON" \
+		--argjson temperature "$MODEL_TEMP_JSON" \
+		--arg system "$system_text" \
+		--argjson messages "$anthropic_messages" \
+		--argjson output_config "$output_config_json" '
+		{
+			"model": $model,
+			"max_tokens": $max_tokens,
+			"temperature": $temperature,
+			"messages": $messages
+		}
+		+ (if ($system | length) == 0 then {} else {"system": $system} end)
+		+ (if $output_config == null then {} else {"output_config": $output_config} end)'
+}
+
+build_gemini_payload() {
+	local messages_json="$1"
+	local system_text
+	local gemini_messages
+	local generation_config='{}'
+
+	system_text=$(build_provider_system_text "$messages_json")
+	gemini_messages=$(build_gemini_messages "$messages_json")
+
+	if [ "$JSON_MODE_ENABLED" = true ]; then
+		generation_config=$(jq -cn \
+			--argjson max_output_tokens "$MAX_TOKENS_JSON" \
+			--argjson temperature "$MODEL_TEMP_JSON" \
+			--argjson schema "$RESPONSE_SCHEMA_JSON" '
+			{
+				"maxOutputTokens": $max_output_tokens,
+				"temperature": $temperature,
+				"responseMimeType": "application/json",
+				"responseJsonSchema": $schema
+			}')
+	else
+		generation_config=$(jq -cn \
+			--argjson max_output_tokens "$MAX_TOKENS_JSON" \
+			--argjson temperature "$MODEL_TEMP_JSON" '
+			{
+				"maxOutputTokens": $max_output_tokens,
+				"temperature": $temperature
+			}')
+	fi
+
+	jq -cn \
+		--argjson contents "$gemini_messages" \
+		--argjson generation_config "$generation_config" \
+		--arg system "$system_text" '
+		{
+			"contents": $contents,
+			"generationConfig": $generation_config
+		}
+		+ (if ($system | length) == 0 then {} else {"systemInstruction": {"parts": [{"text": $system}]}} end)'
+}
+
+build_payload() {
+	local messages_json="$1"
+
+	case "$API_PROVIDER" in
+		anthropic)
+			build_anthropic_payload "$messages_json"
+			;;
+		gemini)
+			build_gemini_payload "$messages_json"
+			;;
+		*)
+			build_openai_payload "$messages_json"
+			;;
+	esac
+}
+
+extract_reply() {
+	case "$API_PROVIDER" in
+		anthropic)
+			jq -r '[.content[]? | select(.type == "text") | (.text // "")] | join("")' "$RESPONSE_FILE"
+			;;
+		gemini)
+			jq -r '[.candidates[0].content.parts[]? | (.text // "")] | join("")' "$RESPONSE_FILE"
+			;;
+		*)
+			jq -r '.choices[0].message.content // ""' "$RESPONSE_FILE"
+			;;
+	esac
+}
+
+extract_finish_reason() {
+	case "$API_PROVIDER" in
+		anthropic)
+			jq -r '.stop_reason // ""' "$RESPONSE_FILE"
+			;;
+		gemini)
+			jq -r '.candidates[0].finishReason // ""' "$RESPONSE_FILE"
+			;;
+		*)
+			jq -r '.choices[0].finish_reason // ""' "$RESPONSE_FILE"
+			;;
+	esac
+}
+
+extract_api_error() {
+	case "$API_PROVIDER" in
+		anthropic)
+			jq -r '.error.message // .message // empty' "$RESPONSE_FILE"
+			;;
+		gemini)
+			jq -r '.error.message // .promptFeedback.blockReason // empty' "$RESPONSE_FILE"
+			;;
+		*)
+			jq -r '.error.message // empty' "$RESPONSE_FILE"
+			;;
+	esac
+}
+
+provider_tool_capability_text() {
+	local tool_count
+
+	tool_count=$(tool_map_size)
+
+	case "$API_PROVIDER" in
+		openai|generic)
+			if [ "$tool_count" -eq 0 ]; then
+				printf "No local CLAI tools are available in this session."
+			else
+				printf "Local CLAI tools are available in this session and may be called when needed."
+			fi
+			;;
+		*)
+			if [ "$tool_count" -eq 0 ]; then
+				printf "Local CLAI tool calls are unavailable through this API provider. Do not rely on or mention tool calls."
+			else
+				printf "Local CLAI tools are installed on this machine, but they are unavailable through this API provider. Do not rely on or mention tool calls."
+			fi
+			;;
+	esac
+}
+
+resolve_request_url() {
+	local configured_url="$1"
+
+	case "$API_PROVIDER" in
+		gemini)
+			if printf '%s' "$configured_url" | grep -Eq '/models/[^/:?]+:'; then
+				printf '%s\n' "$(printf '%s' "$configured_url" | sed -E "s@/models/[^/:?]+:@/models/${MODEL}:@")"
+			else
+				printf '%s/models/%s:generateContent\n' "${configured_url%/}" "$MODEL"
+			fi
+			;;
+		*)
+			printf '%s\n' "$configured_url"
+			;;
+	esac
+}
+
+API_PROVIDER=$(detect_api_provider "$API_URL")
+RESPONSE_SCHEMA_JSON=$(response_schema_json)
+GLOBAL_QUERY+=" $(provider_tool_capability_text)"
 
 run_cmd() {
 	local command="$1"
@@ -1327,14 +1679,14 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		# Apply the correct query message history
 		# The options are "execute", "question" and "error"
 		if [ "$QUERY_TYPE" == "question" ]; then
-			CURRENT_QUERY_TYPE_MSG="${OPENAI_QUESTION_QUERY}"
-			OPENAI_TEMPLATE_MESSAGES=$(build_template_messages "question" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
+			CURRENT_QUERY_TYPE_MSG="${QUESTION_QUERY_CONFIG}"
+			TEMPLATE_MESSAGES=$(build_template_messages "question" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
 		elif [ "$QUERY_TYPE" == "error" ]; then
-			CURRENT_QUERY_TYPE_MSG="${OPENAI_ERROR_QUERY}"
-			OPENAI_TEMPLATE_MESSAGES=$(build_template_messages "error" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
+			CURRENT_QUERY_TYPE_MSG="${ERROR_QUERY_CONFIG}"
+			TEMPLATE_MESSAGES=$(build_template_messages "error" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
 		else
-			CURRENT_QUERY_TYPE_MSG="${OPENAI_EXEC_QUERY}"
-			OPENAI_TEMPLATE_MESSAGES=$(build_template_messages "execute" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
+			CURRENT_QUERY_TYPE_MSG="${EXEC_QUERY_CONFIG}"
+			TEMPLATE_MESSAGES=$(build_template_messages "execute" "${GLOBAL_QUERY}${CURRENT_QUERY_TYPE_MSG}")
 		fi
 	
 	# Notify the user about our progress
@@ -1376,16 +1728,16 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		# Construct the JSON payload if we don't already have one
 		if [ -z "$JSON_PAYLOAD" ]; then
 			MESSAGES_JSON=$(jq -cn \
-				--argjson template "$OPENAI_TEMPLATE_MESSAGES" \
+				--argjson template "$TEMPLATE_MESSAGES" \
 				--argjson history "$HISTORY_MESSAGES" \
-				--arg extra_prompt "$CURRENT_QUERY_TYPE_MSG Respond in less than $OPENAI_TOKENS tokens." \
+				--arg extra_prompt "$CURRENT_QUERY_TYPE_MSG Respond in less than $MAX_TOKENS tokens." \
 				'$template + $history + [{"role": "system", "content": $extra_prompt}]')
 			JSON_PAYLOAD=$(build_payload "$MESSAGES_JSON")
 		fi
 		
 		# Do we have a special URL?
 		if [ -z "$SPECIAL_API_URL" ]; then
-			URL="$OPENAI_URL"
+			URL=$(resolve_request_url "$API_URL")
 	else
 		URL="$SPECIAL_API_URL"
 	fi
@@ -1393,18 +1745,47 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		# Save the payload to a tmp JSON file
 		echo "$JSON_PAYLOAD" > "$PAYLOAD_FILE"
 		
-		# Send request to OpenAI API
+		# Send request to the configured API provider
 		: > "$CURL_ERROR_FILE"
-		HTTP_CODE=$(curl \
-			--silent \
-			--show-error \
-			--output "$RESPONSE_FILE" \
-			--write-out '%{http_code}' \
-			-X POST \
-			-H "Authorization:Bearer $OPENAI_KEY" \
-			-H "Content-Type:application/json" \
-			-d "$JSON_PAYLOAD" \
-			"$URL" 2>"$CURL_ERROR_FILE")
+		case "$API_PROVIDER" in
+			anthropic)
+				HTTP_CODE=$(curl \
+					--silent \
+					--show-error \
+					--output "$RESPONSE_FILE" \
+					--write-out '%{http_code}' \
+					-X POST \
+					-H "x-api-key: $API_KEY" \
+					-H "anthropic-version: 2023-06-01" \
+					-H "Content-Type: application/json" \
+					-d "$JSON_PAYLOAD" \
+					"$URL" 2>"$CURL_ERROR_FILE")
+				;;
+			gemini)
+				HTTP_CODE=$(curl \
+					--silent \
+					--show-error \
+					--output "$RESPONSE_FILE" \
+					--write-out '%{http_code}' \
+					-X POST \
+					-H "x-goog-api-key: $API_KEY" \
+					-H "Content-Type: application/json" \
+					-d "$JSON_PAYLOAD" \
+					"$URL" 2>"$CURL_ERROR_FILE")
+				;;
+			*)
+				HTTP_CODE=$(curl \
+					--silent \
+					--show-error \
+					--output "$RESPONSE_FILE" \
+					--write-out '%{http_code}' \
+					-X POST \
+					-H "Authorization:Bearer $API_KEY" \
+					-H "Content-Type:application/json" \
+					-d "$JSON_PAYLOAD" \
+					"$URL" 2>"$CURL_ERROR_FILE")
+				;;
+		esac
 		CURL_STATUS=$?
 		
 		RESPONSE=$(cat "$RESPONSE_FILE" 2>/dev/null)
@@ -1448,7 +1829,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 
 		if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
 			echo -ne "$CLEAR_LINE\r"
-			API_ERROR=$(jq -r '.error.message // empty' "$RESPONSE_FILE")
+			API_ERROR=$(extract_api_error)
 				if [ -z "$API_ERROR" ]; then
 					API_ERROR="The API request failed with HTTP status $HTTP_CODE."
 				fi
@@ -1466,21 +1847,24 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		fi
 	
 		# Extract the reply from the JSON response
-		REPLY=$(jq -r '.choices[0].message.content // ""' "$RESPONSE_FILE")
+		REPLY=$(extract_reply)
 		
 		# Was there an error?
 		if [ ${#REPLY} -le 1 ]; then
-			REPLY=$(jq -r '.error.message // "An unknown error occurred."' "$RESPONSE_FILE")
+			REPLY=$(extract_api_error)
+			if [ -z "$REPLY" ]; then
+				REPLY="An unknown error occurred."
+			fi
 		fi
 	
 	echo -ne "$CLEAR_LINE\r"
 	
 	# Check if there was a reason for stopping
-		FINISH_REASON=$(jq -r '.choices[0].finish_reason // ""' "$RESPONSE_FILE")
+		FINISH_REASON=$(extract_finish_reason)
 	
 	# If the reason IS NOT stop
-	if [ "$FINISH_REASON" != "stop" ]; then
-		if [ "$FINISH_REASON" == "length" ]; then
+	if [ "$FINISH_REASON" != "stop" ] && [ "$FINISH_REASON" != "STOP" ] && [ "$FINISH_REASON" != "end_turn" ]; then
+		if [ "$FINISH_REASON" == "length" ] || [ "$FINISH_REASON" == "MAX_TOKENS" ] || [ "$FINISH_REASON" == "max_tokens" ]; then
 			
                         REPLY=$(repair_truncated_json "$REPLY")
 
@@ -1513,17 +1897,32 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			# Was there JSON content?
 			if [ ${#JSON_CONTENT} -le 1 ]; then
 				# No JSON content, use the REPLY as structured info text
-				JSON_CONTENT=$(jq -cn --arg info "$REPLY" '{"info": $info}')
+				JSON_CONTENT=$(jq -cn --arg info "$REPLY" '{"cmd": "", "info": $info, "risk": "none"}')
 			fi
-			
-			# Apply the message to history
-			append_history_message "assistant" "$JSON_CONTENT"
 		
 		# Extract cmd
 		CMD=$(echo "$JSON_CONTENT" | jq -r '.cmd // ""' 2>/dev/null)
 		
 		# Extract info
 		INFO=$(echo "$JSON_CONTENT" | jq -r '.info // ""' 2>/dev/null)
+
+		# Extract risk
+		RISK=$(echo "$JSON_CONTENT" | jq -r '.risk // ""' 2>/dev/null)
+		RISK=$(normalize_risk "$RISK" "$CMD")
+
+		JSON_CONTENT=$(jq -cn \
+			--argjson content "$JSON_CONTENT" \
+			--arg cmd "$CMD" \
+			--arg info "$INFO" \
+			--arg risk "$RISK" '
+			$content
+			| if type == "object" then . else {} end
+			| .cmd = $cmd
+			| .info = $info
+			| .risk = $risk')
+
+			# Apply the message to history
+			append_history_message "assistant" "$JSON_CONTENT"
 		
 		# Check if CMD is empty
 		if [ ${#CMD} -le 0 ]; then
@@ -1543,8 +1942,8 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			fi
 			
 			# Print command and information
-			print_cmd "$CMD"
-			print_info "$INFO"
+			print_cmd "$CMD" "$RISK"
+			print_command_info "$INFO" "$RISK"
 			
 				# Ask for user command confirmation
 				echo -n "${PRE_TEXT}execute command? [y/e/N]: "
@@ -1553,8 +1952,22 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			
 			# Did the user want to edit the command?
 			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
+				if [ "$RISK" = "danger zone" ] && [ "$CONFIRM_DANGEROUS_COMMANDS" = true ]; then
+					echo "yes";echo
+					echo -n "${PRE_TEXT}danger zone command, are you sure? [y/N]: "
+					restore_cursor
+					read -n 1 -r -s danger_answer
+					if [ "$danger_answer" == "Y" ] || [ "$danger_answer" == "y" ]; then
+						echo "yes";echo
+					else
+						echo "no";echo
+						print_cancel "[cancel]"
+						continue
+					fi
+				else
+					echo "yes";echo
+				fi
 				# RUN
-				echo "yes";echo
 				run_cmd "$CMD" false
 			elif [ "$answer" == "E" ] || [ "$answer" == "e" ]; then
 				# EDIT

@@ -1,7 +1,7 @@
 # CLAI
 
 CLAI _(clai)_ is an advanced Bash shell script functioning as an AI-powered terminal assistant, inspired by [Your AI](https://github.com/ekkinox/yai).\
-Leveraging the newest OpenAI's capabilities, it allows you to ask questions and perform terminal-based tasks using natural language. It provides answers and command suggestions based on your input and allows you to execute or edit the suggested commands if desired.
+Leveraging modern LLM APIs, it allows you to ask questions and perform terminal-based tasks using natural language. It provides answers and command suggestions based on your input and allows you to execute or edit the suggested commands if desired.
 
 CLAI is not only powerful out of the box, but also expandable!\
 With its plugin architecture, you can easily add your own tools, thereby empowering CLAI to accomplish even more, and extending its functionality beyond its original capabilities.
@@ -119,6 +119,7 @@ These are candidate product directions for CLAI after the current hardening and 
 | Built-in docs and help index | High | High | Low | Add a local, curated self-documentation layer for CLAI's own paths, config, tools, history, and troubleshooting so self-questions do not depend entirely on the model. |
 | Repo-aware mode | High | High | Medium | Detect repository context such as current branch, changed files, project scripts, and likely test commands so CLAI can give project-aware answers instead of generic shell suggestions. |
 | Approval policies | High | High | Medium | Let users define command safety rules such as auto-approve read-only commands, always confirm package installs, or always block destructive patterns. |
+| Two-step risk classification | Medium | High | Medium | Split command generation from risk scoring so CLAI can first produce `cmd` and `info`, then run a second, narrower pass that rates the proposed command as `none`, `reversible change`, or `danger zone` using the user request, command, and described effect together. |
 | `clai doctor` diagnostics | Medium | High | Medium | Add a built-in diagnostics command that checks common local problems such as missing dependencies, broken PATH entries, config mistakes, permission problems, and basic connectivity issues. |
 | Command plan mode | Medium | Medium | Medium | For larger tasks, let CLAI propose a short plan of steps before suggesting or executing commands, so the user can approve the approach before any action is taken. |
 | Session snapshots | Low | Medium | Medium | Save and restore named working contexts including conversation state, current directory, and relevant notes so users can resume project-specific sessions more deliberately. |
@@ -228,7 +229,7 @@ CLAI will create `~/.config` automatically if needed and will write `clai.cfg` w
 
 If there is no configured API key, CLAI will start the setup wizard automatically on invocation and prompt for the API key, base URL, and model. You can also re-run that flow explicitly with `clai setup` or `clai --setup`.
 
-You can still edit the file manually. The `key=` value should contain your [OpenAI API key](https://platform.openai.com/api-keys), which you can obtain from your [OpenAI account](https://platform.openai.com/api-keys).
+You can still edit the file manually. The `key=` value should contain the API key for your configured provider.
 
 > [!CAUTION]
 > Keeping the key in a plain text file is dangerous, and it is your responsibility to keep it secure.
@@ -241,22 +242,37 @@ The history retention setting is `max_history_turns=`. It controls how many user
 
 | Key | Default | Purpose |
 | --- | --- | --- |
-| `key` | empty | Your OpenAI API key. Required before CLAI can make requests. |
+| `key` | empty | Your API key for the configured provider. Required before CLAI can make requests. |
 | `hi_contrast` | `false` | Uses less muted info text output. |
 | `expose_current_dir` | `true` | Includes the current working directory in the runtime context sent to the model. |
 | `max_history_turns` | `10` | Number of user conversation turns to persist across sessions. |
 | `api` | `https://api.openai.com/v1/chat/completions` | Chat Completions API endpoint. |
 | `model` | `gpt-4.1` | Model name sent in the request payload. |
-| `json_mode` | `false` | Requests JSON object output mode from the API. |
+| `json_mode` | `false` | Requests structured JSON output from the API. OpenAI, Anthropic, and Gemini use native JSON Schema-style structured outputs; unknown endpoints fall back to the existing OpenAI-compatible JSON object mode. |
 | `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
 | `tokens` | `500` | Maximum token count requested from the API. Invalid values fall back to `500`. |
 | `share_command_results` | `false` | Shares structured command stdout, stderr, exit code, and edited state with later CLAI turns by storing it in history after execution. Enabling this can expose sensitive command output to later model context. |
 | `result_lines` | `20` | Maximum number of stdout and stderr lines to keep per stored command result. Invalid values fall back to `20`. |
+| `confirm_dangerous_commands` | `true` | Requires a second confirmation before executing commands marked as `danger zone`. |
 | `exec_query` | empty | Optional extra system guidance for normal command-generation mode. |
 | `question_query` | empty | Optional extra system guidance for question-answering mode. |
 | `error_query` | empty | Optional extra system guidance for error-recovery mode. |
 
 If `exec_query`, `question_query`, or `error_query` are left empty, CLAI uses its built-in defaults.
+
+Provider notes:
+
+- OpenAI-compatible and Anthropic endpoints send the configured `model` directly in the request body.
+- For Gemini endpoints, CLAI treats `model` as authoritative and rewrites the effective request URL to target that model, even if the configured `api` URL template contains a different model name.
+- Local CLAI tool calls are currently only sent on OpenAI-compatible endpoints. Anthropic and Gemini still use native structured outputs for normal responses, but CLAI tells those models not to rely on tool calls.
+
+When `json_mode=true`, CLAI asks the model to return structured `cmd`, `info`, and `risk` fields. The `risk` value must be one of:
+
+- `none`
+- `reversible change`
+- `danger zone`
+
+CLAI uses that `risk` value to color suggested commands in the terminal.
 
 To toggle `share_command_results` directly from the CLI, run:
 
@@ -335,6 +351,17 @@ When CLAI suggests a command, it shows the command and a short explanation, then
 
 In interactive mode, this lets you inspect or adjust the generated command before anything runs.
 
+Suggested commands are color-coded by the model-reported `risk` field:
+
+- green: `none`
+- yellow: `reversible change`
+- red: `danger zone`
+
+If `confirm_dangerous_commands=true`, danger-zone commands require an extra confirmation after the initial `y`:
+
+- first prompt: `execute command? [y/e/N]:`
+- second prompt for red commands: `danger zone command, are you sure? [y/N]:`
+
 ### Error recovery flow
 
 If an executed command fails, CLAI shows the error and prompts:
@@ -346,9 +373,11 @@ This uses CLAI's error mode, which sends the failed command and captured error t
 
 ## Plugins and tools
 
-Plugins are OpenAI tools that expand CLAI's functionality, but they are not included in the default CLAI setup.\
+Plugins are local CLAI tools that expand CLAI's functionality, but they are not included in the default CLAI setup.\
 All tools should be placed in your `~/.clai_tools` directory.\
 You can see which tools are currently installed by running `clai`, and CLAI will list them for you.
+
+Local tool calling currently uses the OpenAI-compatible tool format. If you point CLAI at Anthropic or Gemini endpoints, CLAI will still use provider-native structured outputs for normal responses, but it will not send local tools in the request and will tell the model not to rely on tool calls.
 
 Tools are nothing more than a shell script with a `init` and `execute` function.\
 You can find examples and available tools in the [tools folder](https://github.com/merefield/clai/tree/main/tools).\

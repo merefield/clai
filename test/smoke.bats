@@ -40,7 +40,7 @@ make_success_curl() {
 output=""
 payload=""
 status_code="200"
-response_body='{"choices":[{"message":{"content":"{\"info\":\"stub answer\"}"},"finish_reason":"stop"}]}'
+response_body='{"choices":[{"message":{"content":"{\"cmd\":\"\",\"info\":\"stub answer\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}'
 while [ $# -gt 0 ]; do
   case "$1" in
     --output)
@@ -61,6 +61,118 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "$TEST_HOME" ]; then
   printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_openai_response_curl() {
+  local response_body="$1"
+  local escaped_response_body
+
+  escaped_response_body=$(printf '%q' "$response_body")
+  cat > "$TEST_HOME/fakebin/curl" <<EOF
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body=$escaped_response_body
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --output)
+      output="\$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="\$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "\$TEST_HOME" ]; then
+  printf '%s' "\$payload" > "\$TEST_HOME/curl-request.json"
+fi
+printf '%s' "\$response_body" > "\$output"
+printf '%s' "\$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_anthropic_success_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+url=""
+status_code="200"
+response_body='{"content":[{"type":"text","text":"{\"cmd\":\"\",\"info\":\"anthropic answer\",\"risk\":\"none\"}"}],"stop_reason":"end_turn"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      url="$1"
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+  printf '%s' "$url" > "$TEST_HOME/curl-url.txt"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_gemini_success_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+url=""
+status_code="200"
+response_body='{"candidates":[{"content":{"parts":[{"text":"{\"cmd\":\"\",\"info\":\"gemini answer\",\"risk\":\"none\"}"}]},"finishReason":"STOP"}]}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      url="$1"
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+  printf '%s' "$url" > "$TEST_HOME/curl-url.txt"
 fi
 printf '%s' "$response_body" > "$output"
 printf '%s' "$status_code"
@@ -103,7 +215,7 @@ printf '%s' "$payload" > "$TEST_HOME/curl-request-$call_count.json"
 if [ "$call_count" -eq 1 ]; then
   printf '%s' '{"choices":[{"message":{"content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"record-note","arguments":"{\"value\":\"hello from tool\",\"tool_reason\":\"Need data from the helper tool.\"}"}}]},"finish_reason":"tool_calls"}]}' > "$output"
 else
-  printf '%s' '{"choices":[{"message":{"content":"{\"info\":\"tool flow complete\"}"},"finish_reason":"stop"}]}' > "$output"
+  printf '%s' '{"choices":[{"message":{"content":"{\"cmd\":\"\",\"info\":\"tool flow complete\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}' > "$output"
 fi
 printf '%s' "$status_code"
 EOF
@@ -116,7 +228,7 @@ make_command_curl() {
 output=""
 payload=""
 status_code="200"
-response_body='{"choices":[{"message":{"content":"{\"cmd\":\"printf executed > \\\"$HOME/cmd-ran.txt\\\"\",\"info\":\"run the stub command\"}"},"finish_reason":"stop"}]}'
+response_body='{"choices":[{"message":{"content":"{\"cmd\":\"printf executed > \\\"$HOME/cmd-ran.txt\\\"\",\"info\":\"run the stub command\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 while [ $# -gt 0 ]; do
   case "$1" in
     --output)
@@ -150,7 +262,7 @@ make_result_command_curl() {
 output=""
 payload=""
 status_code="200"
-response_body='{"choices":[{"message":{"content":"{\"cmd\":\"printf \\\"one\\\\ntwo\\\\nthree\\\\nfour\\\\n\\\"; printf \\\"err-one\\\\nerr-two\\\\nerr-three\\\\n\\\" >&2\",\"info\":\"run the result-capture stub command\"}"},"finish_reason":"stop"}]}'
+response_body='{"choices":[{"message":{"content":"{\"cmd\":\"printf \\\"one\\\\ntwo\\\\nthree\\\\nfour\\\\n\\\"; printf \\\"err-one\\\\nerr-two\\\\nerr-three\\\\n\\\" >&2\",\"info\":\"run the result-capture stub command\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 while [ $# -gt 0 ]; do
   case "$1" in
     --output)
@@ -253,7 +365,7 @@ done
 if [ "$call_count" -eq 1 ]; then
   printf '%s' '{"choices":[{"message":{"content":"","tool_calls":[{"id":"bad_1","type":"function","function":{"name":"record-note","arguments":"not-json"}}]},"finish_reason":"tool_calls"}]}' > "$output"
 else
-  printf '%s' '{"choices":[{"message":{"content":"{\"info\":\"tool fallback complete\"}"},"finish_reason":"stop"}]}' > "$output"
+  printf '%s' '{"choices":[{"message":{"content":"{\"cmd\":\"\",\"info\":\"tool fallback complete\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}' > "$output"
 fi
 printf '%s' "$status_code"
 EOF
@@ -472,14 +584,14 @@ EOF
   [ "$(find "$TEST_HOME/tmp" -type f | wc -l)" -eq 0 ]
 }
 
-@test "clai builds JSON payloads with jq and handles successful JSON responses" {
+@test "clai uses OpenAI json_schema responses when json_mode is enabled" {
   write_config <<'EOF'
 key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
-api=https://example.invalid/v1/chat/completions
-model=gpt-4o-mini
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
 json_mode=true
 temp=0.1
 tokens=500
@@ -504,11 +616,169 @@ EOF
   [ -f "$TEST_HOME/.local/state/clai/history_com.json" ]
   [[ "$output" == *"stub answer"* ]]
   jq -e '.messages | length > 0' "$TEST_HOME/curl-request.json" >/dev/null
-  jq -e '.response_format.type == "json_object"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.response_format.type == "json_schema"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.response_format.json_schema.schema.properties.risk.enum == ["none","reversible change","danger zone"]' \
+    "$TEST_HOME/curl-request.json" >/dev/null
   jq -e '.messages | map(select(.role == "system" and (.content | contains("~/.config/clai.cfg")))) | length >= 1' \
     "$TEST_HOME/curl-request.json" >/dev/null
   jq -e '.messages | map(select(.role == "system" and (.content | contains("~/.clai_tools")))) | length >= 1' \
     "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "system" and (.content | contains("must never be classified as '\''none'\''")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "system" and (.content | contains("delete git branches")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai falls back to generic json_object mode for unknown endpoints" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4.1
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  jq -e '.response_format.type == "json_object"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "execute-mode prompt calibrates risk from both request and command" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "rename the branch blahblah"
+
+  [ "$status" -eq 0 ]
+  jq -e '.messages | map(select(.role == "system" and (.content | contains("Judge risk from both the user'\''s requested action and the command you propose")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "assistant" and (.content | contains("git branch -m blahblah")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "assistant" and (.content | contains("rm symlink_name")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "assistant" and (.content | contains("rm -rf /path/to/current-directory/* /path/to/current-directory/.*")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "assistant" and ((.content | contains("\"risk\": \"danger zone\"")) and (.content | contains("git branch -d feature-x"))))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai uses Anthropic structured outputs when the base URL is Anthropic" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.anthropic.com/v1/messages
+model=claude-sonnet-4-5
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_anthropic_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"anthropic answer"* ]]
+  jq -e '.output_config.format.type == "json_schema"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.output_config.format.schema.properties.risk.enum == ["none","reversible change","danger zone"]' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.system | contains("~/.config/clai.cfg")' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.system | contains("unavailable through this API provider")' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.system | contains("Do not rely on or mention tool calls")' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.system | contains("You support user plugins called \"tools\"") | not' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai uses Gemini structured outputs when the base URL is Gemini" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
+model=gemini-2.0-flash
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_gemini_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"gemini answer"* ]]
+  jq -e '.generationConfig.responseMimeType == "application/json"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.generationConfig.responseJsonSchema.properties.risk.enum == ["none","reversible change","danger zone"]' \
+    "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.systemInstruction.parts[0].text | contains("~/.config/clai.cfg")' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.systemInstruction.parts[0].text | contains("unavailable through this API provider")' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.systemInstruction.parts[0].text | contains("Do not rely on or mention tool calls")' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.systemInstruction.parts[0].text | contains("You support user plugins called \"tools\"") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  [ "$(cat "$TEST_HOME/curl-url.txt")" = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent" ]
 }
 
 @test "clai surfaces API error messages from non-2xx responses" {
@@ -1118,6 +1388,184 @@ EOF
   [ -f "$TEST_HOME/cmd-ran.txt" ]
   [ "$(cat "$TEST_HOME/cmd-ran.txt")" = "executed" ]
   [[ "$output" == *"run the stub command"* ]]
+}
+
+@test "read-only commands are shown in green" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"ls -la\",\"info\":\"list files\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "list files"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *$'\e[48;5;236m\e[92m ls -la '* ]]
+}
+
+@test "reversible commands are shown in yellow" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"mv old.txt new.txt\",\"info\":\"rename the file\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "rename a file"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *$'\e[48;5;236m\e[38;5;214m mv old.txt new.txt '* ]]
+}
+
+@test "dangerous commands are shown in red" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"rm -rf build\",\"info\":\"remove the build directory\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "remove the build directory"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *$'\e[48;5;236m\e[91m rm -rf build '* ]]
+  [[ "$output" == *"DANGER ZONE: "* ]]
+  [[ "$output" == *"remove the build directory"* ]]
+}
+
+@test "danger zone commands require a second confirmation by default" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+confirm_dangerous_commands=true
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "yn" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the dangerous command"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"danger zone command, are you sure? [y/N]:"* ]]
+  [[ "$output" == *"[cancel]"* ]]
+  [ ! -e "$TEST_HOME/danger-ran.txt" ]
+}
+
+@test "danger zone extra confirmation can be disabled in config" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+confirm_dangerous_commands=false
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "y" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the dangerous command"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"danger zone command, are you sure? [y/N]:"* ]]
+  [ -f "$TEST_HOME/danger-ran.txt" ]
+  [ "$(cat "$TEST_HOME/danger-ran.txt")" = "dangerous" ]
 }
 
 @test "command results can be stored in history with configured line limits" {
