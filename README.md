@@ -266,13 +266,15 @@ Provider notes:
 - For Gemini endpoints, CLAI treats `model` as authoritative and rewrites the effective request URL to target that model, even if the configured `api` URL template contains a different model name.
 - Local CLAI tool calls are currently only sent on OpenAI-compatible endpoints. Anthropic and Gemini still use native structured outputs for normal responses, but CLAI tells those models not to rely on tool calls.
 
-When `json_mode=true`, CLAI asks the model to return structured `cmd`, `info`, and `risk` fields. The `risk` value must be one of:
+When `json_mode=true`, CLAI asks the model to return structured `cmd`, `info`, `risk`, and `variables` fields. The `risk` value must be one of:
 
 - `none`
 - `reversible change`
 - `danger zone`
 
 CLAI uses that `risk` value to color suggested commands in the terminal.
+
+The `variables` field is an array of missing user-specified values that CLAI must collect before it can run the command. When a command is missing a value, the model returns `{{variable_name}}` placeholders in `cmd` and `info`, plus matching `variables` entries with a `name` and `prompt`.
 
 To toggle `share_command_results` directly from the CLI, run:
 
@@ -350,6 +352,8 @@ When CLAI suggests a command, it shows the command and a short explanation, then
 - `N` or Enter: cancel the command
 
 In interactive mode, this lets you inspect or adjust the generated command before anything runs.
+
+If the model marks any command inputs as missing in the structured `variables` field, CLAI prompts for those values first, substitutes them into the command and explanation, and only then shows the final command for confirmation.
 
 Suggested commands are color-coded by the model-reported `risk` field:
 

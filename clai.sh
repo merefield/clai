@@ -67,13 +67,13 @@ CURSOR_HIDDEN=false
 HISTORY_FILES=()
 
 # Default query constants, these are used as default values for different types of queries
-DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd', 'info' and 'risk' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. Judge 'risk' from both the user's requested action and the actual command you propose. If either the user request or the command implies mutation, deletion, force, overwrite, or broad impact, the risk must not be 'none'. Use 'none' only for read-only commands that inspect state without changing files, branches, packages, configuration, permissions, environment variables, or system state. Use 'reversible change' for commands that change state but are normally undoable, such as rename/move operations, branch renames, creating files or directories, editing configuration, installs, exports, or deleting only a symbolic link. Use 'danger zone' for commands that delete data, delete branches, reset history, overwrite files, force operations, or make destructive or hard-to-reverse changes. Deleting a symbolic link with rm symlink_name or unlink symlink_name is usually 'reversible change', because it removes only the link and not the target. Never classify a command that mutates git state, files, or system configuration as 'none'. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omitted as a last resort if no command can be suggested."
-DEFAULT_QUESTION_QUERY="Return only a single compact JSON object containing 'cmd', 'info' and 'risk' fields. For questions, set 'cmd' to an empty string and set 'risk' to 'none'. 'info' must always contain a single-line string terminal-related answer to the user query."
-DEFAULT_ERROR_QUERY="Return only a single compact JSON object containing 'cmd', 'info' and 'risk' fields. 'cmd' is optional. 'cmd' must contain a suggestion on how to fix, solve or repair the error in the user query. 'info' must always be a single-line string explaining what the error in the user query means, why it happened, and why 'cmd' might fix it. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. Use 'none' when no command is suggested. Carefully infer why the error occurred based on the available information and, when possible, offer safe alternative commands or approaches."
+DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. 'variables' must always be an array. If the command needs a value that the user has not specified, keep the missing part as a {{variable_name}} placeholder in both 'cmd' and 'info', and add an object like {\"name\":\"variable_name\",\"prompt\":\"...\"} to 'variables'. If the command is fully specified, 'variables' must be an empty array. Judge 'risk' from both the user's requested action and the actual command you propose. If either the user request or the command implies mutation, deletion, force, overwrite, or broad impact, the risk must not be 'none'. Use 'none' only for read-only commands that inspect state without changing files, branches, packages, configuration, permissions, environment variables, or system state. Use 'reversible change' for commands that change state but are normally undoable, such as rename/move operations, branch renames, creating files or directories, editing configuration, installs, exports, or deleting only a symbolic link. Use 'danger zone' for commands that delete data, delete branches, reset history, overwrite files, force operations, or make destructive or hard-to-reverse changes. Deleting a symbolic link with rm symlink_name or unlink symlink_name is usually 'reversible change', because it removes only the link and not the target. Never classify a command that mutates git state, files, or system configuration as 'none'. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omitted as a last resort if no command can be suggested."
+DEFAULT_QUESTION_QUERY="Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. For questions, set 'cmd' to an empty string, set 'risk' to 'none', and set 'variables' to an empty array. 'info' must always contain a single-line string terminal-related answer to the user query."
+DEFAULT_ERROR_QUERY="Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'cmd' is optional. 'cmd' must contain a suggestion on how to fix, solve or repair the error in the user query. 'info' must always be a single-line string explaining what the error in the user query means, why it happened, and why 'cmd' might fix it. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. 'variables' must always be an array, and should only contain missing user-specified values needed to run 'cmd'. Use 'none' when no command is suggested. Carefully infer why the error occurred based on the available information and, when possible, offer safe alternative commands or approaches."
 DYNAMIC_SYSTEM_QUERY="" # After most user queries, we'll add some dynamic system information to the query
 
 # Global query variable, this will be updated with specific user and system information
-GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell script. You are located at \"$0\". You do not have feelings or emotions, do not convey them. Please give precise curt answers. Please do not include any sign off phrases or platitudes, only respond precisely to the user. CLAI is made by Hezkore. You execute the tasks the user asks from you by utilizing the terminal and shell commands. No task is too big. Always assume the query is terminal and shell related. The CLAI homepage is \"https://github.com/merefield/clai\". You always respond with a single JSON object containing 'cmd', 'info' and 'risk' fields. 'risk' must always be one of 'none', 'reversible change', or 'danger zone'. Judge risk from both the user's requested action and the command you propose. 'none' is only for read-only inspection commands. Commands that rename, move, create, install, export, edit configuration, or otherwise mutate state must never be classified as 'none'. Deleting only a symbolic link should usually be 'reversible change', not 'danger zone', because the target is not removed. Commands that delete data, delete git branches, reset history, force operations, or overwrite state must be classified as 'danger zone'. We are always in the terminal. The user is using \"$UNIX_NAME\" and specifically distribution \"$DISTRO_INFO\". The users username is \"$USER\" with home \"$HOME\". You must always use LANG $LANG and LC_TIME $LC_TIME."
+GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell script. You are located at \"$0\". You do not have feelings or emotions, do not convey them. Please give precise curt answers. Please do not include any sign off phrases or platitudes, only respond precisely to the user. CLAI is made by Hezkore. You execute the tasks the user asks from you by utilizing the terminal and shell commands. No task is too big. Always assume the query is terminal and shell related. The CLAI homepage is \"https://github.com/merefield/clai\". You always respond with a single JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'risk' must always be one of 'none', 'reversible change', or 'danger zone'. 'variables' must always be an array. If the command requires a value the user did not specify, keep that missing value as a {{variable_name}} placeholder in 'cmd' and 'info', and add a matching variable object with 'name' and 'prompt' to 'variables'. If the command is fully specified, 'variables' must be an empty array. Judge risk from both the user's requested action and the command you propose. 'none' is only for read-only inspection commands. Commands that rename, move, create, install, export, edit configuration, or otherwise mutate state must never be classified as 'none'. Deleting only a symbolic link should usually be 'reversible change', not 'danger zone', because the target is not removed. Commands that delete data, delete git branches, reset history, force operations, or overwrite state must be classified as 'danger zone'. We are always in the terminal. The user is using \"$UNIX_NAME\" and specifically distribution \"$DISTRO_INFO\". The users username is \"$USER\" with home \"$HOME\". You must always use LANG $LANG and LC_TIME $LC_TIME."
 
 # Configuration file path
 CONFIG_FILE=~/.config/clai.cfg
@@ -971,6 +971,85 @@ normalize_risk() {
 	esac
 }
 
+normalize_variables() {
+	local variables_json="$1"
+	local command="$2"
+	local info="$3"
+
+	jq -cn \
+		--argjson variables "$variables_json" \
+		--arg cmd "$command" \
+		--arg info "$info" '
+		def placeholder($name): "{{" + $name + "}}";
+		if ($variables | type) != "array" then
+			[]
+		else
+			[
+				$variables[]
+				| select(type == "object")
+				| {
+					"name": (.name // ""),
+					"prompt": (.prompt // "")
+				}
+				| select((.name | type) == "string")
+				| select(.name | test("^[A-Za-z_][A-Za-z0-9_]*$"))
+				| . as $item
+				| select(($cmd | contains(placeholder($item.name))) or ($info | contains(placeholder($item.name))))
+				| {
+					"name": $item.name,
+					"prompt": (if ($item.prompt | type) == "string" and ($item.prompt | length) > 0 then $item.prompt else $item.name end)
+				}
+			] | unique_by(.name)
+		end'
+}
+
+resolve_command_variables() {
+	local command="$1"
+	local info="$2"
+	local variables_json="$3"
+	local variable_count
+	local i
+	local name
+	local prompt
+	local placeholder
+	local value
+	local resolved_command="$command"
+	local resolved_info="$info"
+
+	RESOLVED_COMMAND="$command"
+	RESOLVED_INFO="$info"
+	RESOLVED_VARIABLES_JSON='[]'
+
+	variable_count=$(jq 'length' <<< "$variables_json")
+	if [ -z "$variable_count" ] || [ "$variable_count" -le 0 ]; then
+		RESOLVED_COMMAND="$resolved_command"
+		RESOLVED_INFO="$resolved_info"
+		return 0
+	fi
+
+	for ((i=0; i<variable_count; i++)); do
+		name=$(jq -r '.['"$i"'].name' <<< "$variables_json")
+		prompt=$(jq -r '.['"$i"'].prompt' <<< "$variables_json")
+		placeholder="{{${name}}}"
+
+		echo -n "${PRE_TEXT}${prompt}: "
+		restore_cursor
+		IFS= read -r value
+		if [ -z "$value" ]; then
+			echo
+			return 1
+		fi
+
+		resolved_command=${resolved_command//"$placeholder"/$value}
+		resolved_info=${resolved_info//"$placeholder"/$value}
+	done
+
+	RESOLVED_COMMAND="$resolved_command"
+	RESOLVED_INFO="$resolved_info"
+	RESOLVED_VARIABLES_JSON='[]'
+	return 0
+}
+
 print_cmd() {
 	local command="$1"
 	local risk="$2"
@@ -1143,54 +1222,56 @@ build_template_messages() {
 			jq -cn --arg system "$system_content" '[
 				{"role": "system", "content": $system},
 				{"role": "user", "content": "how do I list all files?"},
-				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"ls\\\" command with the \\\"-a\\\" flag to list all files, including hidden ones, in the current directory.\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"ls\\\" command with the \\\"-a\\\" flag to list all files, including hidden ones, in the current directory.\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "how do I recursively list all the files?"},
-				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"ls\\\" command with the \\\"-aR\\\" flag to list all files recursively, including hidden ones, in the current directory.\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"ls\\\" command with the \\\"-aR\\\" flag to list all files recursively, including hidden ones, in the current directory.\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "how do I print hello world?"},
-				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"echo\\\" command to print text, and \\\"echo \\\"hello world\\\"\\\" to print your specified text.\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Use the \\\"echo\\\" command to print text, and \\\"echo \\\"hello world\\\"\\\" to print your specified text.\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "how do I autocomplete commands?"},
-				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Press the Tab key to autocomplete commands, file names, and directories.\", \"risk\": \"none\" }"}
+				{"role": "assistant", "content": "{ \"cmd\": \"\", \"info\": \"Press the Tab key to autocomplete commands, file names, and directories.\", \"risk\": \"none\", \"variables\": [] }"}
 			]'
 			;;
 		error)
 			jq -cn --arg system "$system_content" '[
 				{"role": "system", "content": $system},
 				{"role": "user", "content": "You executed \\\"start avidemux\\\". Which returned error \\\"avidemux: command not found\\\"."},
-				{"role": "assistant", "content": "{ \"cmd\": \"sudo install avidemux\", \"info\": \"This means that the application \\\"avidemux\\\" was not found. Try installing it.\", \"risk\": \"reversible change\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"sudo install avidemux\", \"info\": \"This means that the application \\\"avidemux\\\" was not found. Try installing it.\", \"risk\": \"reversible change\", \"variables\": [] }"},
 				{"role": "user", "content": "You executed \\\"cd \\\"hell word\\\"\\\". Which returned error \\\"cd: hell word: No such file or directory\\\"."},
-				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"The error indicates that the \\\"hell word\\\" directory does not exist. However, the current directory contains a \\\"hello world\\\" directory we can try instead.\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"The error indicates that the \\\"hell word\\\" directory does not exist. However, the current directory contains a \\\"hello world\\\" directory we can try instead.\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "You executed \\\"cat \\\"in .sh.\\\"\\\". Which returned error \\\"cat: in .sh: No such file or directory\\\"."},
-				{"role": "assistant", "content": "{ \"cmd\": \"cat \\\"install.sh\\\"\", \"info\": \"The cat command could not find the \\\"in .sh\\\" file in the current directory. However, the current directory contains a file called \\\"install.sh\\\".\", \"risk\": \"none\" }"}
+				{"role": "assistant", "content": "{ \"cmd\": \"cat \\\"install.sh\\\"\", \"info\": \"The cat command could not find the \\\"in .sh\\\" file in the current directory. However, the current directory contains a file called \\\"install.sh\\\".\", \"risk\": \"none\", \"variables\": [] }"}
 			]'
 			;;
 		*)
 			jq -cn --arg system "$system_content" '[
 				{"role": "system", "content": $system},
 				{"role": "user", "content": "list all files"},
-				{"role": "assistant", "content": "{ \"cmd\": \"ls -a\", \"info\": \"\\\"ls\\\" with the flag \\\"-a\\\" will list all files, including hidden ones, in the current directory\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"ls -a\", \"info\": \"\\\"ls\\\" with the flag \\\"-a\\\" will list all files, including hidden ones, in the current directory\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "start avidemux"},
-				{"role": "assistant", "content": "{ \"cmd\": \"avidemux\", \"info\": \"start the Avidemux video editor, if it is installed on the system and available for the current user\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"avidemux\", \"info\": \"start the Avidemux video editor, if it is installed on the system and available for the current user\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "print hello world"},
-				{"role": "assistant", "content": "{ \"cmd\": \"echo \\\"hello world\\\"\", \"info\": \"\\\"echo\\\" will print text, while \\\"echo \\\"hello world\\\"\\\" will print your text\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"echo \\\"hello world\\\"\", \"info\": \"\\\"echo\\\" will print text, while \\\"echo \\\"hello world\\\"\\\" will print your text\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "remove the hello world folder"},
-				{"role": "assistant", "content": "{ \"cmd\": \"rm -r  \\\"hello world\\\"\", \"info\": \"\\\"rm\\\" with the \\\"-r\\\" flag will remove the \\\"hello world\\\" folder and its contents recursively\", \"risk\": \"danger zone\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"rm -r  \\\"hello world\\\"\", \"info\": \"\\\"rm\\\" with the \\\"-r\\\" flag will remove the \\\"hello world\\\" folder and its contents recursively\", \"risk\": \"danger zone\", \"variables\": [] }"},
 				{"role": "user", "content": "move into the hello world folder"},
-				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"\\\"cd\\\" will let you change directory to \\\"hello world\\\"\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"\\\"cd\\\" will let you change directory to \\\"hello world\\\"\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "add /home/user/.local/bin to PATH"},
-				{"role": "assistant", "content": "{ \"cmd\": \"export PATH=/home/user/.local/bin:\\$PATH\", \"info\": \"\\\"export\\\" prepends \\\"/home/user/.local/bin\\\" to your PATH environment variable for the current session while preserving the existing PATH\", \"risk\": \"reversible change\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"export PATH=/home/user/.local/bin:\\$PATH\", \"info\": \"\\\"export\\\" prepends \\\"/home/user/.local/bin\\\" to your PATH environment variable for the current session while preserving the existing PATH\", \"risk\": \"reversible change\", \"variables\": [] }"},
 				{"role": "user", "content": "whats the content of this directory"},
-				{"role": "assistant", "content": "{ \"cmd\": \"ls -la\", \"info\": \"lists all files, including hidden ones, in long format with detailed information in the current directory\", \"risk\": \"none\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"ls -la\", \"info\": \"lists all files, including hidden ones, in long format with detailed information in the current directory\", \"risk\": \"none\", \"variables\": [] }"},
 				{"role": "user", "content": "rename the current branch to release-prep"},
-				{"role": "assistant", "content": "{ \"cmd\": \"git branch -m release-prep\", \"info\": \"renames the current git branch to \\\"release-prep\\\"\", \"risk\": \"reversible change\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"git branch -m release-prep\", \"info\": \"renames the current git branch to \\\"release-prep\\\"\", \"risk\": \"reversible change\", \"variables\": [] }"},
 				{"role": "user", "content": "rename the branch blahblah"},
-				{"role": "assistant", "content": "{ \"cmd\": \"git branch -m blahblah\", \"info\": \"renames the current git branch to \\\"blahblah\\\"\", \"risk\": \"reversible change\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"git branch -m blahblah\", \"info\": \"renames the current git branch to \\\"blahblah\\\"\", \"risk\": \"reversible change\", \"variables\": [] }"},
+				{"role": "user", "content": "checkout a new branch"},
+				{"role": "assistant", "content": "{ \"cmd\": \"git checkout -b {{branch_name}}\", \"info\": \"creates and switches to the new git branch \\\"{{branch_name}}\\\"\", \"risk\": \"reversible change\", \"variables\": [{\"name\":\"branch_name\",\"prompt\":\"new branch name\"}] }"},
 				{"role": "user", "content": "delete a symlink"},
-				{"role": "assistant", "content": "{ \"cmd\": \"rm symlink_name\", \"info\": \"removes the symbolic link named \\\"symlink_name\\\" but does not delete the target file or directory\", \"risk\": \"reversible change\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"rm symlink_name\", \"info\": \"removes the symbolic link named \\\"symlink_name\\\" but does not delete the target file or directory\", \"risk\": \"reversible change\", \"variables\": [] }"},
 				{"role": "user", "content": "delete the branch feature-x"},
-				{"role": "assistant", "content": "{ \"cmd\": \"git branch -d feature-x\", \"info\": \"deletes the local git branch \\\"feature-x\\\" if it is fully merged\", \"risk\": \"danger zone\" }"}
+				{"role": "assistant", "content": "{ \"cmd\": \"git branch -d feature-x\", \"info\": \"deletes the local git branch \\\"feature-x\\\" if it is fully merged\", \"risk\": \"danger zone\", \"variables\": [] }"}
 				,
 				{"role": "user", "content": "force delete everything in this directory"},
-				{"role": "assistant", "content": "{ \"cmd\": \"rm -rf /path/to/current-directory/* /path/to/current-directory/.*\", \"info\": \"force deletes everything in the current directory, including hidden files\", \"risk\": \"danger zone\" }"}
+				{"role": "assistant", "content": "{ \"cmd\": \"rm -rf /path/to/current-directory/* /path/to/current-directory/.*\", \"info\": \"force deletes everything in the current directory, including hidden files\", \"risk\": \"danger zone\", \"variables\": [] }"}
 			]'
 			;;
 	esac
@@ -1213,9 +1294,28 @@ response_schema_json() {
 				"type": "string",
 				"enum": ["none", "reversible change", "danger zone"],
 				"description": "Risk classification for the suggested command."
+			},
+			"variables": {
+				"type": "array",
+				"description": "Missing user-provided values that must be filled before running the command.",
+				"items": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"name": {
+							"type": "string",
+							"description": "Placeholder name used in cmd and info, without braces."
+						},
+						"prompt": {
+							"type": "string",
+							"description": "Prompt shown to the user to collect the missing value."
+						}
+					},
+					"required": ["name", "prompt"]
+				}
 			}
 		},
-		"required": ["cmd", "info", "risk"]
+		"required": ["cmd", "info", "risk", "variables"]
 	}'
 }
 
@@ -1897,7 +1997,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			# Was there JSON content?
 			if [ ${#JSON_CONTENT} -le 1 ]; then
 				# No JSON content, use the REPLY as structured info text
-				JSON_CONTENT=$(jq -cn --arg info "$REPLY" '{"cmd": "", "info": $info, "risk": "none"}')
+				JSON_CONTENT=$(jq -cn --arg info "$REPLY" '{"cmd": "", "info": $info, "risk": "none", "variables": []}')
 			fi
 		
 		# Extract cmd
@@ -1910,16 +2010,35 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		RISK=$(echo "$JSON_CONTENT" | jq -r '.risk // ""' 2>/dev/null)
 		RISK=$(normalize_risk "$RISK" "$CMD")
 
+		# Extract variables
+		VARIABLES_JSON=$(echo "$JSON_CONTENT" | jq -c '.variables // []' 2>/dev/null)
+		if [ -z "$VARIABLES_JSON" ]; then
+			VARIABLES_JSON='[]'
+		fi
+		VARIABLES_JSON=$(normalize_variables "$VARIABLES_JSON" "$CMD" "$INFO")
+
+		if [ -n "$CMD" ]; then
+			if ! resolve_command_variables "$CMD" "$INFO" "$VARIABLES_JSON"; then
+				print_cancel "[cancel]"
+				continue
+			fi
+			CMD="$RESOLVED_COMMAND"
+			INFO="$RESOLVED_INFO"
+			VARIABLES_JSON="$RESOLVED_VARIABLES_JSON"
+		fi
+
 		JSON_CONTENT=$(jq -cn \
 			--argjson content "$JSON_CONTENT" \
 			--arg cmd "$CMD" \
 			--arg info "$INFO" \
-			--arg risk "$RISK" '
+			--arg risk "$RISK" \
+			--argjson variables "$VARIABLES_JSON" '
 			$content
 			| if type == "object" then . else {} end
 			| .cmd = $cmd
 			| .info = $info
-			| .risk = $risk')
+			| .risk = $risk
+			| .variables = $variables')
 
 			# Apply the message to history
 			append_history_message "assistant" "$JSON_CONTENT"
