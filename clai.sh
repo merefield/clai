@@ -2024,15 +2024,20 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			VARIABLES_JSON='[]'
 		fi
 		VARIABLES_JSON=$(normalize_variables "$VARIABLES_JSON" "$CMD" "$INFO")
+		VARIABLE_COLLECTION_CANCELLED=false
 
 		if [ -n "$CMD" ]; then
 			if ! resolve_command_variables "$CMD" "$INFO" "$VARIABLES_JSON"; then
-				print_cancel "[cancel]"
-				continue
+				VARIABLE_COLLECTION_CANCELLED=true
+				CMD=""
+				INFO="[cancelled]"
+				RISK="none"
+				VARIABLES_JSON='[]'
+			else
+				CMD="$RESOLVED_COMMAND"
+				INFO="$RESOLVED_INFO"
+				VARIABLES_JSON="$RESOLVED_VARIABLES_JSON"
 			fi
-			CMD="$RESOLVED_COMMAND"
-			INFO="$RESOLVED_INFO"
-			VARIABLES_JSON="$RESOLVED_VARIABLES_JSON"
 
 			if contains_unresolved_placeholders "$CMD" || contains_unresolved_placeholders "$INFO"; then
 				CMD=""
@@ -2057,6 +2062,12 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 
 			# Apply the message to history
 			append_history_message "assistant" "$JSON_CONTENT"
+
+		if [ "$VARIABLE_COLLECTION_CANCELLED" = true ]; then
+			print_cancel "[cancel]"
+			restore_cursor
+			continue
+		fi
 		
 		# Check if CMD is empty
 		if [ ${#CMD} -le 0 ]; then

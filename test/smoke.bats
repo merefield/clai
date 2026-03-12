@@ -1485,6 +1485,46 @@ EOF
   [[ "$output" != *"new branch name:"* ]]
 }
 
+@test "empty variable input cancels cleanly and records a benign assistant entry" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b {{branch_name}}\",\"info\":\"creates and switches to the new git branch \\\"{{branch_name}}\\\"\",\"risk\":\"reversible change\",\"variables\":[{\"name\":\"branch_name\",\"prompt\":\"new branch name\"}]}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "\n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "checkout a new branch"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[cancel]"* ]]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(.cmd == "" and .info == "[cancelled]" and .variables == [] and .risk == "none"))
+    | length == 1
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+}
+
 @test "collected variable values are shell-escaped before command execution" {
   write_config <<'EOF'
 key=test-key
