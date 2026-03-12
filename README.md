@@ -1,10 +1,10 @@
 # CLAI
 
-CLAI _(clai)_ is an advanced Bash shell script functioning as an AI-powered terminal assistant, inspired by [Your AI](https://github.com/ekkinox/yai).\
-Leveraging modern LLM APIs, it allows you to ask questions and perform terminal-based tasks using natural language. It provides answers and command suggestions based on your input and allows you to execute or edit the suggested commands if desired.
+Forgotten the exact form of that terminal command? No problem. CLAI _(clai)_ lets you describe what you want in natural language, then drafts the command for you to review. If you forget to specify an important variable, such as a branch name, CLAI will prompt for it in a small wizard before showing the final command, which you are free to run, edit, or cancel.
 
-CLAI is not only powerful out of the box, but also expandable!\
-With its plugin architecture, you can easily add your own tools, thereby empowering CLAI to accomplish even more, and extending its functionality beyond its original capabilities.
+Suggested commands are coloured with a simple Green, Amber, Red traffic-light system so you get an immediate visual feel for their risk level.
+
+CLAI is an AI-powered Bash terminal assistant, inspired by [Your AI](https://github.com/ekkinox/yai). It uses modern LLM APIs to answer terminal questions, suggest commands, and support tool-based extensions through its local plugin system.
 
 ## Credits
 
