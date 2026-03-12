@@ -1177,7 +1177,7 @@ build_template_messages() {
 				{"role": "user", "content": "move into the hello world folder"},
 				{"role": "assistant", "content": "{ \"cmd\": \"cd \\\"hello world\\\"\", \"info\": \"\\\"cd\\\" will let you change directory to \\\"hello world\\\"\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "add /home/user/.local/bin to PATH"},
-				{"role": "assistant", "content": "{ \"cmd\": \"export PATH=/home/user/.local/bin:PATH\", \"info\": \"\\\"export\\\" has the ability to add \\\"/some/path\\\" to your PATH environment variable for the current session. the specified path already exists in your PATH environment variable since before\", \"risk\": \"reversible change\" }"},
+				{"role": "assistant", "content": "{ \"cmd\": \"export PATH=/home/user/.local/bin:\\$PATH\", \"info\": \"\\\"export\\\" prepends \\\"/home/user/.local/bin\\\" to your PATH environment variable for the current session while preserving the existing PATH\", \"risk\": \"reversible change\" }"},
 				{"role": "user", "content": "whats the content of this directory"},
 				{"role": "assistant", "content": "{ \"cmd\": \"ls -la\", \"info\": \"lists all files, including hidden ones, in long format with detailed information in the current directory\", \"risk\": \"none\" }"},
 				{"role": "user", "content": "rename the current branch to release-prep"},
