@@ -702,6 +702,8 @@ EOF
     "$TEST_HOME/curl-request.json" >/dev/null
   jq -e '.messages | map(select(.role == "assistant" and (.content | contains("git checkout -b {{branch_name}}")))) | length >= 1' \
     "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.messages | map(select(.role == "system" and (.content | contains("Do not wrap {{variable_name}} placeholders in shell quotes")))) | length >= 1' \
+    "$TEST_HOME/curl-request.json" >/dev/null
   jq -e '.messages | map(select(.role == "assistant" and (.content | contains("rm -rf /path/to/current-directory/* /path/to/current-directory/.*")))) | length >= 1' \
     "$TEST_HOME/curl-request.json" >/dev/null
   jq -e '.messages | map(select(.role == "assistant" and ((.content | contains("\"risk\": \"danger zone\"")) and (.content | contains("git branch -d feature-x"))))) | length >= 1' \
@@ -1481,6 +1483,95 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"git checkout -b release-prep"* ]]
   [[ "$output" != *"new branch name:"* ]]
+}
+
+@test "collected variable values are shell-escaped before command execution" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  cat > "$TEST_HOME/fakebin/inspect-path" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$#" > "$TEST_HOME/inspect-count.txt"
+printf '%s\n' "$1" > "$TEST_HOME/inspect-arg.txt"
+EOF
+  chmod +x "$TEST_HOME/fakebin/inspect-path"
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"inspect-path {{path}}\",\"info\":\"inspect the path {{path}}\",\"risk\":\"none\",\"variables\":[{\"name\":\"path\",\"prompt\":\"path to inspect\"}]}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "/tmp/My Files\ny" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "inspect a path"
+  '
+
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_HOME/inspect-count.txt")" = "1" ]
+  [ "$(cat "$TEST_HOME/inspect-arg.txt")" = "/tmp/My Files" ]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(.cmd == "inspect-path /tmp/My\\ Files" and .variables == []))
+    | length == 1
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+}
+
+@test "unresolved placeholders are rejected when variables are missing" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b {{branch_name}}\",\"info\":\"creates and switches to the new git branch \\\"{{branch_name}}\\\"\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "checkout a new branch"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"unresolved placeholders"* ]]
+  [[ "$output" != *"execute command? [y/e/N]:"* ]]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(.cmd == "" and (.info | contains("unresolved placeholders")) and .variables == [] and .risk == "none"))
+    | length == 1
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "read-only commands are shown in green" {

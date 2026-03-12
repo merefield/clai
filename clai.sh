@@ -67,13 +67,13 @@ CURSOR_HIDDEN=false
 HISTORY_FILES=()
 
 # Default query constants, these are used as default values for different types of queries
-DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. 'variables' must always be an array. If the command needs a value that the user has not specified, keep the missing part as a {{variable_name}} placeholder in both 'cmd' and 'info', and add an object like {\"name\":\"variable_name\",\"prompt\":\"...\"} to 'variables'. If the command is fully specified, 'variables' must be an empty array. Judge 'risk' from both the user's requested action and the actual command you propose. If either the user request or the command implies mutation, deletion, force, overwrite, or broad impact, the risk must not be 'none'. Use 'none' only for read-only commands that inspect state without changing files, branches, packages, configuration, permissions, environment variables, or system state. Use 'reversible change' for commands that change state but are normally undoable, such as rename/move operations, branch renames, creating files or directories, editing configuration, installs, exports, or deleting only a symbolic link. Use 'danger zone' for commands that delete data, delete branches, reset history, overwrite files, force operations, or make destructive or hard-to-reverse changes. Deleting a symbolic link with rm symlink_name or unlink symlink_name is usually 'reversible change', because it removes only the link and not the target. Never classify a command that mutates git state, files, or system configuration as 'none'. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omitted as a last resort if no command can be suggested."
+DEFAULT_EXEC_QUERY="Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'cmd' must always contain one or multiple commands to perform the task specified in the user query. 'info' must always contain a single-line string detailing the actions 'cmd' will perform and the purpose of all command flags. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. 'variables' must always be an array. If the command needs a value that the user has not specified, keep the missing part as a {{variable_name}} placeholder in both 'cmd' and 'info', and add an object like {\"name\":\"variable_name\",\"prompt\":\"...\"} to 'variables'. Do not wrap {{variable_name}} placeholders in shell quotes inside 'cmd'; CLAI will shell-escape the substituted values. If the command is fully specified, 'variables' must be an empty array. Judge 'risk' from both the user's requested action and the actual command you propose. If either the user request or the command implies mutation, deletion, force, overwrite, or broad impact, the risk must not be 'none'. Use 'none' only for read-only commands that inspect state without changing files, branches, packages, configuration, permissions, environment variables, or system state. Use 'reversible change' for commands that change state but are normally undoable, such as rename/move operations, branch renames, creating files or directories, editing configuration, installs, exports, or deleting only a symbolic link. Use 'danger zone' for commands that delete data, delete branches, reset history, overwrite files, force operations, or make destructive or hard-to-reverse changes. Deleting a symbolic link with rm symlink_name or unlink symlink_name is usually 'reversible change', because it removes only the link and not the target. Never classify a command that mutates git state, files, or system configuration as 'none'. 'cmd' may output a shell script to perform complex tasks. 'cmd' may be omitted as a last resort if no command can be suggested."
 DEFAULT_QUESTION_QUERY="Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. For questions, set 'cmd' to an empty string, set 'risk' to 'none', and set 'variables' to an empty array. 'info' must always contain a single-line string terminal-related answer to the user query."
 DEFAULT_ERROR_QUERY="Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'cmd' is optional. 'cmd' must contain a suggestion on how to fix, solve or repair the error in the user query. 'info' must always be a single-line string explaining what the error in the user query means, why it happened, and why 'cmd' might fix it. 'risk' must always be one of: 'none', 'reversible change', or 'danger zone'. 'variables' must always be an array, and should only contain missing user-specified values needed to run 'cmd'. Use 'none' when no command is suggested. Carefully infer why the error occurred based on the available information and, when possible, offer safe alternative commands or approaches."
 DYNAMIC_SYSTEM_QUERY="" # After most user queries, we'll add some dynamic system information to the query
 
 # Global query variable, this will be updated with specific user and system information
-GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell script. You are located at \"$0\". You do not have feelings or emotions, do not convey them. Please give precise curt answers. Please do not include any sign off phrases or platitudes, only respond precisely to the user. CLAI is made by Hezkore. You execute the tasks the user asks from you by utilizing the terminal and shell commands. No task is too big. Always assume the query is terminal and shell related. The CLAI homepage is \"https://github.com/merefield/clai\". You always respond with a single JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'risk' must always be one of 'none', 'reversible change', or 'danger zone'. 'variables' must always be an array. If the command requires a value the user did not specify, keep that missing value as a {{variable_name}} placeholder in 'cmd' and 'info', and add a matching variable object with 'name' and 'prompt' to 'variables'. If the command is fully specified, 'variables' must be an empty array. Judge risk from both the user's requested action and the command you propose. 'none' is only for read-only inspection commands. Commands that rename, move, create, install, export, edit configuration, or otherwise mutate state must never be classified as 'none'. Deleting only a symbolic link should usually be 'reversible change', not 'danger zone', because the target is not removed. Commands that delete data, delete git branches, reset history, force operations, or overwrite state must be classified as 'danger zone'. We are always in the terminal. The user is using \"$UNIX_NAME\" and specifically distribution \"$DISTRO_INFO\". The users username is \"$USER\" with home \"$HOME\". You must always use LANG $LANG and LC_TIME $LC_TIME."
+GLOBAL_QUERY="You are CLAI (clai) v${VERSION}. You are an advanced Bash shell script. You are located at \"$0\". You do not have feelings or emotions, do not convey them. Please give precise curt answers. Please do not include any sign off phrases or platitudes, only respond precisely to the user. CLAI is made by Hezkore. You execute the tasks the user asks from you by utilizing the terminal and shell commands. No task is too big. Always assume the query is terminal and shell related. The CLAI homepage is \"https://github.com/merefield/clai\". You always respond with a single JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'risk' must always be one of 'none', 'reversible change', or 'danger zone'. 'variables' must always be an array. If the command requires a value the user did not specify, keep that missing value as a {{variable_name}} placeholder in 'cmd' and 'info', and add a matching variable object with 'name' and 'prompt' to 'variables'. Do not wrap {{variable_name}} placeholders in shell quotes inside 'cmd'; CLAI will shell-escape the substituted values. If the command is fully specified, 'variables' must be an empty array. Judge risk from both the user's requested action and the command you propose. 'none' is only for read-only inspection commands. Commands that rename, move, create, install, export, edit configuration, or otherwise mutate state must never be classified as 'none'. Deleting only a symbolic link should usually be 'reversible change', not 'danger zone', because the target is not removed. Commands that delete data, delete git branches, reset history, force operations, or overwrite state must be classified as 'danger zone'. We are always in the terminal. The user is using \"$UNIX_NAME\" and specifically distribution \"$DISTRO_INFO\". The users username is \"$USER\" with home \"$HOME\". You must always use LANG $LANG and LC_TIME $LC_TIME."
 
 # Configuration file path
 CONFIG_FILE=~/.config/clai.cfg
@@ -1003,6 +1003,12 @@ normalize_variables() {
 		end'
 }
 
+contains_unresolved_placeholders() {
+	local text="$1"
+
+	[[ "$text" =~ \{\{[A-Za-z_][A-Za-z0-9_]*\}\} ]]
+}
+
 resolve_command_variables() {
 	local command="$1"
 	local info="$2"
@@ -1013,6 +1019,7 @@ resolve_command_variables() {
 	local prompt
 	local placeholder
 	local value
+	local shell_escaped_value
 	local resolved_command="$command"
 	local resolved_info="$info"
 
@@ -1040,7 +1047,8 @@ resolve_command_variables() {
 			return 1
 		fi
 
-		resolved_command=${resolved_command//"$placeholder"/$value}
+		printf -v shell_escaped_value '%q' "$value"
+		resolved_command=${resolved_command//"$placeholder"/$shell_escaped_value}
 		resolved_info=${resolved_info//"$placeholder"/$value}
 	done
 
@@ -2025,6 +2033,13 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			CMD="$RESOLVED_COMMAND"
 			INFO="$RESOLVED_INFO"
 			VARIABLES_JSON="$RESOLVED_VARIABLES_JSON"
+
+			if contains_unresolved_placeholders "$CMD" || contains_unresolved_placeholders "$INFO"; then
+				CMD=""
+				INFO="CLAI returned a command with unresolved placeholders. Rephrase the request or specify the missing values explicitly."
+				RISK="none"
+				VARIABLES_JSON='[]'
+			fi
 		fi
 
 		JSON_CONTENT=$(jq -cn \

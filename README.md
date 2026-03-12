@@ -274,7 +274,7 @@ When `json_mode=true`, CLAI asks the model to return structured `cmd`, `info`, `
 
 CLAI uses that `risk` value to color suggested commands in the terminal.
 
-The `variables` field is an array of missing user-specified values that CLAI must collect before it can run the command. When a command is missing a value, the model returns `{{variable_name}}` placeholders in `cmd` and `info`, plus matching `variables` entries with a `name` and `prompt`.
+The `variables` field is an array of missing user-specified values that CLAI must collect before it can run the command. When a command is missing a value, the model returns `{{variable_name}}` placeholders in `cmd` and `info`, plus matching `variables` entries with a `name` and `prompt`. CLAI shell-escapes collected values before inserting them into `cmd`, and it refuses to run commands that still contain unresolved placeholders.
 
 To toggle `share_command_results` directly from the CLI, run:
 
