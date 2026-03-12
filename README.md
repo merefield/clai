@@ -411,5 +411,8 @@ Feel free to move them to your `~/.clai_tools` directory to enable them!
   - Gemini
   - or a local/self-hosted OpenAI-compatible endpoint
 - A configured non-empty `key=` value accepted by that endpoint
-- [curl](https://curl.se/download.html)
-- [jq](https://stedolan.github.io/jq/download/)
+- [OpenAI](https://platform.openai.com/)
+- [Anthropic](https://console.anthropic.com/)
+- [Gemini / Google AI](https://ai.google.dev/)
+- [curl](https://curl.se/)
+- [jq](https://jqlang.org/)
