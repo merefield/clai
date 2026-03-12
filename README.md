@@ -1,24 +1,24 @@
-# CLAI
+# > clai
 
 Forgotten the exact form of that terminal command? No problem!
 
-CLAI _(clai)_ lets you describe what you want in natural language, then drafts the command for you to review.
+`clai` _(clai)_ lets you describe what you want in natural language, then drafts the command for you to review.
 
-If you forget to specify an important variable, such as a branch name, CLAI will prompt for it in a small wizard before showing the final command, which you are free to run, edit, or cancel.
+If you forget to specify an important variable, such as a branch name, `clai` will prompt for it in a small wizard before showing the final command, which you are free to run, edit, or cancel.
 
 Suggested commands are coloured with a simple 🟢 Green, 🟠 Amber, 🔴 Red traffic-light system so you get an immediate visual feel for their risk level.
 
-CLAI is an AI-powered Bash terminal assistant. It uses modern LLM APIs to answer terminal questions, suggest commands, and support tool-based extensions through its local plugin system.
+`clai` is an AI-powered Bash terminal assistant. It uses modern LLM APIs to answer terminal questions, suggest commands, and support tool-based extensions through its local plugin system.
 
 ## Credits
 
-CLAI is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
+`> clai` is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
 
 This fork exists because I intend to completely rewrite the project and prefer to have more immediate decision-making capability while doing that work.
 
 ## Runtime Scope
 
-CLAI is intentionally a Bash-first project. It may be invoked from zsh and other shells, but the script itself is expected to run under Bash rather than natively under multiple shell interpreters.
+`> clai` is intentionally a Bash-first project. It may be invoked from zsh and other shells, but the script itself is expected to run under Bash rather than natively under multiple shell interpreters.
 
 This keeps the implementation and test surface narrower, and it lets the project stay focused on Bash compatibility, including older Bash versions such as the default Bash shipped on macOS.
 
