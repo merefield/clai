@@ -4,11 +4,11 @@ Forgotten the exact form of that terminal command? No problem. CLAI _(clai)_ let
 
 Suggested commands are coloured with a simple Green, Amber, Red traffic-light system so you get an immediate visual feel for their risk level.
 
-CLAI is an AI-powered Bash terminal assistant, inspired by [Your AI](https://github.com/ekkinox/yai). It uses modern LLM APIs to answer terminal questions, suggest commands, and support tool-based extensions through its local plugin system.
+CLAI is an AI-powered Bash terminal assistant. It uses modern LLM APIs to answer terminal questions, suggest commands, and support tool-based extensions through its local plugin system.
 
 ## Credits
 
-CLAI is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore).
+CLAI is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
 
 This fork exists because I intend to completely rewrite the project and prefer to have more immediate decision-making capability while doing that work.
 
