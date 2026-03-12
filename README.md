@@ -363,6 +363,8 @@ In interactive mode, this lets you inspect or adjust the generated command befor
 
 If the model marks any command inputs as missing in the structured `variables` field, CLAI prompts for those values first, substitutes them into the command and explanation, and only then shows the final command for confirmation.
 
+You can think of this as a small variable wizard. For example, if CLAI suggests `git checkout -b {{branch_name}}`, it will first ask you for the branch name, substitute that value into the command, and only then ask whether to run it.
+
 Suggested commands are color-coded by the model-reported `risk` field:
 
 - green: `none`
