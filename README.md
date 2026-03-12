@@ -405,11 +405,10 @@ Feel free to move them to your `~/.clai_tools` directory to enable them!
 
 ## Prerequisites
 
-- A supported LLM endpoint:
+- A key from a supported LLM endpoint:
   - [OpenAI](https://platform.openai.com/)
   - [Anthropic](https://console.anthropic.com/)
   - [Gemini / Google AI](https://ai.google.dev/)
-  - or a local/self-hosted OpenAI-compatible endpoint
-- A configured non-empty `key=` value accepted by that endpoint
+  - or a local/self-hosted OpenAI-compatible endpoint that accepts a configured non-empty `key=`
 - [curl](https://curl.se/)
 - [jq](https://jqlang.org/)
