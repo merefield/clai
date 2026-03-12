@@ -1,8 +1,12 @@
 # CLAI
 
-Forgotten the exact form of that terminal command? No problem. CLAI _(clai)_ lets you describe what you want in natural language, then drafts the command for you to review. If you forget to specify an important variable, such as a branch name, CLAI will prompt for it in a small wizard before showing the final command, which you are free to run, edit, or cancel.
+Forgotten the exact form of that terminal command? No problem!
 
-Suggested commands are coloured with a simple Green, Amber, Red traffic-light system so you get an immediate visual feel for their risk level.
+CLAI _(clai)_ lets you describe what you want in natural language, then drafts the command for you to review.
+
+If you forget to specify an important variable, such as a branch name, CLAI will prompt for it in a small wizard before showing the final command, which you are free to run, edit, or cancel.
+
+Suggested commands are coloured with a simple 🟢 Green, 🟠 Amber, 🔴 Red traffic-light system so you get an immediate visual feel for their risk level.
 
 CLAI is an AI-powered Bash terminal assistant. It uses modern LLM APIs to answer terminal questions, suggest commands, and support tool-based extensions through its local plugin system.
 
