@@ -108,6 +108,7 @@ write_private_file() {
 }
 
 create_secure_temp() {
+	# BSD mktemp requires the XXXXXX placeholder at the end of the template.
 	local template="${1:-${SESSION_TMPDIR}/clai.XXXXXX}"
 	local tmpfile
 
@@ -472,13 +473,13 @@ GLOBAL_QUERY+=" CLAI persists state under \"\${XDG_STATE_HOME:-~/.local/state}/c
 
 # Create the directory only if it doesn't exist
 create_private_dir "$TOOLS_PATH"
-TOOL_LOG_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-tool-output.XXXXXX.log") || exit_clai 1
+TOOL_LOG_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-tool-output.log.XXXXXX") || exit_clai 1
 TEMP_FILES+=("$TOOL_LOG_FILE")
-PAYLOAD_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-payload.XXXXXX.json") || exit_clai 1
+PAYLOAD_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-payload.json.XXXXXX") || exit_clai 1
 TEMP_FILES+=("$PAYLOAD_FILE")
-RESPONSE_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-response.XXXXXX.json") || exit_clai 1
+RESPONSE_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-response.json.XXXXXX") || exit_clai 1
 TEMP_FILES+=("$RESPONSE_FILE")
-CURL_ERROR_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-curl-error.XXXXXX.log") || exit_clai 1
+CURL_ERROR_FILE=$(create_secure_temp "${SESSION_TMPDIR}/clai-curl-error.log.XXXXXX") || exit_clai 1
 TEMP_FILES+=("$CURL_ERROR_FILE")
 : > "$TOOL_LOG_FILE"
 
@@ -1620,8 +1621,8 @@ run_cmd() {
 	local stderr_tmp
 	local exit_status
 
-	stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.XXXXXX.log") || return 1
-	stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.XXXXXX.log") || {
+	stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.log.XXXXXX") || return 1
+	stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.log.XXXXXX") || {
 		rm -f "$stdout_tmp"
 		return 1
 	}

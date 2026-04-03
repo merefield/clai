@@ -2147,8 +2147,8 @@ EOF
       local exit_status
       local output
 
-      stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.XXXXXX.log") || return 1
-      stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.XXXXXX.log") || {
+      stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.log.XXXXXX") || return 1
+      stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.log.XXXXXX") || {
         rm -f "$stdout_tmp"
         return 1
       }
