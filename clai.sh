@@ -922,22 +922,126 @@ fi
 # Helper functions
 print_info() {
 	[ -z "$1" ] && return
-	printf "%b%s%b\n\n" "${PRE_TEXT}${INFO_TEXT_COLOR}" "$1" "${RESET_COLOR}"
+	print_wrapped_text "${INFO_TEXT_COLOR}" "$1" "${RESET_COLOR}" "$PRE_TEXT"
 }
 
 print_ok() {
 	[ -z "$1" ] && return
-	printf "%b%s%b\n\n" "${OK_TEXT_COLOR}" "$1" "${RESET_COLOR}"
+	print_wrapped_text "${OK_TEXT_COLOR}" "$1" "${RESET_COLOR}" "$PRE_TEXT"
 }
 
 print_error() {
 	[ -z "$1" ] && return
-	printf "%b%s%b\n\n" "${ERROR_TEXT_COLOR}" "$1" "${RESET_COLOR}"
+	print_wrapped_text "${ERROR_TEXT_COLOR}" "$1" "${RESET_COLOR}" "$PRE_TEXT"
 }
 
 print_cancel() {
 	[ -z "$1" ] && return
-	printf "%b%s%b\n\n" "${CANCEL_TEXT_COLOR}" "$1" "${RESET_COLOR}"
+	print_wrapped_text "${CANCEL_TEXT_COLOR}" "$1" "${RESET_COLOR}" "$PRE_TEXT"
+}
+
+terminal_columns() {
+	local columns="${COLUMNS:-}"
+
+	if [ -n "$columns" ] && [ "$columns" -gt 0 ] 2>/dev/null; then
+		printf "%s" "$columns"
+		return 0
+	fi
+
+	if columns=$(tput cols 2>/dev/null) && [ -n "$columns" ] && [ "$columns" -gt 0 ] 2>/dev/null; then
+		printf "%s" "$columns"
+		return 0
+	fi
+
+	printf "80"
+}
+
+wrap_with_indents() {
+	local text="$1"
+	local first_indent="${2:-}"
+	local rest_indent="${3:-$first_indent}"
+	local reserved_width="${4:-0}"
+	local columns
+	local first_width
+	local rest_width
+
+	columns=$(terminal_columns)
+	first_width=$((columns - ${#first_indent} - reserved_width))
+	rest_width=$((columns - ${#rest_indent} - reserved_width))
+	if [ "$first_width" -lt 20 ]; then
+		first_width=20
+	fi
+	if [ "$rest_width" -lt 20 ]; then
+		rest_width=20
+	fi
+
+	awk -v first_width="$first_width" -v rest_width="$rest_width" -v first_indent="$first_indent" -v rest_indent="$rest_indent" '
+		function emit_paragraph(paragraph, current_indent, current_width, is_first, split_point) {
+			gsub(/[[:space:]]+/, " ", paragraph)
+			sub(/^ /, "", paragraph)
+			sub(/ $/, "", paragraph)
+
+			if (length(paragraph) == 0) {
+				print first_indent
+				return
+			}
+
+			is_first = 1
+			while (length(paragraph) > 0) {
+				current_indent = is_first ? first_indent : rest_indent
+				current_width = is_first ? first_width : rest_width
+
+				if (length(paragraph) <= current_width) {
+					print current_indent paragraph
+					return
+				}
+
+				split_point = current_width + 1
+				while (split_point > 1 && substr(paragraph, split_point, 1) != " ") {
+					split_point--
+				}
+				if (split_point <= 1) {
+					print current_indent substr(paragraph, 1, current_width)
+					paragraph = substr(paragraph, current_width + 1)
+				} else {
+					print current_indent substr(paragraph, 1, split_point - 1)
+					paragraph = substr(paragraph, split_point + 1)
+				}
+				is_first = 0
+			}
+		}
+
+		{
+			if (NF == 0) {
+				emit_paragraph("")
+				next
+			}
+
+			paragraph = $0
+			emit_paragraph(paragraph)
+		}
+	' <<< "$text"
+}
+
+wrap_with_indent() {
+	local text="$1"
+	local indent="${2:-}"
+
+	wrap_with_indents "$text" "$indent" "$indent"
+}
+
+print_wrapped_text() {
+	local prefix="$1"
+	local text="$2"
+	local suffix="$3"
+	local indent="${4:-}"
+	local wrapped_text
+
+	wrapped_text=$(wrap_with_indent "$text" "$indent")
+	while IFS= read -r line || [ -n "$line" ]; do
+		printf "%b%s%b\n" "$prefix" "$line" "$suffix"
+	done <<< "$wrapped_text"
+	printf "\n"
 }
 
 risk_text_color() {
@@ -1010,6 +1114,25 @@ contains_unresolved_placeholders() {
 	[[ "$text" =~ \{\{[A-Za-z_][A-Za-z0-9_]*\}\} ]]
 }
 
+read_single_key() {
+	local output_var="$1"
+	local key=""
+	local discard=""
+
+	read -n 1 -r -s key
+	while IFS= read -r -t 0.01 -n 1 -s discard; do
+		:
+	done
+	printf -v "$output_var" '%s' "$key"
+}
+
+print_prompt_response() {
+	local response="$1"
+
+	printf "\n"
+	print_wrapped_text "" "$response" "${RESET_COLOR}" "$PRE_TEXT"
+}
+
 resolve_command_variables() {
 	local command="$1"
 	local info="$2"
@@ -1034,6 +1157,8 @@ resolve_command_variables() {
 		RESOLVED_INFO="$resolved_info"
 		return 0
 	fi
+
+	printf "\n"
 
 	for ((i=0; i<variable_count; i++)); do
 		name=$(jq -r '.['"$i"'].name' <<< "$variables_json")
@@ -1063,26 +1188,43 @@ print_cmd() {
 	local command="$1"
 	local risk="$2"
 	local text_color
+	local wrapped_command
 
 	[ -z "$command" ] && return
 	text_color=$(risk_text_color "$risk")
-	printf "%b %s %b\n\n" "${PRE_TEXT}${CMD_BG_COLOR}${text_color}" "$command" "${RESET_COLOR}"
+	wrapped_command=$(wrap_with_indents "$command" "" "" "$(( ${#PRE_TEXT} + 2 ))")
+	printf "\n"
+	while IFS= read -r line || [ -n "$line" ]; do
+		printf "%b%b %s %b\n" "${PRE_TEXT}" "${CMD_BG_COLOR}${text_color}" "$line" "${RESET_COLOR}"
+	done <<< "$wrapped_command"
+	printf "\n"
 }
 
 print_command_info() {
 	local info="$1"
 	local risk="$2"
+	local wrapped_info
+	local first_line=true
 
 	[ -z "$info" ] && return
 	if [ "$risk" = "danger zone" ]; then
-		printf "%b%s%b%s%b\n\n" "${PRE_TEXT}${ERROR_TEXT_COLOR}" "DANGER ZONE: " "${INFO_TEXT_COLOR}" "$info" "${RESET_COLOR}"
+		wrapped_info=$(wrap_with_indents "$info" "" "$PRE_TEXT")
+		while IFS= read -r line || [ -n "$line" ]; do
+			if [ "$first_line" = true ]; then
+				printf "%b%s%b%s%b\n" "${PRE_TEXT}${ERROR_TEXT_COLOR}" "DANGER ZONE: " "${INFO_TEXT_COLOR}" "$line" "${RESET_COLOR}"
+				first_line=false
+			else
+				printf "%b%s%b\n" "${INFO_TEXT_COLOR}" "$line" "${RESET_COLOR}"
+			fi
+		done <<< "$wrapped_info"
+		printf "\n"
 	else
 		print_info "$info"
 	fi
 }
 
 print() {
-	printf "%b%b%b\n" "${PRE_TEXT}" "$1" "${RESET_COLOR}"
+	print_wrapped_text "" "$1" "${RESET_COLOR}" "$PRE_TEXT"
 }
 
 append_history_message() {
@@ -1647,17 +1789,17 @@ run_cmd() {
 			print_error "[error]"
 			echo -n "${PRE_TEXT}examine error? [y/N]: "
 			restore_cursor
-			read -n 1 -r -s answer
+			read_single_key answer
 			
 			# Did the user want to examine the error?
 			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
-				echo "yes";echo
+				print_prompt_response "yes"
 				USER_QUERY="You executed \"$1\". Which returned error \"$LAST_ERROR\"."
 				QUERY_TYPE="error"
 				NEEDS_TO_RUN=true
 				SKIP_USER_QUERY_RESET=true
 			else
-				echo "no";echo
+				print_prompt_response "no"
 			fi
 		else
 			print_cancel "[cancel]"
@@ -2094,24 +2236,24 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 				# Ask for user command confirmation
 				echo -n "${PRE_TEXT}execute command? [y/e/N]: "
 				restore_cursor
-				read -n 1 -r -s answer
+				read_single_key answer
 			
 			# Did the user want to edit the command?
 			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
 				if [ "$RISK" = "danger zone" ] && [ "$CONFIRM_DANGEROUS_COMMANDS" = true ]; then
-					echo "yes";echo
+					print_prompt_response "yes"
 					echo -n "${PRE_TEXT}danger zone command, are you sure? [y/N]: "
 					restore_cursor
-					read -n 1 -r -s danger_answer
+					read_single_key danger_answer
 					if [ "$danger_answer" == "Y" ] || [ "$danger_answer" == "y" ]; then
-						echo "yes";echo
+						print_prompt_response "yes"
 					else
-						echo "no";echo
+						print_prompt_response "no"
 						print_cancel "[cancel]"
 						continue
 					fi
 				else
-					echo "yes";echo
+					print_prompt_response "yes"
 				fi
 				# RUN
 				run_cmd "$CMD" false
@@ -2127,7 +2269,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 				run_cmd "$CMD" true
 			else
 				# CANCEL
-				echo "no";echo
+				print_prompt_response "no"
 				print_cancel "[cancel]"
 			fi
 		fi
