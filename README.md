@@ -417,6 +417,6 @@ Feel free to move them to your `~/.clai_tools` directory to enable them!
 
 ## Credits
 
-`> clai` is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
+`> clai` is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project to which I've contributed by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
 
 This fork exists because I intend to completely rewrite the project and prefer to have more immediate decision-making capability while doing that work.
