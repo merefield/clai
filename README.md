@@ -10,6 +10,8 @@ Suggested commands are coloured with a simple 🟢 Green, 🟠 Amber, 🔴 Red t
 
 `clai` is an AI-powered Bash terminal assistant. It uses modern LLM APIs to answer terminal questions, suggest commands, and support tool-based extensions through its local plugin system.
 
+![CLAI command suggestion and confirmation flow](docs/assets/examples.png)
+
 ## Credits
 
 `> clai` is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
