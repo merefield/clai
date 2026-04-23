@@ -72,7 +72,7 @@ One PTY-backed edit-path test is enabled in CI and skipped locally unless `CLAI_
 CLAI offers the following features:
 
 - **100% Shell Script**\
-	No need to install anything. Just run it!
+	Single Bash script with only `curl` and `jq` as runtime dependencies.
 	
 - **Plugins!**\
 	Extend CLAI's functionality by adding plugins known as "tools".
@@ -90,7 +90,7 @@ CLAI offers the following features:
 	Get detailed information about the suggested commands.
 	
 - **Distribution Awareness**\
-	Get answers and commands that are compatible with, and related to, your specific Linux distribution.
+	Get answers and commands that are compatible with your system and distro where CLAI can detect them.
 
 - **Command Execution**\
 	Choose to execute the suggested commands directly from CLAI.
@@ -142,6 +142,8 @@ curl -sS https://raw.githubusercontent.com/merefield/clai/main/install.sh | bash
 2. Run `clai` to start CLAI.
 
 By default, the installer downloads the real script to `/usr/local/lib/clai/clai.sh` and exposes `clai` by creating a symlink in `/usr/local/bin`, which is typically already on your `PATH`.
+
+The default install path uses `sudo` because it writes to system locations. To install somewhere user-local instead, set `CLAI_INSTALL_DIR` and `CLAI_BIN_DIR` before running the installer.
 
 On the first invocation without a configured key, CLAI starts a setup wizard and prompts for:
 
