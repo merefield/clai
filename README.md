@@ -12,12 +12,6 @@ Suggested commands are coloured with a simple 🟢 Green, 🟠 Amber, 🔴 Red t
 
 ![CLAI command suggestion and confirmation flow](docs/assets/examples.png)
 
-## Credits
-
-`> clai` is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
-
-This fork exists because I intend to completely rewrite the project and prefer to have more immediate decision-making capability while doing that work.
-
 ## Runtime Scope
 
 `> clai` is intentionally a Bash-first project. It may be invoked from zsh and other shells, but the script itself is expected to run under Bash rather than natively under multiple shell interpreters.
@@ -418,3 +412,9 @@ Feel free to move them to your `~/.clai_tools` directory to enable them!
   - a local/self-hosted OpenAI-compatible endpoint
 - [curl](https://curl.se/)
 - [jq](https://jqlang.org/)
+
+## Credits
+
+`> clai` is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
+
+This fork exists because I intend to completely rewrite the project and prefer to have more immediate decision-making capability while doing that work.
