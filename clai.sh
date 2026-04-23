@@ -1115,15 +1115,13 @@ contains_unresolved_placeholders() {
 }
 
 read_single_key() {
-	local output_var="$1"
 	local key=""
-	local discard=""
 
 	read -n 1 -r -s key
-	while IFS= read -r -t 0.01 -n 1 -s discard; do
+	while IFS= read -r -t 0.01 -n 1 -s _; do
 		:
 	done
-	printf -v "$output_var" '%s' "$key"
+	printf "%s" "$key"
 }
 
 print_prompt_response() {
@@ -1789,7 +1787,7 @@ run_cmd() {
 			print_error "[error]"
 			echo -n "${PRE_TEXT}examine error? [y/N]: "
 			restore_cursor
-			read_single_key answer
+			answer=$(read_single_key)
 			
 			# Did the user want to examine the error?
 			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
@@ -2236,7 +2234,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 				# Ask for user command confirmation
 				echo -n "${PRE_TEXT}execute command? [y/e/N]: "
 				restore_cursor
-				read_single_key answer
+				answer=$(read_single_key)
 			
 			# Did the user want to edit the command?
 			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
@@ -2244,7 +2242,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 					print_prompt_response "yes"
 					echo -n "${PRE_TEXT}danger zone command, are you sure? [y/N]: "
 					restore_cursor
-					read_single_key danger_answer
+					danger_answer=$(read_single_key)
 					if [ "$danger_answer" == "Y" ] || [ "$danger_answer" == "y" ]; then
 						print_prompt_response "yes"
 					else
