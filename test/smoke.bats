@@ -1436,6 +1436,43 @@ EOF
   [[ "$output" == *"run the stub command"* ]]
 }
 
+@test "command responses catch failed pipeline stages before later commands" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4o-mini
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf before; missing_clai_dependency | cat; printf after > \\\"$HOME/after.txt\\\"\",\"info\":\"run a command with a failing pipeline\",\"risk\":\"reversible change\",\"variables\":[]}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "y" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the command"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"missing_clai_dependency: command not found"* ]]
+  [[ "$output" == *"[error]"* ]]
+  [[ "$output" != *"[ok]"* ]]
+  [ ! -e "$TEST_HOME/after.txt" ]
+}
+
 @test "command responses prompt for missing variables before execution" {
   write_config <<'EOF'
 key=test-key
@@ -2185,7 +2222,7 @@ EOF
         return 1
       }
 
-      if eval "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
+      if bash -o errexit -o pipefail -c "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
         maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
         rm -f "$stdout_tmp" "$stderr_tmp"
         return 0

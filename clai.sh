@@ -1244,15 +1244,16 @@ print_cmd_section() {
 print_command_info() {
 	local info="$1"
 	local risk="$2"
+	local danger_label="DANGER ZONE: "
 	local wrapped_info
 	local first_line=true
 
 	[ -z "$info" ] && return
 	if [ "$risk" = "danger zone" ]; then
-		wrapped_info=$(wrap_with_indents "$info" "" "$PRE_TEXT")
+		wrapped_info=$(wrap_with_indents "$info" "" "$PRE_TEXT" "${#danger_label}")
 		while IFS= read -r line || [ -n "$line" ]; do
 			if [ "$first_line" = true ]; then
-				printf "%b%s%b%s%b\n" "${PRE_TEXT}${ERROR_TEXT_COLOR}" "DANGER ZONE: " "${INFO_TEXT_COLOR}" "$line" "${RESET_COLOR}"
+				printf "%b%s%b%s%b\n" "${PRE_TEXT}${ERROR_TEXT_COLOR}" "$danger_label" "${INFO_TEXT_COLOR}" "$line" "${RESET_COLOR}"
 				first_line=false
 			else
 				printf "%b%s%b\n" "${INFO_TEXT_COLOR}" "$line" "${RESET_COLOR}"
@@ -1823,7 +1824,7 @@ run_cmd() {
 
 	begin_section
 
-	if eval "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
+	if bash -o errexit -o pipefail -c "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
 		maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
 		# OK
 		print_ok_section "[ok]"
