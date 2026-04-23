@@ -253,11 +253,11 @@ exit_clai() {
 
 handle_clear_history() {
 	if clear_history_runtime; then
-		printf "%b%s%b\n\n" "${PRE_TEXT}${INFO_TEXT_COLOR}" "Cleared CLAI history." "${RESET_COLOR}"
+		printf "\n%b%s%b\n" "${PRE_TEXT}${INFO_TEXT_COLOR}" "Cleared CLAI history." "${RESET_COLOR}"
 		return 0
 	fi
 
-	printf "%b%s%b\n\n" "${ERROR_TEXT_COLOR}" "Failed to clear CLAI history." "${RESET_COLOR}"
+	printf "\n%b%s%b\n" "${ERROR_TEXT_COLOR}" "Failed to clear CLAI history." "${RESET_COLOR}"
 	return 1
 }
 
@@ -920,9 +920,23 @@ if [ -z "$ERROR_QUERY_CONFIG" ]; then
 fi
 
 # Helper functions
+begin_section() {
+	printf "\n"
+}
+
+return_to_user_prompt() {
+	restore_cursor
+}
+
 print_info() {
 	[ -z "$1" ] && return
 	print_wrapped_text "${INFO_TEXT_COLOR}" "$1" "${RESET_COLOR}" "$PRE_TEXT"
+}
+
+print_info_section() {
+	[ -z "$1" ] && return
+	begin_section
+	print_info "$1"
 }
 
 print_ok() {
@@ -930,14 +944,32 @@ print_ok() {
 	print_wrapped_text "${OK_TEXT_COLOR}" "$1" "${RESET_COLOR}" "$PRE_TEXT"
 }
 
+print_ok_section() {
+	[ -z "$1" ] && return
+	begin_section
+	print_ok "$1"
+}
+
 print_error() {
 	[ -z "$1" ] && return
 	print_wrapped_text "${ERROR_TEXT_COLOR}" "$1" "${RESET_COLOR}" "$PRE_TEXT"
 }
 
+print_error_section() {
+	[ -z "$1" ] && return
+	begin_section
+	print_error "$1"
+}
+
 print_cancel() {
 	[ -z "$1" ] && return
 	print_wrapped_text "${CANCEL_TEXT_COLOR}" "$1" "${RESET_COLOR}" "$PRE_TEXT"
+}
+
+print_cancel_section() {
+	[ -z "$1" ] && return
+	begin_section
+	print_cancel "$1"
 }
 
 terminal_columns() {
@@ -1041,7 +1073,6 @@ print_wrapped_text() {
 	while IFS= read -r line || [ -n "$line" ]; do
 		printf "%b%s%b\n" "$prefix" "$line" "$suffix"
 	done <<< "$wrapped_text"
-	printf "\n"
 }
 
 risk_text_color() {
@@ -1127,8 +1158,16 @@ read_single_key() {
 print_prompt_response() {
 	local response="$1"
 
-	printf "\n"
+	begin_section
 	print_wrapped_text "" "$response" "${RESET_COLOR}" "$PRE_TEXT"
+}
+
+print_prompt() {
+	local prompt="$1"
+
+	begin_section
+	echo -n "${PRE_TEXT}${prompt}"
+	restore_cursor
 }
 
 resolve_command_variables() {
@@ -1156,7 +1195,7 @@ resolve_command_variables() {
 		return 0
 	fi
 
-	printf "\n"
+	begin_section
 
 	for ((i=0; i<variable_count; i++)); do
 		name=$(jq -r '.['"$i"'].name' <<< "$variables_json")
@@ -1191,11 +1230,15 @@ print_cmd() {
 	[ -z "$command" ] && return
 	text_color=$(risk_text_color "$risk")
 	wrapped_command=$(wrap_with_indents "$command" "" "" "$(( ${#PRE_TEXT} + 2 ))")
-	printf "\n"
 	while IFS= read -r line || [ -n "$line" ]; do
 		printf "%b%b %s %b\n" "${PRE_TEXT}" "${CMD_BG_COLOR}${text_color}" "$line" "${RESET_COLOR}"
 	done <<< "$wrapped_command"
-	printf "\n"
+}
+
+print_cmd_section() {
+	[ -z "$1" ] && return
+	begin_section
+	print_cmd "$1" "$2"
 }
 
 print_command_info() {
@@ -1215,14 +1258,25 @@ print_command_info() {
 				printf "%b%s%b\n" "${INFO_TEXT_COLOR}" "$line" "${RESET_COLOR}"
 			fi
 		done <<< "$wrapped_info"
-		printf "\n"
 	else
 		print_info "$info"
 	fi
 }
 
+print_command_info_section() {
+	[ -z "$1" ] && return
+	begin_section
+	print_command_info "$1" "$2"
+}
+
 print() {
 	print_wrapped_text "" "$1" "${RESET_COLOR}" "$PRE_TEXT"
+}
+
+print_section() {
+	[ -z "$1" ] && return
+	begin_section
+	print "$1"
 }
 
 append_history_message() {
@@ -1767,10 +1821,12 @@ run_cmd() {
 		return 1
 	}
 
+	begin_section
+
 	if eval "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
 		maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
 		# OK
-		print_ok "[ok]"
+		print_ok_section "[ok]"
 		rm -f "$stdout_tmp" "$stderr_tmp"
 		return 0
 	else
@@ -1784,9 +1840,8 @@ run_cmd() {
 		
 		# Ask if we should examine the error
 		if [ ${#LAST_ERROR} -gt 1 ]; then
-			print_error "[error]"
-			echo -n "${PRE_TEXT}examine error? [y/N]: "
-			restore_cursor
+			print_error_section "[error]"
+			print_prompt "examine error? [y/N]: "
 			answer=$(read_single_key)
 			
 			# Did the user want to examine the error?
@@ -1800,7 +1855,7 @@ run_cmd() {
 				print_prompt_response "no"
 			fi
 		else
-			print_cancel "[cancel]"
+			print_cancel_section "[cancel]"
 		fi
 		return 1
 	fi
@@ -1821,8 +1876,8 @@ run_tool() {
 		
 		TOOL_REASON=$(echo "$TOOL_ARGS" | jq -r '.tool_reason')
 		TOOL_ARGS_READABLE=$(echo "$TOOL_ARGS" | jq -r 'del(.tool_reason)|to_entries|map("\(.key): \(.value)")|.[]' | paste -sd ',' - | awk '{gsub(/,/, ", "); print}')
-		print_info "$TOOL_REASON"
-		print_info "Using tool \"$TOOL_NAME\" $TOOL_ARGS_READABLE"
+		print_info_section "$TOOL_REASON"
+		print_info_section "Using tool \"$TOOL_NAME\" $TOOL_ARGS_READABLE"
 		
 				echo "$TOOL_NAME" >> "$TOOL_LOG_FILE"
 				echo "$TOOL_ARGS_READABLE" >> "$TOOL_LOG_FILE"
@@ -1849,19 +1904,17 @@ run_tool() {
 # Are we entering interactive mode?
 if [ -z "$USER_QUERY" ]; then
 	INTERACTIVE_MODE=true
-	print "🤖 ${TITLE_TEXT_COLOR}CLAI v${VERSION}${RESET_COLOR}"
+	print_section "🤖 ${TITLE_TEXT_COLOR}CLAI v${VERSION}${RESET_COLOR}"
 	# List all tools loaded in TOOL_MAP
 	# Get number of tools
 	if [ "$(tool_map_size)" -gt 0 ]; then
-		echo
-		print "🔧 ${TITLE_TEXT_COLOR}Activated Tools${RESET_COLOR}"
+		print_section "🔧 ${TITLE_TEXT_COLOR}Activated Tools${RESET_COLOR}"
 		for tool in $(tool_map_keys); do
 			tool_path="$(tool_map_get "$tool")"
 			print "${TITLE_TEXT_COLOR}$tool${RESET_COLOR} from ${tool_path##*/}"
 		done
 	fi
-	echo
-	print_info "$INTERACTIVE_INFO"
+	print_info_section "$INTERACTIVE_INFO"
 else
 	INTERACTIVE_MODE=false
 	NEEDS_TO_RUN=true
@@ -1871,21 +1924,22 @@ fi
 while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_TOOL_REPONSE" = true ]; do
 	# Ask for user query if we're in Interactive Mode
 	if [ "$SKIP_USER_QUERY" != true ]; then
-			while [ -z "$USER_QUERY" ]; do
-				# No query, prompt user for query
+		while [ -z "$USER_QUERY" ]; do
+			# No query, prompt user for query
+			begin_section
+			restore_cursor
+			read -e -r -p "CLAI> " USER_QUERY
+			conceal_cursor
+				
+			# Check if user wants to quit
+			if [ "$USER_QUERY" == "exit" ]; then
 				restore_cursor
-					read -e -r -p "CLAI> " USER_QUERY
-				conceal_cursor
-			
-				# Check if user wants to quit
-				if [ "$USER_QUERY" == "exit" ]; then
-						restore_cursor
-					print_info "Bye!"
-					exit_clai 0
-				fi
+				print_info_section "Bye!"
+				exit_clai 0
+			fi
 		done
-		
-		fi
+			
+	fi
 	
 	conceal_cursor
 	
@@ -2058,39 +2112,39 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		# Reset user query
 		USER_QUERY=""
 
-			if [ $CURL_STATUS -ne 0 ]; then
-				echo -ne "$CLEAR_LINE\r"
-				CURL_ERROR=$(cat "$CURL_ERROR_FILE" 2>/dev/null)
-				if [ -z "$CURL_ERROR" ]; then
-					CURL_ERROR="Request failed before the API responded."
-				fi
-				print_error "$CURL_ERROR"
-				restore_cursor
-				exit_clai 1
+		if [ $CURL_STATUS -ne 0 ]; then
+			echo -ne "$CLEAR_LINE\r"
+			CURL_ERROR=$(cat "$CURL_ERROR_FILE" 2>/dev/null)
+			if [ -z "$CURL_ERROR" ]; then
+				CURL_ERROR="Request failed before the API responded."
 			fi
+			print_error_section "$CURL_ERROR"
+			restore_cursor
+			exit_clai 1
+		fi
 
-			if ! jq -e . "$RESPONSE_FILE" >/dev/null 2>&1; then
-				echo -ne "$CLEAR_LINE\r"
-				print_error "The API returned a non-JSON response (HTTP $HTTP_CODE)."
-				restore_cursor
-				exit_clai 1
-			fi
+		if ! jq -e . "$RESPONSE_FILE" >/dev/null 2>&1; then
+			echo -ne "$CLEAR_LINE\r"
+			print_error_section "The API returned a non-JSON response (HTTP $HTTP_CODE)."
+			restore_cursor
+			exit_clai 1
+		fi
 
 		if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
 			echo -ne "$CLEAR_LINE\r"
 			API_ERROR=$(extract_api_error)
-				if [ -z "$API_ERROR" ]; then
-					API_ERROR="The API request failed with HTTP status $HTTP_CODE."
-				fi
-				print_error "$API_ERROR"
-				restore_cursor
-				exit_clai 1
+			if [ -z "$API_ERROR" ]; then
+				API_ERROR="The API request failed with HTTP status $HTTP_CODE."
 			fi
+			print_error_section "$API_ERROR"
+			restore_cursor
+			exit_clai 1
+		fi
 		
 		# Is response empty?
 		if [ -z "$RESPONSE" ]; then
 			# We didn't get a reply
-			print_info "$NO_REPLY_TEXT"
+			print_info_section "$NO_REPLY_TEXT"
 			restore_cursor
 			exit_clai 1
 		fi
@@ -2205,23 +2259,22 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			append_history_message "assistant" "$JSON_CONTENT"
 
 		if [ "$VARIABLE_COLLECTION_CANCELLED" = true ]; then
-			print_cancel "[cancel]"
-			restore_cursor
+			print_cancel_section "[cancel]"
+			return_to_user_prompt
 			continue
 		fi
 		
 		# Check if CMD is empty
 		if [ ${#CMD} -le 0 ]; then
 			# Not a command
-			printf "\n"
 			if [ ${#INFO} -le 0 ]; then
 				# No info
-				print_info "$REPLY"
+				print_info_section "$REPLY"
 			else
 				# Print info
-				print_info "$INFO"
+				print_info_section "$INFO"
 			fi
-			restore_cursor
+			return_to_user_prompt
 		else
 			# Make sure we have some info
 			if [ ${#INFO} -le 0 ]; then
@@ -2229,26 +2282,24 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			fi
 			
 			# Print command and information
-			print_cmd "$CMD" "$RISK"
-			print_command_info "$INFO" "$RISK"
+			print_cmd_section "$CMD" "$RISK"
+			print_command_info_section "$INFO" "$RISK"
 			
-				# Ask for user command confirmation
-				echo -n "${PRE_TEXT}execute command? [y/e/N]: "
-				restore_cursor
-				answer=$(read_single_key)
+			# Ask for user command confirmation
+			print_prompt "execute command? [y/e/N]: "
+			answer=$(read_single_key)
 			
 			# Did the user want to edit the command?
 			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
 				if [ "$RISK" = "danger zone" ] && [ "$CONFIRM_DANGEROUS_COMMANDS" = true ]; then
 					print_prompt_response "yes"
-					echo -n "${PRE_TEXT}danger zone command, are you sure? [y/N]: "
-					restore_cursor
+					print_prompt "danger zone command, are you sure? [y/N]: "
 					danger_answer=$(read_single_key)
 					if [ "$danger_answer" == "Y" ] || [ "$danger_answer" == "y" ]; then
 						print_prompt_response "yes"
 					else
 						print_prompt_response "no"
-						print_cancel "[cancel]"
+						print_cancel_section "[cancel]"
 						continue
 					fi
 				else
@@ -2262,6 +2313,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 				if [ -n "$CLAI_EDIT_COMMAND_OVERRIDE" ]; then
 					CMD="$CLAI_EDIT_COMMAND_OVERRIDE"
 				else
+					begin_section
 					read -e -r -p "${PRE_TEXT}edit command: " -i "$CMD" CMD
 				fi
 				echo
@@ -2269,7 +2321,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			else
 				# CANCEL
 				print_prompt_response "no"
-				print_cancel "[cancel]"
+				print_cancel_section "[cancel]"
 			fi
 		fi
 	fi
@@ -2283,4 +2335,5 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 done
 
 # We're done
+begin_section
 exit_clai 0
