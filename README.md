@@ -81,7 +81,7 @@ CLAI offers the following features:
 	Communicate with the terminal using everyday language.
 	
 - **Question Answering**\
-	Get answers to all your terminal questions by ending your request with a question mark (but note special consideration for zsh users below)
+	Get answers to terminal questions by including a question mark in your request (but note special consideration for zsh users below)
 
 - **Command Suggestions**\
 	Receive intelligent command suggestions based on your input.
@@ -234,7 +234,7 @@ On the first run, a configuration file named `clai.cfg` will be created in your 
 CLAI will create `~/.config` automatically if needed and will write `clai.cfg` with restrictive permissions.
 
 > [!IMPORTANT]
-> Always remove `clai.cfg` before updating CLAI to avoid compatibility issues.
+> If you run into config-related issues after updating CLAI, re-run `clai setup` or remove `~/.config/clai.cfg` to regenerate it.
 
 If there is no configured key, CLAI will start the setup wizard automatically on invocation and prompt for the key, base URL, and model. You can also re-run that flow explicitly with `clai setup` or `clai --setup`.
 
@@ -342,7 +342,7 @@ Example usage:
 clai create a new directory with a name of your choice, then create a text file inside it
 ```
 
-You can also ask questions  by ending your request with a question mark:
+You can also ask questions by including a question mark in your request:
 ```
 clai what is the current time?
 ```
