@@ -2213,15 +2213,16 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 		# Check if CMD is empty
 		if [ ${#CMD} -le 0 ]; then
 			# Not a command
+			printf "\n"
 			if [ ${#INFO} -le 0 ]; then
 				# No info
 				print_info "$REPLY"
-				else
-					# Print info
-					print_info "$INFO"
-				fi
-				restore_cursor
 			else
+				# Print info
+				print_info "$INFO"
+			fi
+			restore_cursor
+		else
 			# Make sure we have some info
 			if [ ${#INFO} -le 0 ]; then
 				INFO="warning: no information"

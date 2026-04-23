@@ -633,6 +633,38 @@ EOF
     "$TEST_HOME/curl-request.json" >/dev/null
 }
 
+@test "commandless info responses start on a fresh line" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *$'\n\e[90;3m  stub answer'* ]]
+}
+
 @test "clai falls back to generic json_object mode for unknown endpoints" {
   write_config <<'EOF'
 key=test-key
