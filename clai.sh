@@ -2328,6 +2328,7 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			print_command_info_section "$INFO" "$RISK"
 
 			if ! command_requires_confirmation "$RISK"; then
+				restore_cursor
 				run_cmd "$CMD" false
 			else
 				# Ask for user command confirmation
