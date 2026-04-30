@@ -449,7 +449,7 @@ EOF
 @test "missing key triggers setup wizard and continues the requested command" {
   make_success_curl
 
-  run_with_setup_io "wizard-key\n\n\n" 'bash ./clai.sh "what is the current time?"'
+  run_with_setup_io "wizard-key\n\n\n\n" 'bash ./clai.sh "what is the current time?"'
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"CLAI configuration updated."* ]]
@@ -457,6 +457,7 @@ EOF
   grep -qx 'key=wizard-key' "$TEST_HOME/.config/clai.cfg"
   grep -qx 'api=https://api.openai.com/v1/chat/completions' "$TEST_HOME/.config/clai.cfg"
   grep -qx 'model=gpt-4.1' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'risk_appetite=0' "$TEST_HOME/.config/clai.cfg"
 }
 
 @test "--setup updates config without calling the API" {
@@ -479,13 +480,14 @@ EOF
 
   make_marker_curl
 
-  run_with_setup_io "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" 'bash ./clai.sh --setup'
+  run_with_setup_io "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n2\n" 'bash ./clai.sh --setup'
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"CLAI configuration updated."* ]]
   grep -qx 'key=new-key' "$TEST_HOME/.config/clai.cfg"
   grep -qx 'api=https://example.invalid/v1/chat/completions' "$TEST_HOME/.config/clai.cfg"
   grep -qx 'model=custom-model' "$TEST_HOME/.config/clai.cfg"
+  grep -qx 'risk_appetite=2' "$TEST_HOME/.config/clai.cfg"
   [ ! -e "$TEST_HOME/curl-called" ]
 }
 
@@ -509,7 +511,7 @@ EOF
 
   make_marker_curl
 
-  run_with_setup_io "\n\n\n" 'bash ./clai.sh setup'
+  run_with_setup_io "\n\n\n\n" 'bash ./clai.sh setup'
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"CLAI configuration updated."* ]]
@@ -545,7 +547,7 @@ exit 1
 EOF
   chmod +x "$TEST_HOME/fakebin/mv"
 
-  run_with_setup_io "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n" 'bash ./clai.sh --setup'
+  run_with_setup_io "new-key\nhttps://example.invalid/v1/chat/completions\ncustom-model\n2\n" 'bash ./clai.sh --setup'
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"Failed to save CLAI configuration."* ]]
@@ -1785,6 +1787,152 @@ EOF
   [[ "$output" == *$'\e[48;5;236m\e[91m rm -rf build '* ]]
   [[ "$output" == *"DANGER ZONE: "* ]]
   [[ "$output" == *"remove the build directory"* ]]
+}
+
+@test "risk appetite 1 auto-runs green commands" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+risk_appetite=1
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf green-auto-run\",\"info\":\"print green output\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}'
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "print green output"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"green-auto-run"* ]]
+  [[ "$output" == *"[ok]"* ]]
+  [[ "$output" != *"execute command? [y/e/N]:"* ]]
+}
+
+@test "risk appetite 1 still prompts for amber commands" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+risk_appetite=1
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf amber > \\\"$HOME/amber-ran.txt\\\"\",\"info\":\"write amber output\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "write amber output"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"execute command? [y/e/N]:"* ]]
+  [[ "$output" == *"[cancel]"* ]]
+  [ ! -e "$TEST_HOME/amber-ran.txt" ]
+}
+
+@test "risk appetite 2 auto-runs amber commands" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+risk_appetite=2
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf amber > \\\"$HOME/amber-ran.txt\\\"\",\"info\":\"write amber output\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "write amber output"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[ok]"* ]]
+  [[ "$output" != *"execute command? [y/e/N]:"* ]]
+  [ -f "$TEST_HOME/amber-ran.txt" ]
+  [ "$(cat "$TEST_HOME/amber-ran.txt")" = "amber" ]
+}
+
+@test "risk appetite 2 still prompts for danger zone commands" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+risk_appetite=2
+confirm_dangerous_commands=true
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "run the dangerous command"
+  '
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"execute command? [y/e/N]:"* ]]
+  [[ "$output" == *"[cancel]"* ]]
+  [ ! -e "$TEST_HOME/danger-ran.txt" ]
 }
 
 @test "danger zone commands require a second confirmation by default" {
