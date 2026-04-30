@@ -656,6 +656,7 @@ tokens=500
 share_command_results=false
 result_lines=20
 confirm_dangerous_commands=true
+risk_appetite=0
 exec_query=
 question_query=
 error_query=
@@ -741,22 +742,37 @@ show_results_sharing() {
 	return 0
 }
 
+normalize_risk_appetite() {
+	case "$1" in
+		0|1|2)
+			printf "%s" "$1"
+			;;
+		*)
+			printf "0"
+			;;
+	esac
+}
+
 run_setup_wizard() {
 	local key_prompt_value
 	local api_prompt_value
 	local model_prompt_value
+	local risk_appetite_prompt_value
 	local key_input
 	local api_input
 	local model_input
+	local risk_appetite_input
 	local setup_input_path="${CLAI_SETUP_INPUT:-/dev/tty}"
 	local setup_output_path="${CLAI_SETUP_OUTPUT:-/dev/tty}"
 
 	key_prompt_value=$(cfg_val "key")
 	api_prompt_value=$(cfg_val "api")
 	model_prompt_value=$(cfg_val "model")
+	risk_appetite_prompt_value=$(cfg_val "risk_appetite")
 
 	[ -z "$api_prompt_value" ] && api_prompt_value="https://api.openai.com/v1/chat/completions"
 	[ -z "$model_prompt_value" ] && model_prompt_value="gpt-4.1"
+	risk_appetite_prompt_value=$(normalize_risk_appetite "$risk_appetite_prompt_value")
 
 	if ! exec 3<"$setup_input_path" 4>"$setup_output_path"; then
 		echo "CLAI setup requires an interactive terminal. Run 'clai setup' in a TTY." >&2
@@ -793,9 +809,16 @@ run_setup_wizard() {
 		model_prompt_value="$model_input"
 	fi
 
+	printf "Risk appetite (0=always prompt, 1=auto-run green, 2=auto-run amber) [%s]: " "$risk_appetite_prompt_value" >&4
+	read -r -u 3 risk_appetite_input
+	if [ -n "$risk_appetite_input" ]; then
+		risk_appetite_prompt_value=$(normalize_risk_appetite "$risk_appetite_input")
+	fi
+
 	set_cfg_val "key" "$key_prompt_value"
 	set_cfg_val "api" "$api_prompt_value"
 	set_cfg_val "model" "$model_prompt_value"
+	set_cfg_val "risk_appetite" "$risk_appetite_prompt_value"
 	if ! save_config; then
 		echo "Failed to save CLAI configuration." >&2
 		exec 3<&-
@@ -880,6 +903,8 @@ if [ "$CONFIRM_DANGEROUS_COMMANDS" = false ]; then
 else
 	CONFIRM_DANGEROUS_COMMANDS=true
 fi
+
+RISK_APPETITE=$(normalize_risk_appetite "$(cfg_val "risk_appetite")")
 
 RESULT_LINES=$(cfg_val "result_lines")
 RESULT_LINES=$(jq -Rn --arg value "$RESULT_LINES" '$value | (tonumber? // 20) | floor')
@@ -1103,6 +1128,22 @@ normalize_risk() {
 			else
 				printf "none"
 			fi
+			;;
+	esac
+}
+
+command_requires_confirmation() {
+	local risk="$1"
+
+	case "$risk" in
+		"danger zone")
+			return 0
+			;;
+		"reversible change")
+			[ "$RISK_APPETITE" -lt 2 ]
+			;;
+		*)
+			[ "$RISK_APPETITE" -lt 1 ]
 			;;
 	esac
 }
@@ -2285,44 +2326,48 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			# Print command and information
 			print_cmd_section "$CMD" "$RISK"
 			print_command_info_section "$INFO" "$RISK"
-			
-			# Ask for user command confirmation
-			print_prompt "execute command? [y/e/N]: "
-			answer=$(read_single_key)
-			
-			# Did the user want to edit the command?
-			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
-				if [ "$RISK" = "danger zone" ] && [ "$CONFIRM_DANGEROUS_COMMANDS" = true ]; then
-					print_prompt_response "yes"
-					print_prompt "danger zone command, are you sure? [y/N]: "
-					danger_answer=$(read_single_key)
-					if [ "$danger_answer" == "Y" ] || [ "$danger_answer" == "y" ]; then
-						print_prompt_response "yes"
-					else
-						print_prompt_response "no"
-						print_cancel_section "[cancel]"
-						continue
-					fi
-				else
-					print_prompt_response "yes"
-				fi
-				# RUN
+
+			if ! command_requires_confirmation "$RISK"; then
 				run_cmd "$CMD" false
-			elif [ "$answer" == "E" ] || [ "$answer" == "e" ]; then
-				# EDIT
-				echo -ne "$CLEAR_LINE\r"
-				if [ -n "$CLAI_EDIT_COMMAND_OVERRIDE" ]; then
-					CMD="$CLAI_EDIT_COMMAND_OVERRIDE"
-				else
-					begin_section
-					read -e -r -p "${PRE_TEXT}edit command: " -i "$CMD" CMD
-				fi
-				echo
-				run_cmd "$CMD" true
 			else
-				# CANCEL
-				print_prompt_response "no"
-				print_cancel_section "[cancel]"
+				# Ask for user command confirmation
+				print_prompt "execute command? [y/e/N]: "
+				answer=$(read_single_key)
+				
+				# Did the user want to edit the command?
+				if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
+					if [ "$RISK" = "danger zone" ] && [ "$CONFIRM_DANGEROUS_COMMANDS" = true ]; then
+						print_prompt_response "yes"
+						print_prompt "danger zone command, are you sure? [y/N]: "
+						danger_answer=$(read_single_key)
+						if [ "$danger_answer" == "Y" ] || [ "$danger_answer" == "y" ]; then
+							print_prompt_response "yes"
+						else
+							print_prompt_response "no"
+							print_cancel_section "[cancel]"
+							continue
+						fi
+					else
+						print_prompt_response "yes"
+					fi
+					# RUN
+					run_cmd "$CMD" false
+				elif [ "$answer" == "E" ] || [ "$answer" == "e" ]; then
+					# EDIT
+					echo -ne "$CLEAR_LINE\r"
+					if [ -n "$CLAI_EDIT_COMMAND_OVERRIDE" ]; then
+						CMD="$CLAI_EDIT_COMMAND_OVERRIDE"
+					else
+						begin_section
+						read -e -r -p "${PRE_TEXT}edit command: " -i "$CMD" CMD
+					fi
+					echo
+					run_cmd "$CMD" true
+				else
+					# CANCEL
+					print_prompt_response "no"
+					print_cancel_section "[cancel]"
+				fi
 			fi
 		fi
 	fi

@@ -150,11 +150,13 @@ On the first invocation without a configured key, CLAI starts a setup wizard and
 - API key
 - API base URL
 - model
+- risk appetite
 
 The defaults are:
 
 - API base URL: `https://api.openai.com/v1/chat/completions`
 - model: `gpt-4.1`
+- risk appetite: `0`
 
 You can point CLAI at:
 
@@ -263,6 +265,7 @@ The history retention setting is `max_history_turns=`. It controls how many user
 | `share_command_results` | `false` | Shares structured command stdout, stderr, exit code, and edited state with later CLAI turns by storing it in history after execution. Enabling this can expose sensitive command output to later model context. |
 | `result_lines` | `20` | Maximum number of stdout and stderr lines to keep per stored command result. Invalid values fall back to `20`. |
 | `confirm_dangerous_commands` | `true` | Requires a second confirmation before executing commands marked as `danger zone`. |
+| `risk_appetite` | `0` | Controls which non-danger commands can run without confirmation after CLAI shows the command and explanation. `0` always prompts, `1` auto-runs green `none` commands, and `2` auto-runs green plus amber `reversible change` commands. Invalid values fall back to `0`. |
 | `exec_query` | empty | Optional extra system guidance for normal command-generation mode. |
 | `question_query` | empty | Optional extra system guidance for question-answering mode. |
 | `error_query` | empty | Optional extra system guidance for error-recovery mode. |
@@ -363,9 +366,17 @@ When CLAI suggests a command, it shows the command and a short explanation, then
 
 In interactive mode, this lets you inspect or adjust the generated command before anything runs.
 
-If the model marks any command inputs as missing in the structured `variables` field, CLAI prompts for those values first, substitutes them into the command and explanation, and only then shows the final command for confirmation.
+The `risk_appetite` config can skip that prompt for non-danger commands after the command and explanation have been shown:
 
-You can think of this as a small variable wizard. For example, if CLAI suggests `git checkout -b {{branch_name}}`, it will first ask you for the branch name, substitute that value into the command, and only then ask whether to run it.
+- `0`: always prompt before executing suggested commands.
+- `1`: run green `none` commands immediately; prompt for amber and red.
+- `2`: run green `none` and amber `reversible change` commands immediately; prompt for red.
+
+Red `danger zone` commands always keep the normal confirmation flow.
+
+If the model marks any command inputs as missing in the structured `variables` field, CLAI prompts for those values first, substitutes them into the command and explanation, and only then shows the final command for confirmation or automatic execution, depending on `risk_appetite`.
+
+You can think of this as a small variable wizard. For example, if CLAI suggests `git checkout -b {{branch_name}}`, it will first ask you for the branch name, substitute that value into the command, and only then apply the normal risk appetite behavior.
 
 Suggested commands are color-coded by the model-reported `risk` field:
 
