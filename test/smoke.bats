@@ -859,6 +859,7 @@ key=old-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -2493,6 +2494,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -2512,7 +2514,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b {{branch_name}}\",\"info\":\"creates and switches to the new git branch \\\"{{branch_name}}\\\"\",\"risk\":\"reversible change\",\"variables\":[{\"name\":\"branch_name\",\"prompt\":\"new branch name\"}]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "blahblah\ny" | env \
+    printf "blahblah\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
