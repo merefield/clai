@@ -2710,6 +2710,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=1
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -2723,7 +2724,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"ls -la\",\"info\":\"list files\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n\n" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2744,6 +2745,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -2754,10 +2756,10 @@ question_query=
 error_query=
 EOF
 
-  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"mv old.txt new.txt\",\"info\":\"rename the file\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf reversible-color\",\"info\":\"print reversible color marker\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n\n" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2769,7 +2771,7 @@ EOF
   '
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *$'\e[48;5;236m\e[38;5;214m mv old.txt new.txt '* ]]
+  [[ "$output" == *$'\e[48;5;236m\e[38;5;214m printf reversible-color '* ]]
 }
 
 @test "dangerous commands are shown in red" {
