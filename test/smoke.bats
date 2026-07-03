@@ -3586,6 +3586,10 @@ EOF
     skip "script command is unavailable"
   fi
 
+  if ! script -qec "true" /dev/null >/dev/null 2>&1; then
+    skip "script command does not support util-linux -qec invocation"
+  fi
+
   write_config <<'EOF'
 key=test-key
 hi_contrast=false

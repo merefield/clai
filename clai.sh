@@ -1297,10 +1297,12 @@ contains_unresolved_placeholders() {
 
 read_single_key() {
 	local key=""
+	local drain_count=0
 
 	if [ -t 0 ]; then
 		read -n 1 -r -s key
-		while IFS= read -r -t 0 -n 1 -s _; do
+		while [ "$drain_count" -lt 32 ] && IFS= read -r -t 0.01 -n 1 -s _; do
+			drain_count=$((drain_count + 1))
 			:
 		done
 	else
