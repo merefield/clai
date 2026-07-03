@@ -314,7 +314,7 @@ Provider notes:
 - If `json_mode=true`: Ollama `/api/chat` endpoints receive `format: "json"` even when `reasoning` is empty.
 - For Gemini endpoints, CLAI treats `model` as authoritative and rewrites the effective request URL to target that model, even if the configured `api` URL template contains a different model name.
 - Local or self-hosted OpenAI-compatible endpoints can be used by pointing `api` at the compatible base URL and setting the desired `model`.
-- Local CLAI tool calls are currently only sent on OpenAI-compatible endpoints. Anthropic and Gemini still use native structured outputs for normal responses, but CLAI tells those models not to rely on tool calls.
+- Local CLAI tool calls are currently only sent on OpenAI-compatible endpoints and Ollama `/api/chat` endpoints. Anthropic and Gemini still use native structured outputs for normal responses, but CLAI tells those models not to rely on tool calls.
 
 When `json_mode=true`, CLAI asks the model to return structured `cmd`, `info`, `risk`, and `variables` fields. The `risk` value must be one of:
 
@@ -441,7 +441,7 @@ Plugins are local CLAI tools that expand CLAI's functionality, but they are not 
 All tools should be placed in your `~/.clai_tools` directory.\
 You can see which tools are currently installed by running `clai`, and CLAI will list them for you.
 
-Local tool calling currently uses the OpenAI-compatible tool format. If you point CLAI at Anthropic or Gemini endpoints, CLAI will still use provider-native structured outputs for normal responses, but it will not send local tools in the request and will tell the model not to rely on tool calls.
+Local tool calling currently uses the OpenAI-compatible tool format on OpenAI-compatible endpoints and Ollama's `/api/chat` tool-call shape on Ollama endpoints. If you point CLAI at Anthropic or Gemini endpoints, CLAI will still use provider-native structured outputs for normal responses, but it will not send local tools in the request and will tell the model not to rely on tool calls.
 
 Tools are nothing more than a shell script with a `init` and `execute` function.\
 You can find examples and available tools in the [tools folder](https://github.com/merefield/clai/tree/main/tools).\
