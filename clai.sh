@@ -29,7 +29,7 @@ if [ ${#DISTRO_INFO} -le 1 ]; then
 fi
 
 # Version of CLAI
-VERSION="1.0.5"
+VERSION="1.1.0"
 
 # Global variables
 PRE_TEXT="  "  # Prefix for text output
