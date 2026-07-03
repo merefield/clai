@@ -2517,8 +2517,9 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 						run_tool "$TOOL_ID" "$TOOL_NAME" "$TOOL_ARGS"
 					done
 				REPLY=""
+				JSON_CONTENT=""
+			fi
 		fi
-	fi
 	
 	# If we still have a reply
 		if [ -n "$JSON_CONTENT" ] || [ ${#REPLY} -gt 1 ]; then
