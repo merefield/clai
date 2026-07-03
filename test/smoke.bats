@@ -2467,7 +2467,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf before; missing_clai_dependency | cat; printf after > \\\"$HOME/after.txt\\\"\",\"info\":\"run a command with a failing pipeline\",\"risk\":\"reversible change\",\"variables\":[]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "y\n" | env \
+    printf "y\nn\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
