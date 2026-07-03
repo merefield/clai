@@ -2428,7 +2428,7 @@ EOF
   make_command_curl
 
   run bash -lc '
-    printf "y" | env \
+    printf "y\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2464,7 +2464,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf before; missing_clai_dependency | cat; printf after > \\\"$HOME/after.txt\\\"\",\"info\":\"run a command with a failing pipeline\",\"risk\":\"reversible change\",\"variables\":[]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "y" | env \
+    printf "y\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2547,7 +2547,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b release-prep\",\"info\":\"creates and switches to the new git branch \\\"release-prep\\\"\",\"risk\":\"reversible change\",\"variables\":[]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    printf "n\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2670,7 +2670,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b {{branch_name}}\",\"info\":\"creates and switches to the new git branch \\\"{{branch_name}}\\\"\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    printf "n\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2711,7 +2711,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"ls -la\",\"info\":\"list files\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    printf "n\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2745,7 +2745,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"mv old.txt new.txt\",\"info\":\"rename the file\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    printf "n\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2779,7 +2779,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"rm -rf build\",\"info\":\"remove the build directory\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    printf "n\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2851,7 +2851,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf amber > \\\"$HOME/amber-ran.txt\\\"\",\"info\":\"write amber output\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    printf "n\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2925,7 +2925,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    printf "n\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2962,7 +2962,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "yn" | env \
+    printf "y\nn\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2999,7 +2999,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "y" | env \
+    printf "y\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -3037,7 +3037,7 @@ EOF
   make_result_command_curl
 
   run bash -lc '
-    printf "y" | env \
+    printf "y\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -3099,7 +3099,7 @@ EOF
   make_result_command_curl
 
   run bash -lc '
-    printf "y" | env \
+    printf "y\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -3488,7 +3488,7 @@ EOF
   make_result_command_curl
 
   run bash -lc '
-    printf "y" | env \
+    printf "y\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -3528,7 +3528,7 @@ EOF
   make_command_curl
 
   run bash -lc '
-    printf "n" | env \
+    printf "n\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -3565,7 +3565,7 @@ EOF
   make_command_curl
 
   run bash -lc '
-    printf "e" | env \
+    printf "e\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
