@@ -2072,64 +2072,84 @@ fi
 RESPONSE_SCHEMA_JSON=$(response_schema_json)
 GLOBAL_QUERY+=" $(provider_tool_capability_text)"
 
+stream_file_delta() {
+	local file="$1"
+	local offset="$2"
+	local target="${3:-stdout}"
+	local size
+	local count
+
+	STREAM_FILE_DELTA_OFFSET="$offset"
+	size=$(wc -c < "$file" 2>/dev/null | tr -d '[:space:]')
+	if ! [[ "$size" =~ ^[0-9]+$ ]]; then
+		return 0
+	fi
+	if [ "$size" -le "$offset" ]; then
+		return 0
+	fi
+
+	count=$((size - offset))
+	if [ "$target" = "stderr" ]; then
+		dd if="$file" bs=1 skip="$offset" count="$count" 2>/dev/null >&2
+	else
+		dd if="$file" bs=1 skip="$offset" count="$count" 2>/dev/null
+	fi
+	STREAM_FILE_DELTA_OFFSET="$size"
+}
+
 run_cmd() {
 	local command="$1"
 	local edited="${2:-false}"
 	local stdout_tmp
 	local stderr_tmp
-	local stdout_fifo
-	local stderr_fifo
-	local stdout_tee_pid
-	local stderr_tee_pid
+	local status_tmp
+	local runner_pid
+	local stdout_offset=0
+	local stderr_offset=0
 	local exit_status
-	local errexit_was_set=false
 
 	stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.log.XXXXXX") || return 1
 	stderr_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.log.XXXXXX") || {
 		rm -f "$stdout_tmp"
 		return 1
 	}
-	stdout_fifo=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.fifo.XXXXXX") || {
+	status_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-status.log.XXXXXX") || {
 		rm -f "$stdout_tmp" "$stderr_tmp"
 		return 1
 	}
-	stderr_fifo=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.fifo.XXXXXX") || {
-		rm -f "$stdout_tmp" "$stderr_tmp" "$stdout_fifo"
-		return 1
-	}
-	rm -f "$stdout_fifo" "$stderr_fifo"
-	if ! mkfifo "$stdout_fifo" "$stderr_fifo"; then
-		rm -f "$stdout_tmp" "$stderr_tmp" "$stdout_fifo" "$stderr_fifo"
-		return 1
-	fi
+	: > "$status_tmp"
 
 	begin_section
 
-	tee "$stdout_tmp" <"$stdout_fifo" &
-	stdout_tee_pid=$!
-	tee "$stderr_tmp" >&2 <"$stderr_fifo" &
-	stderr_tee_pid=$!
+	(
+		bash -o errexit -o pipefail -c "$command" >"$stdout_tmp" 2>"$stderr_tmp"
+		printf "%s" "$?" > "$status_tmp"
+	) &
+	runner_pid=$!
 
-	case "$-" in
-		*e*)
-			errexit_was_set=true
-			set +e
-			;;
-	esac
-	bash -o errexit -o pipefail -c "$command" >"$stdout_fifo" 2>"$stderr_fifo"
-	exit_status=$?
-	wait "$stdout_tee_pid" 2>/dev/null || true
-	wait "$stderr_tee_pid" 2>/dev/null || true
-	if [ "$errexit_was_set" = true ]; then
-		set -e
+	while [ ! -s "$status_tmp" ]; do
+		stream_file_delta "$stdout_tmp" "$stdout_offset" "stdout"
+		stdout_offset="$STREAM_FILE_DELTA_OFFSET"
+		stream_file_delta "$stderr_tmp" "$stderr_offset" "stderr"
+		stderr_offset="$STREAM_FILE_DELTA_OFFSET"
+		if ! kill -0 "$runner_pid" 2>/dev/null; then
+			break
+		fi
+		sleep 0.05
+	done
+	wait "$runner_pid" 2>/dev/null || true
+	stream_file_delta "$stdout_tmp" "$stdout_offset" "stdout"
+	stream_file_delta "$stderr_tmp" "$stderr_offset" "stderr"
+	exit_status=$(cat "$status_tmp")
+	if ! [[ "$exit_status" =~ ^[0-9]+$ ]]; then
+		exit_status=1
 	fi
-	rm -f "$stdout_fifo" "$stderr_fifo"
 
 	if [ "$exit_status" -eq 0 ]; then
 		maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
 		# OK
 		print_ok_section "[ok]"
-		rm -f "$stdout_tmp" "$stderr_tmp"
+		rm -f "$stdout_tmp" "$stderr_tmp" "$status_tmp"
 		return 0
 	else
 		# ERROR
@@ -2137,7 +2157,7 @@ run_cmd() {
 		maybe_store_command_result "$command" "$exit_status" "$stdout_tmp" "$stderr_tmp" "$edited"
 		LAST_ERROR="${output#*"$0": line *: }"
 		echo "$LAST_ERROR"
-		rm -f "$stdout_tmp" "$stderr_tmp"
+		rm -f "$stdout_tmp" "$stderr_tmp" "$status_tmp"
 		
 		# Ask if we should examine the error
 		if [ ${#LAST_ERROR} -gt 1 ]; then
