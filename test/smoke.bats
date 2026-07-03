@@ -3179,7 +3179,12 @@ EOF
       local edited="${2:-false}"
       local stdout_tmp
       local stderr_tmp
+      local stdout_fifo
+      local stderr_fifo
+      local stdout_tee_pid
+      local stderr_tee_pid
       local exit_status
+      local errexit_was_set=false
       local output
 
       stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.log.XXXXXX") || return 1
@@ -3187,28 +3192,48 @@ EOF
         rm -f "$stdout_tmp"
         return 1
       }
+      stdout_fifo=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.fifo.XXXXXX") || {
+        rm -f "$stdout_tmp" "$stderr_tmp"
+        return 1
+      }
+      stderr_fifo=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stderr.fifo.XXXXXX") || {
+        rm -f "$stdout_tmp" "$stderr_tmp" "$stdout_fifo"
+        return 1
+      }
+      rm -f "$stdout_fifo" "$stderr_fifo"
+      if ! mkfifo "$stdout_fifo" "$stderr_fifo"; then
+        rm -f "$stdout_tmp" "$stderr_tmp" "$stdout_fifo" "$stderr_fifo"
+        return 1
+      fi
 
-      if bash -o errexit -o pipefail -c "$command" >"$stdout_tmp" 2>"$stderr_tmp"; then
-        if [ -s "$stdout_tmp" ]; then
-          cat "$stdout_tmp"
-        fi
-        if [ -s "$stderr_tmp" ]; then
-          cat "$stderr_tmp" >&2
-        fi
+      tee "$stdout_tmp" <"$stdout_fifo" &
+      stdout_tee_pid=$!
+      tee "$stderr_tmp" >&2 <"$stderr_fifo" &
+      stderr_tee_pid=$!
+
+      case "$-" in
+        *e*)
+          errexit_was_set=true
+          set +e
+          ;;
+      esac
+      bash -o errexit -o pipefail -c "$command" >"$stdout_fifo" 2>"$stderr_fifo"
+      exit_status=$?
+      wait "$stdout_tee_pid" 2>/dev/null || true
+      wait "$stderr_tee_pid" 2>/dev/null || true
+      if [ "$errexit_was_set" = true ]; then
+        set -e
+      fi
+      rm -f "$stdout_fifo" "$stderr_fifo"
+
+      if [ "$exit_status" -eq 0 ]; then
         maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
         rm -f "$stdout_tmp" "$stderr_tmp"
         return 0
       else
-        exit_status=$?
-        if [ -s "$stdout_tmp" ]; then
-          cat "$stdout_tmp"
-        fi
-        if [ -s "$stderr_tmp" ]; then
-          cat "$stderr_tmp" >&2
-        fi
         output=$(cat "$stderr_tmp")
         maybe_store_command_result "$command" "$exit_status" "$stdout_tmp" "$stderr_tmp" "$edited"
-        LAST_ERROR="${output#*"$0": line *: }"
+        LAST_ERROR="$output"
         rm -f "$stdout_tmp" "$stderr_tmp"
         return 1
       fi
