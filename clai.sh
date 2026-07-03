@@ -29,7 +29,7 @@ if [ ${#DISTRO_INFO} -le 1 ]; then
 fi
 
 # Version of CLAI
-VERSION="1.0.5"
+VERSION="1.1.0"
 
 # Global variables
 PRE_TEXT="  "  # Prefix for text output
@@ -653,6 +653,7 @@ model=gpt-4.1
 json_mode=false
 temp=0.1
 tokens=500
+reasoning=
 share_command_results=false
 result_lines=20
 confirm_dangerous_commands=true
@@ -889,6 +890,9 @@ ERROR_QUERY_CONFIG=$(cfg_val "error_query")
 # Extract maximum token count from configuration
 MAX_TOKENS=$(cfg_val "tokens")
 #GLOBAL_QUERY+=" All your messages must be less than \"$MAX_TOKENS\" tokens."
+
+# Extract optional reasoning setting from configuration
+REASONING_CONFIG=$(cfg_val "reasoning")
 
 SHARE_COMMAND_RESULTS=$(cfg_val "share_command_results")
 if [ "$SHARE_COMMAND_RESULTS" = true ]; then
@@ -1180,6 +1184,111 @@ normalize_variables() {
 		end'
 }
 
+normalize_response_content() {
+	local content_json="$1"
+
+	jq -cn --argjson content "$content_json" '
+		def clean_text:
+			if type == "string" then
+				gsub("\\\\[[:space:]]*n"; " ")
+				| gsub("\\\\1"; ",")
+				| gsub("[[:space:]]+"; " ")
+				| gsub(" +,"; ",")
+				| gsub(" +\\."; ".")
+				| gsub(" +;"; ";")
+				| gsub(" +:"; ":")
+				| gsub(" +!"; "!")
+				| gsub(" +\\?"; "?")
+				| sub("^ "; "")
+				| sub(" $"; "")
+				| sub("^\""; "")
+				| sub("\"$"; "")
+				| sub("^ "; "")
+				| sub(" $"; "")
+			else
+				""
+			end;
+		def clean_cmd($repair_flags):
+			if type != "string" then
+				""
+			elif $repair_flags then
+				clean_text | gsub(" - +"; " -")
+			else
+				.
+			end;
+		def normalized_key:
+			gsub("[[:space:]]+"; "");
+		if ($content | type) != "object" then
+			{"cmd": "", "info": "", "risk": "none", "variables": []}
+		else
+			(($content.__clai_recovered // false) == true) as $recovered_repair_flags
+			| ($content | to_entries | any(.key != (.key | normalized_key))) as $key_repair_flags
+			| ($content | to_entries | any(
+				(.value | type) == "string"
+				and (.value | test("^[[:space:]]*\""))
+				and (.value | test("\"[[:space:]]*$"))
+			)) as $quote_repair_flags
+			| ($recovered_repair_flags or $key_repair_flags or $quote_repair_flags) as $repair_flags
+			| reduce ($content | to_entries[]) as $entry ({};
+				($entry.key | normalized_key) as $key
+				| if ["cmd", "info", "risk", "variables"] | index($key) then
+					.[$key] = $entry.value
+				  else
+					.
+				  end
+			)
+			| .cmd = ((.cmd // "") | clean_cmd($repair_flags))
+			| .info = ((.info // "") | if $repair_flags then clean_text elif type == "string" then . else "" end)
+			| .risk = ((.risk // "none") | if $repair_flags then clean_text elif type == "string" then . else "" end)
+			| .variables = (if (.variables | type) == "array" then .variables else [] end)
+		end'
+}
+
+parse_reply_json_content() {
+	local reply="$1"
+	local parsed
+	local sanitized
+
+	if parsed=$(printf '%s' "$reply" | jq -c . 2>/dev/null); then
+		printf "%s" "$parsed"
+		return 0
+	fi
+
+	sanitized=$(printf '%s' "$reply" | sed 's/\\[[:space:]]*n/ /g; s/\\1/,/g')
+	if parsed=$(printf '%s' "$sanitized" | jq -c . 2>/dev/null); then
+		printf "%s" "$parsed"
+		return 0
+	fi
+
+	return 1
+}
+
+recover_response_content_from_text() {
+	local reply="$1"
+
+	jq -cn --arg text "$reply" '
+		def field($name):
+			$text
+			| capture("\"[[:space:]]*" + $name + "[[:space:]]*\"[[:space:]]*:[[:space:]]*\"(?<value>(\\\\.|[^\"\\\\])*)\"")?
+			// {"value": ""}
+			| .value // "";
+		def field_until($name; $next):
+			$text
+			| capture("\"[[:space:]]*" + $name + "[[:space:]]*\"[[:space:]]*:[[:space:]]*\"(?<value>[\\s\\S]*)\"[[:space:]]*,[[:space:]]*\"[[:space:]]*" + $next + "[[:space:]]*\"")?
+			// {"value": ""}
+			| .value // "";
+		def decode_json_string:
+			("\"" + . + "\"" | fromjson? // .);
+		{
+			"cmd": (field("cmd") | decode_json_string),
+			"info": ((field_until("info"; "risk") // field("info")) | decode_json_string),
+			"risk": ((field("risk") | decode_json_string) // "none"),
+			"variables": [],
+			"__clai_recovered": true
+		}
+		| select((.cmd | length) > 0 or (.info | length) > 0 or (.risk | length) > 0)'
+}
+
 contains_unresolved_placeholders() {
 	local text="$1"
 
@@ -1188,11 +1297,17 @@ contains_unresolved_placeholders() {
 
 read_single_key() {
 	local key=""
+	local drain_count=0
 
-	read -n 1 -r -s key
-	while IFS= read -r -t 0.01 -n 1 -s _; do
-		:
-	done
+	if [ -t 0 ]; then
+		read -n 1 -r -s key
+		while [ "$drain_count" -lt 32 ] && IFS= read -r -t 0.01 -n 1 -s _; do
+			drain_count=$((drain_count + 1))
+			:
+		done
+	else
+		read -n 1 -r -s -t 1 key || key=""
+	fi
 	printf "%s" "$key"
 }
 
@@ -1581,6 +1696,28 @@ detect_api_provider() {
 	esac
 }
 
+is_completions_endpoint() {
+	printf '%s' "$1" | grep -Eq '/completions([/?]|$)'
+}
+
+is_ollama_chat_endpoint() {
+	printf '%s' "$1" | grep -Eq '/api/chat([/?]|$)'
+}
+
+is_openai_reasoning_model() {
+	local model_lc
+
+	model_lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+	case "$model_lc" in
+		o[0-9]*|gpt-5*|codex*)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 build_provider_system_text() {
 	local messages_json="$1"
 
@@ -1630,6 +1767,12 @@ build_openai_payload() {
 	local messages_json="$1"
 	local tools_json='[]'
 	local response_format_json='null'
+	local reasoning_effort_json='null'
+	local think_json='null'
+	local ollama_format_json='null'
+	local ollama_options_json='null'
+	local use_max_completion_tokens_json='false'
+	local is_ollama_json='false'
 
 	if [ "$JSON_MODE_ENABLED" = true ]; then
 		if [ "$API_PROVIDER" = "openai" ]; then
@@ -1652,19 +1795,57 @@ build_openai_payload() {
 		tools_json=$(printf '[%s]' "$LOCAL_TOOLS_JSON")
 	fi
 
+	if [ -n "$REASONING_CONFIG" ]; then
+		if [ "$IS_OLLAMA_CHAT_ENDPOINT" = true ]; then
+			think_json='true'
+		elif [ "$IS_COMPLETIONS_ENDPOINT" = true ] && { [ "$API_PROVIDER" != "openai" ] || is_openai_reasoning_model "$MODEL"; }; then
+			reasoning_effort_json=$(jq -cn --arg value "$REASONING_CONFIG" '$value')
+		fi
+	fi
+
+		if [ "$IS_OLLAMA_CHAT_ENDPOINT" = true ]; then
+			is_ollama_json='true'
+			response_format_json='null'
+			ollama_options_json=$(jq -cn \
+				--argjson num_predict "$MAX_TOKENS_JSON" \
+				--argjson temperature "$MODEL_TEMP_JSON" \
+				'{
+				"num_predict": $num_predict,
+				"temperature": $temperature
+			}')
+		if [ "$JSON_MODE_ENABLED" = true ]; then
+			ollama_format_json='"json"'
+		elif [ -n "$REASONING_CONFIG" ]; then
+			ollama_format_json='"json"'
+		fi
+	fi
+
+	if [ "$IS_OLLAMA_CHAT_ENDPOINT" != true ]; then
+		use_max_completion_tokens_json='true'
+	fi
+
 	jq -cn \
 		--arg model "$MODEL" \
 		--argjson max_tokens "$MAX_TOKENS_JSON" \
 		--argjson temperature "$MODEL_TEMP_JSON" \
 		--argjson messages "$messages_json" \
 		--argjson response_format "$response_format_json" \
-		--argjson tools "$tools_json" '
+		--argjson tools "$tools_json" \
+		--argjson reasoning_effort "$reasoning_effort_json" \
+		--argjson think "$think_json" \
+		--argjson format "$ollama_format_json" \
+		--argjson options "$ollama_options_json" \
+		--argjson use_max_completion_tokens "$use_max_completion_tokens_json" \
+		--argjson is_ollama "$is_ollama_json" '
 		{
 			"model": $model,
-			"max_tokens": $max_tokens,
-			"temperature": $temperature,
 			"messages": $messages
 		}
+		+ (if $is_ollama then {"stream": false, "options": $options} else {"temperature": $temperature} end)
+		+ (if $is_ollama then {} elif $use_max_completion_tokens then {"max_completion_tokens": $max_tokens} else {"max_tokens": $max_tokens} end)
+		+ (if $reasoning_effort == null then {} else {"reasoning_effort": $reasoning_effort} end)
+		+ (if $think == null then {} else {"think": $think} end)
+		+ (if $format == null then {} else {"format": $format} end)
 		+ (if $response_format == null then {} else {"response_format": $response_format} end)
 		+ (if ($tools | length) == 0 then {} else {"tools": $tools, "tool_choice": "auto"} end)'
 }
@@ -1769,19 +1950,49 @@ extract_reply() {
 		anthropic)
 			jq -r '[.content[]? | select(.type == "text") | (.text // "")] | join("")' "$RESPONSE_FILE"
 			;;
+		generic)
+			if [ "$IS_OLLAMA_CHAT_ENDPOINT" = true ]; then
+				jq -r 'if .message.content == null then "" elif (.message.content | type) == "string" then .message.content else (.message.content | tojson) end' "$RESPONSE_FILE"
+			else
+				jq -r '.choices[0].message.content // ""' "$RESPONSE_FILE"
+			fi
+			;;
 		gemini)
 			jq -r '[.candidates[0].content.parts[]? | (.text // "")] | join("")' "$RESPONSE_FILE"
 			;;
 		*)
 			jq -r '.choices[0].message.content // ""' "$RESPONSE_FILE"
 			;;
-	esac
+		esac
+}
+
+extract_ollama_structured_reply() {
+	if [ "$IS_OLLAMA_CHAT_ENDPOINT" != true ]; then
+		return 1
+	fi
+
+	jq -c '
+		def structured_content:
+			if . == null then empty
+			elif type == "object" or type == "array" then .
+			elif type == "string" then (fromjson? // empty)
+			else empty
+			end;
+		.message.content | structured_content
+	' "$RESPONSE_FILE"
 }
 
 extract_finish_reason() {
 	case "$API_PROVIDER" in
 		anthropic)
 			jq -r '.stop_reason // ""' "$RESPONSE_FILE"
+			;;
+		generic)
+			if [ "$IS_OLLAMA_CHAT_ENDPOINT" = true ]; then
+				jq -r '.done_reason // ""' "$RESPONSE_FILE"
+			else
+				jq -r '.choices[0].finish_reason // ""' "$RESPONSE_FILE"
+			fi
 			;;
 		gemini)
 			jq -r '.candidates[0].finishReason // ""' "$RESPONSE_FILE"
@@ -1796,6 +2007,13 @@ extract_api_error() {
 	case "$API_PROVIDER" in
 		anthropic)
 			jq -r '.error.message // .message // empty' "$RESPONSE_FILE"
+			;;
+		generic)
+			if [ "$IS_OLLAMA_CHAT_ENDPOINT" = true ]; then
+				jq -r '.error // .message.content // .message // empty' "$RESPONSE_FILE"
+			else
+				jq -r '.error.message // empty' "$RESPONSE_FILE"
+			fi
 			;;
 		gemini)
 			jq -r '.error.message // .promptFeedback.blockReason // empty' "$RESPONSE_FILE"
@@ -1847,14 +2065,53 @@ resolve_request_url() {
 }
 
 API_PROVIDER=$(detect_api_provider "$API_URL")
+if is_completions_endpoint "$API_URL"; then
+	IS_COMPLETIONS_ENDPOINT=true
+else
+	IS_COMPLETIONS_ENDPOINT=false
+fi
+if is_ollama_chat_endpoint "$API_URL"; then
+	IS_OLLAMA_CHAT_ENDPOINT=true
+else
+	IS_OLLAMA_CHAT_ENDPOINT=false
+fi
 RESPONSE_SCHEMA_JSON=$(response_schema_json)
 GLOBAL_QUERY+=" $(provider_tool_capability_text)"
+
+stream_file_delta() {
+	local file="$1"
+	local offset="$2"
+	local target="${3:-stdout}"
+	local size
+	local count
+
+	STREAM_FILE_DELTA_OFFSET="$offset"
+	size=$(wc -c < "$file" 2>/dev/null | tr -d '[:space:]')
+	if ! [[ "$size" =~ ^[0-9]+$ ]]; then
+		return 0
+	fi
+	if [ "$size" -le "$offset" ]; then
+		return 0
+	fi
+
+	count=$((size - offset))
+	if [ "$target" = "stderr" ]; then
+		dd if="$file" bs=1 skip="$offset" count="$count" 2>/dev/null >&2
+	else
+		dd if="$file" bs=1 skip="$offset" count="$count" 2>/dev/null
+	fi
+	STREAM_FILE_DELTA_OFFSET="$size"
+}
 
 run_cmd() {
 	local command="$1"
 	local edited="${2:-false}"
 	local stdout_tmp
 	local stderr_tmp
+	local status_tmp
+	local runner_pid
+	local stdout_offset=0
+	local stderr_offset=0
 	local exit_status
 
 	stdout_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-stdout.log.XXXXXX") || return 1
@@ -1862,39 +2119,69 @@ run_cmd() {
 		rm -f "$stdout_tmp"
 		return 1
 	}
+	status_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-status.log.XXXXXX") || {
+		rm -f "$stdout_tmp" "$stderr_tmp"
+		return 1
+	}
+	: > "$status_tmp"
 
 	begin_section
 
-	if bash -o errexit -o pipefail -c "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
+	(
+		bash -o errexit -o pipefail -c "$command" >"$stdout_tmp" 2>"$stderr_tmp"
+		printf "%s" "$?" > "$status_tmp"
+	) &
+	runner_pid=$!
+
+	while [ ! -s "$status_tmp" ]; do
+		stream_file_delta "$stdout_tmp" "$stdout_offset" "stdout"
+		stdout_offset="$STREAM_FILE_DELTA_OFFSET"
+		stream_file_delta "$stderr_tmp" "$stderr_offset" "stderr"
+		stderr_offset="$STREAM_FILE_DELTA_OFFSET"
+		if ! kill -0 "$runner_pid" 2>/dev/null; then
+			break
+		fi
+		sleep 0.05
+	done
+	wait "$runner_pid" 2>/dev/null || true
+	stream_file_delta "$stdout_tmp" "$stdout_offset" "stdout"
+	stream_file_delta "$stderr_tmp" "$stderr_offset" "stderr"
+	exit_status=$(cat "$status_tmp")
+	if ! [[ "$exit_status" =~ ^[0-9]+$ ]]; then
+		exit_status=1
+	fi
+
+	if [ "$exit_status" -eq 0 ]; then
 		maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
 		# OK
 		print_ok_section "[ok]"
-		rm -f "$stdout_tmp" "$stderr_tmp"
+		rm -f "$stdout_tmp" "$stderr_tmp" "$status_tmp"
 		return 0
 	else
 		# ERROR
-		exit_status=$?
 		output=$(cat "$stderr_tmp")
 		maybe_store_command_result "$command" "$exit_status" "$stdout_tmp" "$stderr_tmp" "$edited"
 		LAST_ERROR="${output#*"$0": line *: }"
 		echo "$LAST_ERROR"
-		rm -f "$stdout_tmp" "$stderr_tmp"
+		rm -f "$stdout_tmp" "$stderr_tmp" "$status_tmp"
 		
 		# Ask if we should examine the error
 		if [ ${#LAST_ERROR} -gt 1 ]; then
 			print_error_section "[error]"
-			print_prompt "examine error? [y/N]: "
-			answer=$(read_single_key)
-			
-			# Did the user want to examine the error?
-			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
-				print_prompt_response "yes"
-				USER_QUERY="You executed \"$1\". Which returned error \"$LAST_ERROR\"."
-				QUERY_TYPE="error"
-				NEEDS_TO_RUN=true
-				SKIP_USER_QUERY_RESET=true
-			else
-				print_prompt_response "no"
+			if [ -t 0 ]; then
+				print_prompt "examine error? [y/N]: "
+				answer=$(read_single_key)
+
+				# Did the user want to examine the error?
+				if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
+					print_prompt_response "yes"
+					USER_QUERY="You executed \"$1\". Which returned error \"$LAST_ERROR\"."
+					QUERY_TYPE="error"
+					NEEDS_TO_RUN=true
+					SKIP_USER_QUERY_RESET=true
+				else
+					print_prompt_response "no"
+				fi
 			fi
 		else
 			print_cancel_section "[cancel]"
@@ -2191,14 +2478,30 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			exit_clai 1
 		fi
 	
+		RESPONSE_IS_ERROR=false
+		REPLY=""
+		JSON_CONTENT=""
+
+		if [ "$IS_OLLAMA_CHAT_ENDPOINT" = true ] && [ "$JSON_MODE_ENABLED" = true ]; then
+			JSON_CONTENT=$(extract_ollama_structured_reply)
+		fi
+
 		# Extract the reply from the JSON response
-		REPLY=$(extract_reply)
-		
-		# Was there an error?
-		if [ ${#REPLY} -le 1 ]; then
-			REPLY=$(extract_api_error)
-			if [ -z "$REPLY" ]; then
-				REPLY="An unknown error occurred."
+		if [ -z "$JSON_CONTENT" ]; then
+			REPLY=$(extract_reply)
+
+			# Was there an error?
+			if [ ${#REPLY} -le 1 ]; then
+				REPLY=$(extract_api_error)
+				if [ -z "$REPLY" ]; then
+					REPLY="The API returned an empty assistant message."
+				fi
+				RESPONSE_IS_ERROR=true
+			fi
+		else
+			JSON_CONTENT=$(printf '%s' "$JSON_CONTENT" | jq -c 'if type == "object" then . else empty end' 2>/dev/null)
+			if [ -z "$JSON_CONTENT" ]; then
+				REPLY=$(extract_reply)
 			fi
 		fi
 	
@@ -2217,33 +2520,50 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
                         REPLY="${REPLY//\\\\/\\\\\\\\}"
 		elif [ "$FINISH_REASON" == "content_filter" ]; then
 			REPLY="Your query was rejected."
-		elif [ "$FINISH_REASON" == "tool_calls" ]; then
-			# One or multiple tools were called for
-				TOOL_CALLS_COUNT=$(jq '.choices[0].message.tool_calls | length' "$RESPONSE_FILE")
-				
-				for ((i=0; i<TOOL_CALLS_COUNT; i++)); do
-					TOOL_ID=$(jq -r '.choices[0].message.tool_calls['"$i"'].id' "$RESPONSE_FILE")
-					TOOL_NAME=$(jq -r '.choices[0].message.tool_calls['"$i"'].function.name' "$RESPONSE_FILE")
-					TOOL_ARGS=$(jq -r '.choices[0].message.tool_calls['"$i"'].function.arguments' "$RESPONSE_FILE")
+			elif [ "$FINISH_REASON" == "tool_calls" ]; then
+				# One or multiple tools were called for
+					if [ "$IS_OLLAMA_CHAT_ENDPOINT" = true ]; then
+						TOOL_CALLS_COUNT=$(jq '.message.tool_calls | length' "$RESPONSE_FILE")
+					else
+						TOOL_CALLS_COUNT=$(jq '.choices[0].message.tool_calls | length' "$RESPONSE_FILE")
+					fi
 					
-					# Get return from run_tool and apply to our history
-					append_history_assistant_tool_call "$TOOL_ID" "$TOOL_NAME" "$TOOL_ARGS"
-					
-					run_tool "$TOOL_ID" "$TOOL_NAME" "$TOOL_ARGS"
-				done
-			REPLY=""
+					for ((i=0; i<TOOL_CALLS_COUNT; i++)); do
+						if [ "$IS_OLLAMA_CHAT_ENDPOINT" = true ]; then
+							TOOL_ID=$(jq -r --arg idx "$i" '.message.tool_calls[($idx | tonumber)] | (.id // ("ollama_tool_call_" + ($idx | tostring)))' "$RESPONSE_FILE")
+							TOOL_NAME=$(jq -r '.message.tool_calls['"$i"'].function.name' "$RESPONSE_FILE")
+							TOOL_ARGS=$(jq -c '.message.tool_calls['"$i"'].function.arguments' "$RESPONSE_FILE")
+						else
+							TOOL_ID=$(jq -r '.choices[0].message.tool_calls['"$i"'].id' "$RESPONSE_FILE")
+							TOOL_NAME=$(jq -r '.choices[0].message.tool_calls['"$i"'].function.name' "$RESPONSE_FILE")
+							TOOL_ARGS=$(jq -r '.choices[0].message.tool_calls['"$i"'].function.arguments' "$RESPONSE_FILE")
+						fi
+
+						# Get return from run_tool and apply to our history
+						append_history_assistant_tool_call "$TOOL_ID" "$TOOL_NAME" "$TOOL_ARGS"
+
+						run_tool "$TOOL_ID" "$TOOL_NAME" "$TOOL_ARGS"
+					done
+				REPLY=""
+				JSON_CONTENT=""
+			fi
 		fi
-	fi
 	
-		# If we still have a reply
-		if [ ${#REPLY} -gt 1 ]; then
-			JSON_CONTENT=$(printf '%s' "$REPLY" | jq -c . 2>/dev/null)
-			
+	# If we still have a reply
+		if [ -n "$JSON_CONTENT" ] || [ ${#REPLY} -gt 1 ]; then
+			if [ -z "$JSON_CONTENT" ]; then
+				JSON_CONTENT=$(parse_reply_json_content "$REPLY")
+			fi
+			if [ -z "$JSON_CONTENT" ]; then
+				JSON_CONTENT=$(recover_response_content_from_text "$REPLY")
+			fi
+
 			# Was there JSON content?
 			if [ ${#JSON_CONTENT} -le 1 ]; then
 				# No JSON content, use the REPLY as structured info text
 				JSON_CONTENT=$(jq -cn --arg info "$REPLY" '{"cmd": "", "info": $info, "risk": "none", "variables": []}')
 			fi
+			JSON_CONTENT=$(normalize_response_content "$JSON_CONTENT")
 		
 		# Extract cmd
 		CMD=$(echo "$JSON_CONTENT" | jq -r '.cmd // ""' 2>/dev/null)
@@ -2284,12 +2604,12 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			fi
 		fi
 
-		JSON_CONTENT=$(jq -cn \
-			--argjson content "$JSON_CONTENT" \
-			--arg cmd "$CMD" \
-			--arg info "$INFO" \
-			--arg risk "$RISK" \
-			--argjson variables "$VARIABLES_JSON" '
+			JSON_CONTENT=$(jq -cn \
+				--argjson content "$JSON_CONTENT" \
+				--arg cmd "$CMD" \
+				--arg info "$INFO" \
+				--arg risk "$RISK" \
+				--argjson variables "$VARIABLES_JSON" '
 			$content
 			| if type == "object" then . else {} end
 			| .cmd = $cmd
@@ -2300,22 +2620,28 @@ while [ "$INTERACTIVE_MODE" = true ] || [ "$NEEDS_TO_RUN" = true ] || [ "$AWAIT_
 			# Apply the message to history
 			append_history_message "assistant" "$JSON_CONTENT"
 
-		if [ "$VARIABLE_COLLECTION_CANCELLED" = true ]; then
-			print_cancel_section "[cancel]"
-			return_to_user_prompt
-			continue
-		fi
-		
-		# Check if CMD is empty
-		if [ ${#CMD} -le 0 ]; then
-			# Not a command
-			if [ ${#INFO} -le 0 ]; then
-				# No info
-				print_info_section "$REPLY"
-			else
-				# Print info
-				print_info_section "$INFO"
+			if [ "$VARIABLE_COLLECTION_CANCELLED" = true ]; then
+				print_cancel_section "[cancel]"
+				return_to_user_prompt
+				continue
 			fi
+
+			# Check if CMD is empty
+			if [ ${#CMD} -le 0 ]; then
+				# Not a command
+				if [ "$RESPONSE_IS_ERROR" = true ]; then
+					print_error_section "$INFO"
+				elif [ ${#INFO} -le 0 ]; then
+					if [ -n "$JSON_CONTENT" ]; then
+						print_error_section "The API returned an empty structured assistant message."
+					else
+						# No info
+						print_info_section "$REPLY"
+					fi
+				else
+					# Print info
+					print_info_section "$INFO"
+				fi
 			return_to_user_prompt
 		else
 			# Make sure we have some info

@@ -21,6 +21,7 @@ run_with_setup_io() {
   local command="$2"
 
   printf "%b" "$input" > "$TEST_HOME/setup-input"
+  : > "$TEST_HOME/setup-output"
   run env \
     HOME="$TEST_HOME" \
     TMPDIR="$TEST_HOME/tmp" \
@@ -30,8 +31,37 @@ run_with_setup_io() {
     LC_TIME="C" \
     TEST_HOME="$TEST_HOME" \
     CLAI_SETUP_INPUT="$TEST_HOME/setup-input" \
-    CLAI_SETUP_OUTPUT="/dev/stdout" \
-    bash -lc "$command"
+    CLAI_SETUP_OUTPUT="$TEST_HOME/setup-output" \
+    bash -c "$command"
+}
+
+run_clai_with_stdin() {
+  local input="$1"
+  local query="$2"
+  local stdin_file="$TEST_HOME/clai-stdin"
+
+  printf "%b" "$input" > "$stdin_file"
+  run bash -lc '
+    exec env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "$1"
+  ' _ "$query" < "$stdin_file"
+}
+
+mode_of() {
+  local target="$1"
+
+  if stat -c '%a' "$target" >/dev/null 2>&1; then
+    stat -c '%a' "$target"
+  else
+    stat -f '%Lp' "$target"
+  fi
 }
 
 make_success_curl() {
@@ -41,6 +71,346 @@ output=""
 payload=""
 status_code="200"
 response_body='{"choices":[{"message":{"content":"{\"cmd\":\"\",\"info\":\"stub answer\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_success_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":"ollama answer","thinking":"thinking trace"},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_empty_object_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":"{}"},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_structured_content_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":{"cmd":"ls -la","info":"lists all files, including hidden ones, in long format with detailed information in the current directory","risk":"none","variables":[]}},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_structured_quoted_info_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":{"cmd":"","info":"The command \"ls\" lists files.","risk":"none","variables":[]}},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_stringified_content_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":"{\"cmd\":\"\",\"info\":\"Listing all files and directories, including hidden ones, in the current directory with detailed permissions and ownership information\",\"risk\":\"none\",\"variables\":[]}"},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_whitespace_polluted_content_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":"{\" cmd \":\" ls - la \",\" info \":\" Lists all files , including hidden ones , and displays detailed information in the current directory .\",\" risk \":\" none \",\" variables \":[]}"},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_escaped_polluted_content_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":"{\" cmd \":\"\",\" info \":\" \\nlists all files and directories\\1 including hidden ones\\1 with detailed permissions and ownership information\\1\\n \",\" risk \":\" none \",\" variables \": []}"},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_json_like_content_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":"{\" cmd \":\" ls - la \",\" info \":\" Lists all files, including hidden ones, with detailed permissions and ownership information in the current directory.\", \" risk \": \" none \", \" variables \": [] }"},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_quote_polluted_content_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":"{\" cmd \":\" \\\" \\n ls \\n - \\n a \\n \\\" \",\" info \":\" \\\" Lists all files, including hidden ones, with detailed information in the current directory.\\\" \",\" risk \":\" \\\" none \\\" \",\" variables \": []}"},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_chat_malformed_inner_quotes_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":"{\" cmd \":\" du - sh * \",\" info \":\" \\\" du \\\" calculates and reports the disk usage of specified files and directories ( \\\"{ *}\\ \" expands to all items ). The \\\" - s \\\" flag summarizes usage for each argument, and \\\" - h \\\" makes the output human - readable.\", \" risk \": \" none \", \" variables \": [] }"},"done":true,"done_reason":"stop"}'
 while [ $# -gt 0 ]; do
   case "$1" in
     --output)
@@ -216,6 +586,48 @@ if [ "$call_count" -eq 1 ]; then
   printf '%s' '{"choices":[{"message":{"content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"record-note","arguments":"{\"value\":\"hello from tool\",\"tool_reason\":\"Need data from the helper tool.\"}"}}]},"finish_reason":"tool_calls"}]}' > "$output"
 else
   printf '%s' '{"choices":[{"message":{"content":"{\"cmd\":\"\",\"info\":\"tool flow complete\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}' > "$output"
+fi
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
+make_ollama_tool_call_with_content_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+count_file="$TEST_HOME/curl-call-count"
+if [ ! -f "$count_file" ]; then
+  printf '0' > "$count_file"
+fi
+call_count=$(cat "$count_file")
+call_count=$((call_count + 1))
+printf '%s' "$call_count" > "$count_file"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s' "$payload" > "$TEST_HOME/curl-request-$call_count.json"
+if [ "$call_count" -eq 1 ]; then
+  printf '%s' '{"model":"qwen3","message":{"role":"assistant","content":{"cmd":"printf stale > \"$HOME/stale-command-ran.txt\"","info":"stale command should not run","risk":"none","variables":[]},"tool_calls":[{"function":{"name":"record-note","arguments":{"value":"hello from ollama tool","tool_reason":"Need data from the helper tool."}}}]},"done":true,"done_reason":"tool_calls"}' > "$output"
+else
+  printf '%s' '{"model":"qwen3","message":{"role":"assistant","content":"{\"cmd\":\"\",\"info\":\"ollama tool flow complete\",\"risk\":\"none\",\"variables\":[]}"},"done":true,"done_reason":"stop"}' > "$output"
 fi
 printf '%s' "$status_code"
 EOF
@@ -441,8 +853,8 @@ EOF
   [ -f "$TEST_HOME/.config/clai.cfg" ]
   [ -d "$TEST_HOME/.local/state/clai" ]
   grep -qx 'key=' "$TEST_HOME/.config/clai.cfg"
-  [ "$(stat -c '%a' "$TEST_HOME/.config/clai.cfg")" = "600" ]
-  [ "$(stat -c '%a' "$TEST_HOME/.local/state/clai")" = "700" ]
+  [ "$(mode_of "$TEST_HOME/.config/clai.cfg")" = "600" ]
+  [ "$(mode_of "$TEST_HOME/.local/state/clai")" = "700" ]
   [ "$(find "$TEST_HOME/tmp" -type f | wc -l)" -eq 0 ]
 }
 
@@ -466,6 +878,7 @@ key=old-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -497,6 +910,7 @@ key=existing-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=1
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -697,6 +1111,554 @@ EOF
 
   [ "$status" -eq 0 ]
   jq -e '.response_format.type == "json_object"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai sends reasoning on completions endpoints when reasoning is configured" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://example.invalid/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+reasoning=high
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  jq -e '.reasoning_effort == "high"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("thinking") | not' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai skips reasoning_effort for non-reasoning OpenAI chat models" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=true
+temp=0.1
+tokens=500
+reasoning=low
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  jq -e 'has("reasoning_effort") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.response_format.type == "json_schema"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai sends reasoning_effort for OpenAI reasoning chat models" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-5
+json_mode=true
+temp=0.1
+tokens=500
+reasoning=low
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  jq -e '.reasoning_effort == "low"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.max_completion_tokens == 500' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("max_tokens") | not' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai uses max_completion_tokens for gpt-5.4 chat completions" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=https://api.openai.com/v1/chat/completions
+model=gpt-5.4
+json_mode=true
+temp=0.1
+tokens=500
+reasoning=low
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  jq -e '.model == "gpt-5.4"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.max_completion_tokens == 500' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("max_tokens") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.reasoning_effort == "low"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai sends thinking true on ollama chat endpoints when reasoning is configured" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=false
+temp=0.1
+tokens=500
+reasoning=medium
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ollama answer"* ]]
+  jq -e '.think == true' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.stream == false' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.options.num_predict == 500' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.options.temperature == 0.1' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("response_format") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("max_tokens") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("max_completion_tokens") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("reasoning_effort") | not' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai sends json format on ollama chat endpoints when json_mode is enabled" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_success_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ollama answer"* ]]
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.stream == false' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.options.num_predict == 500' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.options.temperature == 0.1' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("response_format") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("think") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("max_tokens") | not' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("max_completion_tokens") | not' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai reports empty structured ollama responses instead of printing blank output" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_empty_object_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "what is the current time?"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"The API returned an empty structured assistant message."* ]]
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.stream == false' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.options.num_predict == 500' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai normalizes structured ollama content before parsing" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_structured_content_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "list files in this directory"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ls -la"* ]]
+  [[ "$output" == *"lists all files, including hidden ones"* ]]
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai preserves quoted text in clean structured ollama content" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_structured_quoted_info_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "explain ls"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'The command "ls" lists files.'* ]]
+  [ -f "$TEST_HOME/.local/state/clai/history_com.json" ]
+  jq -e 'map(select(.role == "assistant") | .content | fromjson? // empty) | map(select(.info == "The command \"ls\" lists files.")) | length == 1' \
+    "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+}
+
+@test "clai parses stringified ollama JSON content before display" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_stringified_content_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "list files in this directory"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Listing all files and directories"* ]]
+  [[ "$output" != *'{\"cmd\"'* ]]
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai normalizes whitespace-polluted ollama JSON content" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_whitespace_polluted_content_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "list files in this directory"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ls -la"* ]]
+  [[ "$output" == *"Lists all files, including hidden ones"* ]]
+  [[ "$output" != *'" cmd "'* ]]
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai recovers escaped polluted ollama JSON content before display" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_escaped_polluted_content_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "list files in this directory"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" != *'\\1'* ]]
+  [[ "$output" != *'" cmd "'* ]]
+  [ -f "$TEST_HOME/.local/state/clai/history_com.json" ]
+  jq -e 'map(select(.role == "assistant") | .content | fromjson? // empty) | map(select(.info == "lists all files and directories, including hidden ones, with detailed permissions and ownership information,")) | length == 1' \
+    "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai extracts fields from json-like ollama content before display" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_json_like_content_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "list files in this directory"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ls -la"* ]]
+  [[ "$output" == *"Lists all files, including hidden ones"* ]]
+  [[ "$output" != *'" cmd "'* ]]
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai strips quote pollution from recovered ollama fields" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_quote_polluted_content_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "list files in this directory"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ls -a"* ]]
+  [[ "$output" == *"Lists all files, including hidden ones"* ]]
+  [[ "$output" != *"DANGER ZONE"* ]]
+  [[ "$output" != *'" cmd "'* ]]
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai recovers ollama content with malformed inner quotes" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_malformed_inner_quotes_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "show directory sizes"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"du -sh *"* ]]
+  [[ "$output" == *"calculates and reports the disk usage"* ]]
+  [[ "$output" != *"DANGER ZONE"* ]]
+  [[ "$output" != *'" cmd "'* ]]
+  jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
 }
 
 @test "execute-mode prompt calibrates risk from both request and command" {
@@ -1402,12 +2364,81 @@ EOF
     "$TEST_HOME/curl-request-2.json" >/dev/null
 }
 
+@test "ollama tool calls do not process stale structured content as a normal reply" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  mkdir -p "$TEST_HOME/.clai_tools"
+  cat > "$TEST_HOME/.clai_tools/record-note.sh" <<'EOF'
+#!/bin/bash
+init() {
+  echo '{
+    "type": "function",
+    "function": {
+      "name": "record-note",
+      "description": "Record a note for testing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      }
+    }
+  }'
+}
+
+execute() {
+  echo "tool said: $(echo "$1" | jq -r '.value')"
+}
+EOF
+  chmod +x "$TEST_HOME/.clai_tools/record-note.sh"
+
+  make_ollama_tool_call_with_content_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "use an ollama tool"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ollama tool flow complete"* ]]
+  [ ! -e "$TEST_HOME/stale-command-ran.txt" ]
+  [ -f "$TEST_HOME/curl-request-2.json" ]
+  jq -e '.messages | map(select(.role == "tool" and .content == "tool said: hello from ollama tool")) | length >= 1' \
+    "$TEST_HOME/curl-request-2.json" >/dev/null
+  jq -e '.messages | map(select(.role == "assistant" and (.tool_calls | length >= 1))) | length >= 1' \
+    "$TEST_HOME/curl-request-2.json" >/dev/null
+}
+
 @test "command responses can be accepted and executed" {
   write_config <<'EOF'
 key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -1421,7 +2452,7 @@ EOF
   make_command_curl
 
   run bash -lc '
-    printf "y" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -1444,6 +2475,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -1457,7 +2489,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf before; missing_clai_dependency | cat; printf after > \\\"$HOME/after.txt\\\"\",\"info\":\"run a command with a failing pipeline\",\"risk\":\"reversible change\",\"variables\":[]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "y" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -1471,6 +2503,7 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"missing_clai_dependency: command not found"* ]]
   [[ "$output" == *"[error]"* ]]
+  [[ "$output" != *"examine error? [y/N]:"* ]]
   [[ "$output" != *"[ok]"* ]]
   [ ! -e "$TEST_HOME/after.txt" ]
 }
@@ -1481,6 +2514,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -1500,7 +2534,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b {{branch_name}}\",\"info\":\"creates and switches to the new git branch \\\"{{branch_name}}\\\"\",\"risk\":\"reversible change\",\"variables\":[{\"name\":\"branch_name\",\"prompt\":\"new branch name\"}]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "blahblah\ny" | env \
+    printf "blahblah\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -1527,6 +2561,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=1
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -1537,10 +2572,10 @@ question_query=
 error_query=
 EOF
 
-  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b release-prep\",\"info\":\"creates and switches to the new git branch \\\"release-prep\\\"\",\"risk\":\"reversible change\",\"variables\":[]}"},"finish_reason":"stop"}]}'
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf fully-specified\",\"info\":\"prints a fully specified marker\",\"risk\":\"none\",\"variables\":[]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -1552,8 +2587,10 @@ EOF
   '
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"git checkout -b release-prep"* ]]
+  [[ "$output" == *"printf fully-specified"* ]]
+  [[ "$output" == *"fully-specified"* ]]
   [[ "$output" != *"new branch name:"* ]]
+  [[ "$output" != *"execute command? [y/e/N]:"* ]]
 }
 
 @test "empty variable input cancels cleanly and records a benign assistant entry" {
@@ -1602,6 +2639,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=1
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -1622,7 +2660,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"inspect-path {{path}}\",\"info\":\"inspect the path {{path}}\",\"risk\":\"none\",\"variables\":[{\"name\":\"path\",\"prompt\":\"path to inspect\"}]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "/tmp/My Files\ny" | env \
+    printf "/tmp/My Files\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -1663,7 +2701,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b {{branch_name}}\",\"info\":\"creates and switches to the new git branch \\\"{{branch_name}}\\\"\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -1691,6 +2729,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=1
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -1704,7 +2743,7 @@ EOF
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"ls -la\",\"info\":\"list files\",\"risk\":\"none\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -1725,6 +2764,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -1735,10 +2775,10 @@ question_query=
 error_query=
 EOF
 
-  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"mv old.txt new.txt\",\"info\":\"rename the file\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf reversible-color\",\"info\":\"print reversible color marker\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -1750,7 +2790,7 @@ EOF
   '
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *$'\e[48;5;236m\e[38;5;214m mv old.txt new.txt '* ]]
+  [[ "$output" == *$'\e[48;5;236m\e[38;5;214m printf reversible-color '* ]]
 }
 
 @test "dangerous commands are shown in red" {
@@ -1771,17 +2811,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"rm -rf build\",\"info\":\"remove the build directory\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    printf "n" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "remove the build directory"
-  '
+  run_clai_with_stdin "n\n" "remove the build directory"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *$'\e[48;5;236m\e[91m rm -rf build '* ]]
@@ -1843,17 +2873,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf amber > \\\"$HOME/amber-ran.txt\\\"\",\"info\":\"write amber output\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    printf "n" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "write amber output"
-  '
+  run_clai_with_stdin "n\n" "write amber output"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"execute command? [y/e/N]:"* ]]
@@ -1917,17 +2937,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    printf "n" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "run the dangerous command"
-  '
+  run_clai_with_stdin "n\n" "run the dangerous command"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"execute command? [y/e/N]:"* ]]
@@ -1954,17 +2964,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    printf "yn" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "run the dangerous command"
-  '
+  run_clai_with_stdin "y\nn\n" "run the dangerous command"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"danger zone command, are you sure? [y/N]:"* ]]
@@ -1991,17 +2991,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    printf "y" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "run the dangerous command"
-  '
+  run_clai_with_stdin "y\n" "run the dangerous command"
 
   [ "$status" -eq 0 ]
   [[ "$output" != *"danger zone command, are you sure? [y/N]:"* ]]
@@ -2022,6 +3012,7 @@ temp=0.1
 tokens=500
 share_command_results=true
 result_lines=2
+risk_appetite=2
 exec_query=
 question_query=
 error_query=
@@ -2030,7 +3021,7 @@ EOF
   make_result_command_curl
 
   run bash -lc '
-    printf "y" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2084,6 +3075,7 @@ temp=0.1
 tokens=500
 share_command_results=false
 result_lines=2
+risk_appetite=2
 exec_query=
 question_query=
 error_query=
@@ -2092,7 +3084,7 @@ EOF
   make_result_command_curl
 
   run bash -lc '
-    printf "y" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2351,6 +3343,31 @@ EOF
       append_command_result_message "$command" "$exit_code" "$trimmed_stdout" "$trimmed_stderr" "$edited"
     }
 
+    stream_file_delta() {
+      local file="$1"
+      local offset="$2"
+      local target="${3:-stdout}"
+      local size
+      local count
+
+      STREAM_FILE_DELTA_OFFSET="$offset"
+      size=$(wc -c < "$file" 2>/dev/null | tr -d "[:space:]")
+      if ! [[ "$size" =~ ^[0-9]+$ ]]; then
+        return 0
+      fi
+      if [ "$size" -le "$offset" ]; then
+        return 0
+      fi
+
+      count=$((size - offset))
+      if [ "$target" = "stderr" ]; then
+        dd if="$file" bs=1 skip="$offset" count="$count" 2>/dev/null >&2
+      else
+        dd if="$file" bs=1 skip="$offset" count="$count" 2>/dev/null
+      fi
+      STREAM_FILE_DELTA_OFFSET="$size"
+    }
+
     print_ok() { :; }
     print_error() { :; }
     print_cancel() { :; }
@@ -2361,6 +3378,10 @@ EOF
       local edited="${2:-false}"
       local stdout_tmp
       local stderr_tmp
+      local status_tmp
+      local runner_pid
+      local stdout_offset=0
+      local stderr_offset=0
       local exit_status
       local output
 
@@ -2369,17 +3390,45 @@ EOF
         rm -f "$stdout_tmp"
         return 1
       }
-
-      if bash -o errexit -o pipefail -c "$command" > >(tee "$stdout_tmp") 2> >(tee "$stderr_tmp" >&2); then
-        maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
+      status_tmp=$(create_secure_temp "${SESSION_TMPDIR}/clai-command-status.log.XXXXXX") || {
         rm -f "$stdout_tmp" "$stderr_tmp"
+        return 1
+      }
+      : > "$status_tmp"
+
+      (
+        bash -o errexit -o pipefail -c "$command" >"$stdout_tmp" 2>"$stderr_tmp"
+        printf "%s" "$?" > "$status_tmp"
+      ) &
+      runner_pid=$!
+
+      while [ ! -s "$status_tmp" ]; do
+        stream_file_delta "$stdout_tmp" "$stdout_offset" "stdout"
+        stdout_offset="$STREAM_FILE_DELTA_OFFSET"
+        stream_file_delta "$stderr_tmp" "$stderr_offset" "stderr"
+        stderr_offset="$STREAM_FILE_DELTA_OFFSET"
+        if ! kill -0 "$runner_pid" 2>/dev/null; then
+          break
+        fi
+        sleep 0.05
+      done
+      wait "$runner_pid" 2>/dev/null || true
+      stream_file_delta "$stdout_tmp" "$stdout_offset" "stdout"
+      stream_file_delta "$stderr_tmp" "$stderr_offset" "stderr"
+      exit_status=$(cat "$status_tmp")
+      if ! [[ "$exit_status" =~ ^[0-9]+$ ]]; then
+        exit_status=1
+      fi
+
+      if [ "$exit_status" -eq 0 ]; then
+        maybe_store_command_result "$command" 0 "$stdout_tmp" "$stderr_tmp" "$edited"
+        rm -f "$stdout_tmp" "$stderr_tmp" "$status_tmp"
         return 0
       else
-        exit_status=$?
         output=$(cat "$stderr_tmp")
         maybe_store_command_result "$command" "$exit_status" "$stdout_tmp" "$stderr_tmp" "$edited"
-        LAST_ERROR="${output#*"$0": line *: }"
-        rm -f "$stdout_tmp" "$stderr_tmp"
+        LAST_ERROR="$output"
+        rm -f "$stdout_tmp" "$stderr_tmp" "$status_tmp"
         return 1
       fi
     }
@@ -2416,6 +3465,7 @@ temp=0.1
 tokens=500
 share_command_results=true
 result_lines=2.5
+risk_appetite=2
 exec_query=
 question_query=
 error_query=
@@ -2424,7 +3474,7 @@ EOF
   make_result_command_curl
 
   run bash -lc '
-    printf "y" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2463,17 +3513,7 @@ EOF
 
   make_command_curl
 
-  run bash -lc '
-    printf "n" | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "run the command"
-  '
+  run_clai_with_stdin "n\n" "run the command"
 
   [ "$status" -eq 0 ]
   [ ! -e "$TEST_HOME/cmd-ran.txt" ]
@@ -2501,7 +3541,7 @@ EOF
   make_command_curl
 
   run bash -lc '
-    printf "e" | env \
+    printf "e\n" | env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2546,6 +3586,10 @@ EOF
     skip "script command is unavailable"
   fi
 
+  if ! script -qec "true" /dev/null >/dev/null 2>&1; then
+    skip "script command does not support util-linux -qec invocation"
+  fi
+
   write_config <<'EOF'
 key=test-key
 hi_contrast=false
@@ -2585,7 +3629,7 @@ EOF
   [ "$(cat "$TEST_HOME/cmd-edited-pty.txt")" = "edited-pty" ]
 }
 
-@test "missing assistant message content falls back to an unknown error" {
+@test "missing assistant message content falls back to an empty assistant response error" {
   write_config <<'EOF'
 key=test-key
 hi_contrast=false
@@ -2614,7 +3658,13 @@ EOF
     bash ./clai.sh "show malformed response"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"An unknown error occurred."* ]]
+  [[ "$output" == *"The API returned an empty assistant message."* ]]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(.info == "The API returned an empty assistant message."))
+    | length == 1
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "malformed tool call arguments do not crash the session" {
@@ -2710,7 +3760,8 @@ EOF
 
   [ "$status" -eq 0 ]
   jq -e '.temperature == 0.1' "$TEST_HOME/curl-request.json" >/dev/null
-  jq -e '.max_tokens == 500' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e '.max_completion_tokens == 500' "$TEST_HOME/curl-request.json" >/dev/null
+  jq -e 'has("max_tokens") | not' "$TEST_HOME/curl-request.json" >/dev/null
 }
 
 @test "truncated JSON responses are repaired before display" {
