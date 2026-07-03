@@ -291,6 +291,20 @@ Ollama `/api/chat` request behavior:
 | `json_mode=true`, `reasoning=` empty | Adds `format: "json"` for parseable structured output. |
 | `reasoning` set, regardless of `json_mode` | Adds `think: true` and `format: "json"`. |
 
+Recommended Ollama setup for Gemma 4:
+
+```ini
+key=ollama
+api=http://localhost:11434/api/chat
+model=gemma4:latest
+json_mode=true
+reasoning=true
+temp=0.1
+tokens=500
+```
+
+The `key` value only needs to be non-empty for local Ollama. Set `reasoning=true` to send Ollama `think: true`; set `json_mode=true` to request parseable JSON with `format: "json"`.
+
 Provider notes:
 
 - OpenAI-compatible and Anthropic endpoints send the configured `model` directly in the request body.
