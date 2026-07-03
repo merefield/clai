@@ -259,9 +259,10 @@ The history retention setting is `max_history_turns=`. It controls how many user
 | `max_history_turns` | `10` | Number of user conversation turns to persist across sessions. |
 | `api` | `https://api.openai.com/v1/chat/completions` | Chat Completions API endpoint. |
 | `model` | `gpt-4.1` | Model name sent in the request payload. |
-| `json_mode` | `false` | Requests structured JSON output from the API. OpenAI, Anthropic, and Gemini use native JSON Schema-style structured outputs; unknown endpoints fall back to the existing OpenAI-compatible JSON object mode. |
+| `json_mode` | `false` | Requests provider-enforced JSON output so CLAI can reliably parse the expected `cmd`, `info`, `risk`, and `variables` fields. OpenAI, Anthropic, and Gemini use native structured-output fields; Ollama `/api/chat` endpoints use `format: "json"`; unknown endpoints fall back to the existing OpenAI-compatible JSON object mode. |
 | `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
-| `tokens` | `500` | Maximum token count requested from the API. Invalid values fall back to `500`. |
+| `tokens` | `500` | Maximum token count requested from the API. OpenAI-compatible chat completions send this as `max_completion_tokens`; Ollama `/api/chat` sends it as `options.num_predict`; provider-native APIs use their equivalent token limit field. Invalid values fall back to `500`. |
+| `reasoning` | empty | Optional reasoning effort setting. On OpenAI `/completions` endpoints, CLAI sends this as `reasoning_effort` only for known reasoning model families such as `o*`, `gpt-5*`, and `codex*`; non-reasoning models such as `gpt-4.1` ignore this config. Generic OpenAI-compatible `/completions` endpoints still receive `reasoning_effort`. On `/api/chat` endpoints (Ollama-style), CLAI sends `think: true` and requests JSON output with `format: "json"` when this is set. |
 | `share_command_results` | `false` | Shares structured command stdout, stderr, exit code, and edited state with later CLAI turns by storing it in history after execution. Enabling this can expose sensitive command output to later model context. |
 | `result_lines` | `20` | Maximum number of stdout and stderr lines to keep per stored command result. Invalid values fall back to `20`. |
 | `confirm_dangerous_commands` | `true` | Requires a second confirmation before executing commands marked as `danger zone`. |
@@ -272,9 +273,31 @@ The history retention setting is `max_history_turns=`. It controls how many user
 
 If `exec_query`, `question_query`, or `error_query` are left empty, CLAI uses its built-in defaults.
 
+To enable reasoning, add a `reasoning=` line to `~/.config/clai.cfg`:
+
+```ini
+reasoning=high
+```
+
+For OpenAI `/completions` endpoints, CLAI sends that value as `reasoning_effort` only when the configured model is a known reasoning model family such as `o*`, `gpt-5*`, or `codex*`. This avoids OpenAI errors from non-reasoning chat models such as `gpt-4.1`. Generic OpenAI-compatible `/completions` endpoints still receive `reasoning_effort`.
+
+For Ollama-style `/api/chat` endpoints, any non-empty `reasoning` value enables `think: true` in the request payload. CLAI also sends `format: "json"` when either `json_mode=true` or `reasoning` is set, because CLAI needs parseable JSON to split the model response into command, explanation, risk, and variables.
+
+Ollama `/api/chat` request behavior:
+
+| Config | Ollama payload fields |
+| --- | --- |
+| `json_mode=false`, `reasoning=` empty | Sends `model`, `messages`, `stream: false`, and `options` with `num_predict` and `temperature`. |
+| `json_mode=true`, `reasoning=` empty | Adds `format: "json"` for parseable structured output. |
+| `reasoning` set, regardless of `json_mode` | Adds `think: true` and `format: "json"`. |
+
 Provider notes:
 
 - OpenAI-compatible and Anthropic endpoints send the configured `model` directly in the request body.
+- OpenAI-compatible chat completions send the configured `tokens` value as `max_completion_tokens`.
+- Ollama `/api/chat` sends the configured `tokens` value as `options.num_predict` and disables streaming with `stream: false`.
+- If `reasoning` is set: OpenAI `/completions` endpoints receive `reasoning_effort` only for known reasoning model families, generic `/completions` endpoints receive `reasoning_effort`, and Ollama `/api/chat` endpoints receive `think: true` plus `format: "json"`.
+- If `json_mode=true`: Ollama `/api/chat` endpoints receive `format: "json"` even when `reasoning` is empty.
 - For Gemini endpoints, CLAI treats `model` as authoritative and rewrites the effective request URL to target that model, even if the configured `api` URL template contains a different model name.
 - Local or self-hosted OpenAI-compatible endpoints can be used by pointing `api` at the compatible base URL and setting the desired `model`.
 - Local CLAI tool calls are currently only sent on OpenAI-compatible endpoints. Anthropic and Gemini still use native structured outputs for normal responses, but CLAI tells those models not to rely on tool calls.
