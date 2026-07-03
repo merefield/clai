@@ -891,6 +891,7 @@ key=existing-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=1
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -2541,6 +2542,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=1
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 json_mode=false
@@ -2551,10 +2553,10 @@ question_query=
 error_query=
 EOF
 
-  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"git checkout -b release-prep\",\"info\":\"creates and switches to the new git branch \\\"release-prep\\\"\",\"risk\":\"reversible change\",\"variables\":[]}"},"finish_reason":"stop"}]}'
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf fully-specified\",\"info\":\"prints a fully specified marker\",\"risk\":\"none\",\"variables\":[]}"},"finish_reason":"stop"}]}'
 
   run bash -lc '
-    printf "n\n" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
@@ -2566,8 +2568,10 @@ EOF
   '
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"git checkout -b release-prep"* ]]
+  [[ "$output" == *"printf fully-specified"* ]]
+  [[ "$output" == *"fully-specified"* ]]
   [[ "$output" != *"new branch name:"* ]]
+  [[ "$output" != *"execute command? [y/e/N]:"* ]]
 }
 
 @test "empty variable input cancels cleanly and records a benign assistant entry" {
