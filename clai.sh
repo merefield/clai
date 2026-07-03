@@ -2162,18 +2162,20 @@ run_cmd() {
 		# Ask if we should examine the error
 		if [ ${#LAST_ERROR} -gt 1 ]; then
 			print_error_section "[error]"
-			print_prompt "examine error? [y/N]: "
-			answer=$(read_single_key)
-			
-			# Did the user want to examine the error?
-			if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
-				print_prompt_response "yes"
-				USER_QUERY="You executed \"$1\". Which returned error \"$LAST_ERROR\"."
-				QUERY_TYPE="error"
-				NEEDS_TO_RUN=true
-				SKIP_USER_QUERY_RESET=true
-			else
-				print_prompt_response "no"
+			if [ -t 0 ]; then
+				print_prompt "examine error? [y/N]: "
+				answer=$(read_single_key)
+
+				# Did the user want to examine the error?
+				if [ "$answer" == "Y" ] || [ "$answer" == "y" ]; then
+					print_prompt_response "yes"
+					USER_QUERY="You executed \"$1\". Which returned error \"$LAST_ERROR\"."
+					QUERY_TYPE="error"
+					NEEDS_TO_RUN=true
+					SKIP_USER_QUERY_RESET=true
+				else
+					print_prompt_response "no"
+				fi
 			fi
 		else
 			print_cancel_section "[cancel]"
