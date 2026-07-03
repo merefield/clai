@@ -1169,7 +1169,7 @@ tokens=500
 reasoning=medium
 exec_query=
 question_query=
-  error_query=
+error_query=
 EOF
 
   make_ollama_chat_success_curl
