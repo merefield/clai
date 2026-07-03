@@ -181,6 +181,40 @@ EOF
   chmod +x "$TEST_HOME/fakebin/curl"
 }
 
+make_ollama_chat_structured_quoted_info_curl() {
+  cat > "$TEST_HOME/fakebin/curl" <<'EOF'
+#!/bin/bash
+output=""
+payload=""
+status_code="200"
+response_body='{"model":"qwen3","created_at":"2026-07-03T00:00:00Z","message":{"role":"assistant","content":{"cmd":"","info":"The command \"ls\" lists files.","risk":"none","variables":[]}},"done":true,"done_reason":"stop"}'
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --write-out)
+      shift 2
+      ;;
+    -d)
+      payload="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$TEST_HOME" ]; then
+  printf '%s' "$payload" > "$TEST_HOME/curl-request.json"
+fi
+printf '%s' "$response_body" > "$output"
+printf '%s' "$status_code"
+EOF
+  chmod +x "$TEST_HOME/fakebin/curl"
+}
+
 make_ollama_chat_stringified_content_curl() {
   cat > "$TEST_HOME/fakebin/curl" <<'EOF'
 #!/bin/bash
@@ -1346,6 +1380,41 @@ EOF
   [[ "$output" == *"ls -la"* ]]
   [[ "$output" == *"lists all files, including hidden ones"* ]]
   jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
+}
+
+@test "clai preserves quoted text in clean structured ollama content" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+api=http://127.0.0.1:11434/api/chat
+model=qwen3
+json_mode=true
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_ollama_chat_structured_quoted_info_curl
+
+  run env \
+    HOME="$TEST_HOME" \
+    TMPDIR="$TEST_HOME/tmp" \
+    PATH="$TEST_HOME/fakebin:$PATH" \
+    USER="bats" \
+    LANG="C" \
+    LC_TIME="C" \
+    TEST_HOME="$TEST_HOME" \
+    bash ./clai.sh "explain ls"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'The command "ls" lists files.'* ]]
+  [ -f "$TEST_HOME/.local/state/clai/history_com.json" ]
+  jq -e 'map(select(.role == "assistant") | .content | fromjson? // empty) | map(select(.info == "The command \"ls\" lists files.")) | length == 1' \
+    "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
 @test "clai parses stringified ollama JSON content before display" {

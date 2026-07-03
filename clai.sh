@@ -1238,8 +1238,8 @@ normalize_response_content() {
 				  end
 			)
 			| .cmd = ((.cmd // "") | clean_cmd($repair_flags))
-			| .info = ((.info // "") | clean_text)
-			| .risk = ((.risk // "none") | clean_text)
+			| .info = ((.info // "") | if $repair_flags then clean_text elif type == "string" then . else "" end)
+			| .risk = ((.risk // "none") | if $repair_flags then clean_text elif type == "string" then . else "" end)
 			| .variables = (if (.variables | type) == "array" then .variables else [] end)
 		end'
 }
