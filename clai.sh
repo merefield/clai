@@ -1298,7 +1298,11 @@ contains_unresolved_placeholders() {
 read_single_key() {
 	local key=""
 
-	read -n 1 -r -s key
+	if [ -t 0 ]; then
+		read -n 1 -r -s key
+	else
+		read -n 1 -r -s -t 1 key || key=""
+	fi
 	while IFS= read -r -t 0 -n 1 -s _; do
 		:
 	done

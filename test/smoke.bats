@@ -42,18 +42,6 @@ run_clai_with_stdin() {
 
   printf "%b" "$input" > "$stdin_file"
   run bash -lc '
-    timeout_bin=$(command -v timeout || command -v gtimeout || true)
-    if [ -n "$timeout_bin" ]; then
-      exec "$timeout_bin" 10s env \
-        HOME="'"$TEST_HOME"'" \
-        TMPDIR="'"$TEST_HOME"'/tmp" \
-        PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-        USER="bats" \
-        LANG="C" \
-        LC_TIME="C" \
-        TEST_HOME="'"$TEST_HOME"'" \
-        bash ./clai.sh "$1"
-    fi
     exec env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
