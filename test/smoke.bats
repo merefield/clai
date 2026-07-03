@@ -1522,9 +1522,11 @@ EOF
     bash ./clai.sh "list files in this directory"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"lists all files and directories, including hidden ones, with detailed permissions and ownership information,"* ]]
   [[ "$output" != *'\\1'* ]]
   [[ "$output" != *'" cmd "'* ]]
+  [ -f "$TEST_HOME/.local/state/clai/history_com.json" ]
+  jq -e 'map(select(.role == "assistant") | .content | fromjson? // empty) | map(select(.info == "lists all files and directories, including hidden ones, with detailed permissions and ownership information,")) | length == 1' \
+    "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
   jq -e '.format == "json"' "$TEST_HOME/curl-request.json" >/dev/null
 }
 
@@ -2415,6 +2417,7 @@ key=test-key
 hi_contrast=false
 expose_current_dir=true
 max_history_turns=10
+risk_appetite=2
 api=https://example.invalid/v1/chat/completions
 model=gpt-4o-mini
 json_mode=false
@@ -2428,7 +2431,7 @@ EOF
   make_command_curl
 
   run bash -lc '
-    printf "y\n" | env \
+    env \
       HOME="'"$TEST_HOME"'" \
       TMPDIR="'"$TEST_HOME"'/tmp" \
       PATH="'"$TEST_HOME"'/fakebin:$PATH" \
