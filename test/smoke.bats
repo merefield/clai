@@ -35,6 +35,37 @@ run_with_setup_io() {
     bash -c "$command"
 }
 
+run_clai_with_stdin() {
+  local input="$1"
+  local query="$2"
+  local stdin_file="$TEST_HOME/clai-stdin"
+
+  printf "%b" "$input" > "$stdin_file"
+  run bash -lc '
+    timeout_bin=$(command -v timeout || command -v gtimeout || true)
+    if [ -n "$timeout_bin" ]; then
+      exec "$timeout_bin" 10s env \
+        HOME="'"$TEST_HOME"'" \
+        TMPDIR="'"$TEST_HOME"'/tmp" \
+        PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+        USER="bats" \
+        LANG="C" \
+        LC_TIME="C" \
+        TEST_HOME="'"$TEST_HOME"'" \
+        bash ./clai.sh "$1"
+    fi
+    exec env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "$1"
+  ' _ "$query" < "$stdin_file"
+}
+
 mode_of() {
   local target="$1"
 
@@ -2792,17 +2823,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"rm -rf build\",\"info\":\"remove the build directory\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    yes n | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "remove the build directory"
-  '
+  run_clai_with_stdin "n\n" "remove the build directory"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *$'\e[48;5;236m\e[91m rm -rf build '* ]]
@@ -2864,17 +2885,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf amber > \\\"$HOME/amber-ran.txt\\\"\",\"info\":\"write amber output\",\"risk\":\"reversible change\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    yes n | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "write amber output"
-  '
+  run_clai_with_stdin "n\n" "write amber output"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"execute command? [y/e/N]:"* ]]
@@ -2938,17 +2949,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    yes n | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "run the dangerous command"
-  '
+  run_clai_with_stdin "n\n" "run the dangerous command"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"execute command? [y/e/N]:"* ]]
@@ -2975,17 +2976,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    { printf "y\n"; yes n; } | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "run the dangerous command"
-  '
+  run_clai_with_stdin "y\nn\n" "run the dangerous command"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"danger zone command, are you sure? [y/N]:"* ]]
@@ -3012,17 +3003,7 @@ EOF
 
   make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf dangerous > \\\"$HOME/danger-ran.txt\\\"\",\"info\":\"run the dangerous stub command\",\"risk\":\"danger zone\"}"},"finish_reason":"stop"}]}'
 
-  run bash -lc '
-    yes y | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "run the dangerous command"
-  '
+  run_clai_with_stdin "y\n" "run the dangerous command"
 
   [ "$status" -eq 0 ]
   [[ "$output" != *"danger zone command, are you sure? [y/N]:"* ]]
@@ -3544,17 +3525,7 @@ EOF
 
   make_command_curl
 
-  run bash -lc '
-    yes n | env \
-      HOME="'"$TEST_HOME"'" \
-      TMPDIR="'"$TEST_HOME"'/tmp" \
-      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
-      USER="bats" \
-      LANG="C" \
-      LC_TIME="C" \
-      TEST_HOME="'"$TEST_HOME"'" \
-      bash ./clai.sh "run the command"
-  '
+  run_clai_with_stdin "n\n" "run the command"
 
   [ "$status" -eq 0 ]
   [ ! -e "$TEST_HOME/cmd-ran.txt" ]
