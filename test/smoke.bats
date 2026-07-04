@@ -1252,7 +1252,7 @@ EOF
   jq -e '.reasoning_effort == "low"' "$TEST_HOME/curl-request.json" >/dev/null
 }
 
-@test "clai sends thinking true on ollama chat endpoints when reasoning is configured" {
+@test "clai sends think true on ollama chat endpoints when reasoning is configured" {
   write_config <<'EOF'
 key=test-key
 hi_contrast=false
