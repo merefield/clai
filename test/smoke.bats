@@ -2682,6 +2682,47 @@ EOF
   ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
 }
 
+@test "quoted variable placeholders do not preserve shell backslashes in command arguments" {
+  write_config <<'EOF'
+key=test-key
+hi_contrast=false
+expose_current_dir=true
+max_history_turns=10
+risk_appetite=1
+api=https://api.openai.com/v1/chat/completions
+model=gpt-4.1
+json_mode=false
+temp=0.1
+tokens=500
+exec_query=
+question_query=
+error_query=
+EOF
+
+  make_openai_response_curl '{"choices":[{"message":{"content":"{\"cmd\":\"printf %s \\\"{{message}}\\\" > \\\"$HOME/message.txt\\\"\",\"info\":\"write the message {{message}}\",\"risk\":\"none\",\"variables\":[{\"name\":\"message\",\"prompt\":\"message\"}]}"},"finish_reason":"stop"}]}'
+
+  run bash -lc '
+    printf "DOC: improve README\n" | env \
+      HOME="'"$TEST_HOME"'" \
+      TMPDIR="'"$TEST_HOME"'/tmp" \
+      PATH="'"$TEST_HOME"'/fakebin:$PATH" \
+      USER="bats" \
+      LANG="C" \
+      LC_TIME="C" \
+      TEST_HOME="'"$TEST_HOME"'" \
+      bash ./clai.sh "write a message"
+  '
+
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_HOME/message.txt")" = "DOC: improve README" ]
+  jq -e '
+    map(select(.role == "assistant"))
+    | map(.content | fromjson? // empty)
+    | map(select(.cmd == "printf %s DOC:\\ improve\\ README > \"$HOME/message.txt\"" and .variables == []))
+    | length == 1
+  ' "$TEST_HOME/.local/state/clai/history_com.json" >/dev/null
+}
+
 @test "unresolved placeholders are rejected when variables are missing" {
   write_config <<'EOF'
 key=test-key

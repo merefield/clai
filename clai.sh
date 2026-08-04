@@ -1367,6 +1367,8 @@ resolve_command_variables() {
 		fi
 
 		printf -v shell_escaped_value '%q' "$value"
+		resolved_command=${resolved_command//"\"$placeholder\""/$shell_escaped_value}
+		resolved_command=${resolved_command//"'$placeholder'"/$shell_escaped_value}
 		resolved_command=${resolved_command//"$placeholder"/$shell_escaped_value}
 		resolved_info=${resolved_info//"$placeholder"/$value}
 	done
