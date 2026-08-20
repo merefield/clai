@@ -3,7 +3,7 @@ BINARY := clai
 OUTPUT ?= $(BINARY)
 PACKAGE := ./cmd/clai
 
-.PHONY: build test vet integration-test check install install-wikipedia clean
+.PHONY: build test vet integration-test check install install-wikipedia cleanup-legacy clean
 
 build:
 	go build -buildvcs=false -trimpath -o $(OUTPUT) $(PACKAGE)
@@ -15,7 +15,7 @@ vet:
 	go vet ./...
 
 integration-test:
-	bats test/install.bats
+	bats test
 
 check: vet test integration-test
 
@@ -30,6 +30,9 @@ install-wikipedia:
 	go build -buildvcs=false -trimpath -o "$$tools_dir/wikipedia" ./examples/wikipedia; \
 	install -m 0600 examples/wikipedia/wikipedia.json "$$tools_dir/wikipedia.json"; \
 	echo "Installed Wikipedia MCP tool in $$tools_dir"
+
+cleanup-legacy:
+	./scripts/cleanup-legacy.sh
 
 clean:
 	go clean

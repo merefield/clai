@@ -20,3 +20,9 @@ fi
 
 echo "Installed ${binary_name} to ${target}"
 echo "Run: ${binary_name} how much is 3 times pi"
+
+legacy_payload=${CLAI_LEGACY_INSTALL_DIR:-/usr/local/lib/clai}/clai.sh
+if [ -e "$legacy_payload" ]; then
+	echo "Legacy Bash payload detected at ${legacy_payload}."
+	echo "Review obsolete files with: ./scripts/cleanup-legacy.sh"
+fi

@@ -95,3 +95,20 @@ EOF
 	[ "$status" -eq 0 ]
 	[ -x "$prefix/bin/clai" ]
 }
+
+@test "Go installer points out a detected legacy Bash payload" {
+  write_fake_go_builder
+  legacy_dir="$TEST_ROOT/legacy-clai"
+  mkdir -p "$legacy_dir"
+  printf 'legacy\n' > "$legacy_dir/clai.sh"
+
+  run env \
+    PATH="$TEST_ROOT/fakebin:$PATH" \
+    CLAI_BIN_DIR="$TEST_ROOT/bin" \
+    CLAI_LEGACY_INSTALL_DIR="$legacy_dir" \
+    sh ./install.sh
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Legacy Bash payload detected at $legacy_dir/clai.sh"* ]]
+  [[ "$output" == *"./scripts/cleanup-legacy.sh"* ]]
+}

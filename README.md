@@ -9,6 +9,9 @@ clai how much is 3 times pi
 
 The primary implementation is now Go. It keeps the existing `clai <request...>` interface, configuration and history locations, and risk controls while moving API clients, orchestration, persistence, terminal UI, and LLM tools into typed Go packages.
 
+> [!NOTE]
+> This release migrates CLAI's runtime from the former Bash script to a compiled Go binary. Existing configuration, history, command syntax, and shell integration continue to be used; legacy `~/.clai_tools` Bash plugins do not. See [Migration from the Bash version](#migration-from-the-bash-version) before removing old files.
+
 ![CLAI command suggestion and confirmation flow](docs/assets/examples.png)
 
 ## Features
@@ -522,9 +525,10 @@ Available targets:
 | `make build` | Build `./clai` from `./cmd/clai`. |
 | `make test` | Run all Go unit tests. |
 | `make vet` | Run `go vet ./...`. |
-| `make integration-test` | Run the Go installer Bats suite. |
+| `make integration-test` | Run the installer and migration-cleanup Bats suites. |
 | `make check` | Run vet, Go tests, and installer tests. |
 | `make install-wikipedia` | Build and install the optional tutorial MCP server and manifest. |
+| `make cleanup-legacy` | Dry-run the conservative Bash-install cleanup script. |
 | `make clean` | Run `go clean` and remove the local `clai` binary. |
 
 Run the race detector separately when changing concurrent or I/O behavior:
@@ -541,9 +545,65 @@ GoReleaser builds static Linux and macOS archives and a checksum file from tags:
 goreleaser release --snapshot --clean
 ```
 
-## Migration
+## Migration from the Bash version
 
-The Go implementation replaces the former Bash application while preserving the `clai request words here` interface and established configuration, history, prompt, and risk behavior. The removed Bash sources, installer, documentation, and tests remain available through Git history; they are not duplicated in the current working tree or release artifacts.
+The Go implementation replaces the former Bash application while preserving the `clai request words here` interface and established configuration, history, prompt, risk, and shell-initialization behavior. The removed Bash sources, documentation, and tests remain available through Git history; they are not duplicated in the current working tree or release artifacts.
+
+### Why migrate
+
+The Bash application had grown into a large program responsible for provider-specific JSON, state persistence, process execution, terminal presentation, and an in-process plugin contract. Go provides clearer package boundaries and compile-time types for those responsibilities, deterministic HTTP and JSON handling, bounded and cancellation-aware command execution, race-tested concurrency, and reproducible native release binaries. Users no longer need `curl` or `jq` at runtime.
+
+The migration also replaces sourced Bash plugins with independently versioned MCP server processes. A plugin can now live in its own repository, use its own dependencies and API credentials, be discovered without changing CLAI, and fail without sharing CLAI's shell process. This is an intentional plugin-contract change; legacy `~/.clai_tools/*.sh` files are not loaded by the Go version.
+
+### Reused and obsolete paths
+
+| Path or integration | Migration treatment |
+| --- | --- |
+| `~/.config/clai.cfg` or `CLAI_CONFIG` | Reused. Contains provider settings and must not be deleted. |
+| `${XDG_STATE_HOME:-~/.local/state}/clai/history_com.json` or `CLAI_HISTORY` | Reused. Conversation history must not be deleted. |
+| Existing shell alias from `clai shell-init` | Reused because it invokes the same `clai` command name. |
+| `/usr/local/bin/clai` or the selected install target | Reused as the command location and replaced with the Go binary. |
+| `${XDG_CONFIG_HOME:-~/.config}/clai/tools.d` or `CLAI_TOOLS_DIR` | Current Go MCP plugins; never treated as legacy. |
+| `/usr/local/lib/clai/clai.sh` | Obsolete after the active command has been replaced by the Go binary. |
+| The three unmodified stock scripts under `~/.clai_tools` | Obsolete. Modified and third-party files are preserved for manual migration or archival. |
+
+The cleanup does not uninstall `curl`, `jq`, Bash, or any system package because they may be used by unrelated software.
+
+### Recommended migration
+
+Optionally create a private config backup, install the Go version, and test it before cleaning anything:
+
+```bash
+install -m 0600 ~/.config/clai.cfg ~/.config/clai.cfg.pre-go
+./install.sh
+clai --version
+clai how much is 3 times pi
+```
+
+Review the cleanup without changing the filesystem:
+
+```bash
+./scripts/cleanup-legacy.sh
+# or: make cleanup-legacy
+```
+
+If every listed path is expected, apply it:
+
+```bash
+./scripts/cleanup-legacy.sh --apply
+```
+
+The script refuses to proceed unless the active `clai` is a native Linux or macOS binary and refuses to remove a legacy payload still targeted by the active command. It removes only files whose SHA-256 hashes match the final stock Bash release, removes directories only when they become empty, and prints every preserved path. Unknown, modified, and third-party legacy plugins remain under `~/.clai_tools` for manual porting to MCP or archival.
+
+For non-default old locations, identify both paths explicitly:
+
+```bash
+CLAI_LEGACY_INSTALL_DIR="$HOME/.local/lib/clai" \
+CLAI_LEGACY_TOOLS_DIR="$HOME/.clai_tools" \
+./scripts/cleanup-legacy.sh --clai-path "$HOME/.local/bin/clai"
+```
+
+Do not apply cleanup until the Go binary has passed your normal workflows. Before cleanup, rollback is simply restoring the old command target; afterwards, retrieve the Bash implementation from Git history if it is needed.
 
 ## Credits and license
 
