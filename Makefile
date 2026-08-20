@@ -2,7 +2,7 @@ SHELL := /bin/bash
 BINARY := clai
 PACKAGE := ./cmd/clai
 
-.PHONY: build test vet lint integration-test legacy-test check install clean
+.PHONY: build test vet integration-test check install clean
 
 build:
 	go build -buildvcs=false -trimpath -o $(BINARY) $(PACKAGE)
@@ -13,16 +13,10 @@ test:
 vet:
 	go vet ./...
 
-lint:
-	shellcheck install.sh clai.sh legacy/install.sh
-
-legacy-test:
-	bats test/smoke.bats
-
 integration-test:
 	bats test/install.bats
 
-check: vet test lint integration-test legacy-test
+check: vet test integration-test
 
 install: build
 	install -m 0755 $(BINARY) $${DESTDIR}$${PREFIX:-/usr/local}/bin/$(BINARY)

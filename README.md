@@ -252,7 +252,7 @@ reasoning=true
 
 ## Configuration reference
 
-CLAI creates `~/.config/clai.cfg` on first use. It is a `key=value` file and remains compatible with the Bash implementation.
+CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `key=value` format.
 
 | Key | Default | Purpose |
 | --- | --- | --- |
@@ -462,11 +462,11 @@ The application depends on interfaces for the provider client and command runner
 
 ## Development
 
-Install Go 1.26.6, Bats, and ShellCheck. The retained Bash compatibility tests also use `curl` and `jq`:
+Install Go 1.26.6 and Bats:
 
 ```bash
 sudo apt update
-sudo apt install bats shellcheck curl jq
+sudo apt install bats
 ```
 
 Available targets:
@@ -476,10 +476,8 @@ Available targets:
 | `make build` | Build `./clai` from `./cmd/clai`. |
 | `make test` | Run all Go unit tests. |
 | `make vet` | Run `go vet ./...`. |
-| `make lint` | Run ShellCheck on the installers and archived Bash implementation. |
 | `make integration-test` | Run the Go installer Bats suite. |
-| `make legacy-test` | Run the archived Bash behavior suite as a migration oracle. |
-| `make check` | Run vet, Go tests, lint, installer tests, and legacy tests. |
+| `make check` | Run vet, Go tests, and installer tests. |
 | `make clean` | Run `go clean` and remove the local `clai` binary. |
 
 Run the race detector separately when changing concurrent or I/O behavior:
@@ -488,7 +486,7 @@ Run the race detector separately when changing concurrent or I/O behavior:
 go test -race ./...
 ```
 
-Tests use fake providers and isolated temporary state; they do not make successful live API calls. The retained PTY-backed edit test requires `CLAI_ENABLE_PTY_TESTS=true` and a compatible util-linux `script` command. CI enables it and runs the full `make check` workflow.
+Tests use fake providers and isolated temporary state; they do not make successful live API calls. CI runs the full `make check` workflow.
 
 GoReleaser builds static Linux and macOS archives and a checksum file from tags:
 
@@ -496,17 +494,9 @@ GoReleaser builds static Linux and macOS archives and a checksum file from tags:
 goreleaser release --snapshot --clean
 ```
 
-## Migration and legacy implementation
+## Migration
 
-The previous Bash application remains at [`clai.sh`](clai.sh), its installer at [`legacy/install.sh`](legacy/install.sh), and its full documentation at [`docs/legacy-bash.md`](docs/legacy-bash.md). They are retained as a historical compatibility oracle while Go parity is validated; the root installer and primary documentation now target the Go architecture. The archived Bash file still contains its historical shell-tool implementation, but the Go binary neither discovers nor executes that format.
-
-The migration principles are:
-
-1. Preserve the `clai request words here` interface.
-2. Preserve existing configuration, history, prompt, and risk contracts where practical.
-3. Keep the legacy Bats behavior suite running alongside typed Go tests.
-4. Keep provider, persistence, runner, native-tool, and UI boundaries independently testable.
-5. Remove the legacy implementation only after behavioral parity is demonstrated.
+The Go implementation replaces the former Bash application while preserving the `clai request words here` interface and established configuration, history, prompt, and risk behavior. The removed Bash sources, installer, documentation, and tests remain available through Git history; they are not duplicated in the current working tree or release artifacts.
 
 ## Credits and license
 
