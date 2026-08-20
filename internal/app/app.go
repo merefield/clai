@@ -10,24 +10,26 @@ import (
 
 	"github.com/merefield/clai/internal/config"
 	"github.com/merefield/clai/internal/history"
+	"github.com/merefield/clai/internal/mcptools"
 	"github.com/merefield/clai/internal/model"
 	"github.com/merefield/clai/internal/provider"
 	"github.com/merefield/clai/internal/runner"
 	"github.com/merefield/clai/internal/ui"
 	"github.com/merefield/clai/pkg/tool"
-	"github.com/merefield/clai/plugins"
 )
 
 type Application struct {
-	Config  *config.Config
-	History *history.Store
-	Tools   *tool.Registry
-	Client  provider.Client
-	Runner  runner.Runner
-	UI      *ui.Console
+	Config      *config.Config
+	History     *history.Store
+	Tools       *tool.Registry
+	Client      provider.Client
+	Runner      runner.Runner
+	UI          *ui.Console
+	ToolManager *mcptools.Manager
+	toolsLoaded bool
 }
 
-func New(ctx context.Context, in io.Reader, out, errOut io.Writer) (*Application, error) {
+func New(_ context.Context, in io.Reader, out, errOut io.Writer) (*Application, error) {
 	configPath, err := config.DefaultPath()
 	if err != nil {
 		return nil, err
@@ -45,20 +47,25 @@ func New(ctx context.Context, in io.Reader, out, errOut io.Writer) (*Application
 		fmt.Fprintf(errOut, "WARNING: Could not parse history at %s; starting empty: %v\n", historyPath, historyErr)
 		historyStore = &history.Store{Path: historyPath, Messages: []model.Message{}}
 	}
-	registeredTools, err := plugins.Registry(nil)
+	toolManager, err := mcptools.New("", errOut)
 	if err != nil {
-		return nil, fmt.Errorf("register tools: %w", err)
+		return nil, fmt.Errorf("initialize external tools: %w", err)
 	}
 	console := ui.New(in, out, errOut, cfg.HighContrast)
-	return &Application{Config: cfg, History: historyStore, Tools: registeredTools, Client: provider.New(cfg, nil), Runner: runner.Bash{Stdout: out, Stderr: errOut}, UI: console}, nil
+	return &Application{Config: cfg, History: historyStore, Tools: toolManager.Registry(), Client: provider.New(cfg, nil), Runner: runner.Bash{Stdout: out, Stderr: errOut}, UI: console, ToolManager: toolManager}, nil
 }
 
 func (a *Application) Close() error {
-	return a.History.Save(a.Config.MaxHistoryTurns)
+	var closeErrors []error
+	if a.ToolManager != nil {
+		closeErrors = append(closeErrors, a.ToolManager.Close())
+	}
+	closeErrors = append(closeErrors, a.History.Save(a.Config.MaxHistoryTurns))
+	return errors.Join(closeErrors...)
 }
 
 func (a *Application) Run(ctx context.Context, args []string) error {
-	if handled, err := a.handleBuiltIn(args); handled {
+	if handled, err := a.handleBuiltIn(ctx, args); handled {
 		return err
 	}
 	if a.Config.Key == "" {
@@ -72,6 +79,9 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 			return a.clearHistory()
 		}
 		return a.process(ctx, query, "")
+	}
+	if err := a.ensureToolsLoaded(ctx); err != nil {
+		return err
 	}
 	a.UI.Title(Version, a.Tools.Names())
 	a.UI.Info(`Hi! Ask a terminal question or give me a task. Type "exit" when done.`)
@@ -87,6 +97,15 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		if query == "" {
 			continue
 		}
+		if strings.HasPrefix(query, "/tools") {
+			arguments := strings.Fields(strings.TrimPrefix(query, "/"))
+			if handled, err := a.handleBuiltIn(ctx, arguments); handled {
+				if err != nil {
+					a.UI.Error(err.Error())
+				}
+				continue
+			}
+		}
 		if isClearRequest(query) {
 			if err := a.clearHistory(); err != nil {
 				a.UI.Error(err.Error())
@@ -99,7 +118,40 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 	}
 }
 
-func (a *Application) handleBuiltIn(args []string) (bool, error) {
+func (a *Application) handleBuiltIn(ctx context.Context, args []string) (bool, error) {
+	if len(args) >= 1 && args[0] == "tools" {
+		if len(args) != 2 || (args[1] != "list" && args[1] != "reload") {
+			return true, fmt.Errorf("usage: clai tools list|reload")
+		}
+		if args[1] == "reload" {
+			if err := a.reloadTools(ctx); err != nil {
+				return true, err
+			}
+			fmt.Fprintf(a.UI.Out, "Reloaded %d external tool(s).\n", a.Tools.Len())
+			return true, nil
+		}
+		if a.ToolManager == nil {
+			for _, name := range a.Tools.Names() {
+				fmt.Fprintln(a.UI.Out, name)
+			}
+			return true, nil
+		}
+		if err := a.loadTools(ctx); err != nil {
+			return true, err
+		}
+		servers := a.ToolManager.Servers()
+		if len(servers) == 0 {
+			fmt.Fprintf(a.UI.Out, "No external tools loaded from %s.\n", a.ToolManager.Directory())
+			return true, nil
+		}
+		for _, server := range servers {
+			fmt.Fprintf(a.UI.Out, "%s (%s)\n", server.ID, server.Manifest)
+			for _, name := range server.Tools {
+				fmt.Fprintf(a.UI.Out, "  %s\n", name)
+			}
+		}
+		return true, nil
+	}
 	if len(args) >= 1 && args[0] == "shell-init" {
 		if len(args) != 2 {
 			return true, fmt.Errorf("usage: clai shell-init bash|zsh")
@@ -176,6 +228,14 @@ func (a *Application) clearHistory() error {
 }
 
 func (a *Application) process(ctx context.Context, query, requestedKind string) error {
+	if err := a.ensureToolsLoaded(ctx); err != nil {
+		return err
+	}
+	if a.ToolManager != nil && a.Config.UseTools && a.Client.SupportsTools() && a.ToolManager.Dirty() {
+		if err := a.loadTools(ctx); err != nil {
+			return err
+		}
+	}
 	kind := requestedKind
 	if kind == "" {
 		kind = "execute"
@@ -232,13 +292,44 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 	return fmt.Errorf("tool-call limit exceeded")
 }
 
-func (a *Application) messages(kind string) []model.Message {
-	capability := "No native CLAI tools are available."
-	if a.Tools.Len() > 0 && a.Client.SupportsTools() {
-		capability = "Native CLAI tools are available and may be called when they provide information needed to answer the request."
+func (a *Application) reloadTools(ctx context.Context) error {
+	if a.ToolManager == nil {
+		return fmt.Errorf("external tool manager is unavailable")
 	}
-	if a.Tools.Len() > 0 && !a.Client.SupportsTools() {
-		capability = "Native CLAI tools are installed but unavailable through this provider."
+	for _, warning := range a.ToolManager.Reload(ctx) {
+		fmt.Fprintln(a.UI.Err, "WARNING:", warning)
+	}
+	a.Tools = a.ToolManager.Registry()
+	a.toolsLoaded = true
+	return nil
+}
+
+func (a *Application) loadTools(ctx context.Context) error {
+	if a.ToolManager == nil {
+		return fmt.Errorf("external tool manager is unavailable")
+	}
+	for _, warning := range a.ToolManager.Load(ctx) {
+		fmt.Fprintln(a.UI.Err, "WARNING:", warning)
+	}
+	a.Tools = a.ToolManager.Registry()
+	a.toolsLoaded = true
+	return nil
+}
+
+func (a *Application) ensureToolsLoaded(ctx context.Context) error {
+	if a.ToolManager == nil || a.toolsLoaded || !a.Config.UseTools || !a.Client.SupportsTools() {
+		return nil
+	}
+	return a.loadTools(ctx)
+}
+
+func (a *Application) messages(kind string) []model.Message {
+	capability := "No external CLAI tools are available."
+	if a.Config.UseTools && a.Tools.Len() > 0 && a.Client.SupportsTools() {
+		capability = "External CLAI tools are available and may be called when they provide information needed to answer the request."
+	}
+	if a.Config.UseTools && a.Tools.Len() > 0 && !a.Client.SupportsTools() {
+		capability = "External CLAI tools are installed but unavailable through this provider."
 	}
 	system := systemPrompt(a.Config.Path, a.History.Path, capability) + " " + queryGuidance(kind, configuredQuery(a.Config, kind))
 	messages := templateMessages(kind, system)
@@ -263,13 +354,16 @@ func configuredQuery(cfg *config.Config, kind string) string {
 }
 
 func (a *Application) toolDefinitions() []model.ToolDefinition {
-	if !a.Client.SupportsTools() {
+	if !a.Config.UseTools || !a.Client.SupportsTools() {
 		return nil
 	}
 	return a.Tools.Definitions()
 }
 
 func (a *Application) runTool(ctx context.Context, call model.ToolCall) (string, error) {
+	if !a.Config.UseTools {
+		return "", fmt.Errorf("external tools are disabled by use_tools=false")
+	}
 	result, err := a.Tools.Execute(ctx, call.Function.Name, call.Function.Arguments)
 	if err != nil {
 		return "", err

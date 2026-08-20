@@ -12,6 +12,7 @@ import (
 
 	"github.com/merefield/clai/internal/config"
 	"github.com/merefield/clai/internal/history"
+	"github.com/merefield/clai/internal/mcptools"
 	"github.com/merefield/clai/internal/model"
 	"github.com/merefield/clai/internal/provider"
 	"github.com/merefield/clai/internal/ui"
@@ -157,7 +158,7 @@ func TestProcessCompletesToolRoundTrip(t *testing.T) {
 	}}
 	var out bytes.Buffer
 	application := &Application{
-		Config:  &config.Config{Key: "test", Model: "test", API: "http://test", MaxHistoryTurns: 10},
+		Config:  &config.Config{Key: "test", Model: "test", API: "http://test", MaxHistoryTurns: 10, UseTools: true},
 		History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
 		Tools:   testTools(t, fakeTool{}),
 		Client:  client,
@@ -181,5 +182,76 @@ func TestProcessCompletesToolRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Used the lookup tool.") {
 		t.Fatalf("tool invocation was not reported: %q", out.String())
+	}
+}
+
+func TestToolsListDoesNotRequireProviderSetup(t *testing.T) {
+	var out bytes.Buffer
+	application := &Application{
+		Config:  &config.Config{},
+		History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+		Tools:   testTools(t, fakeTool{}),
+		Client:  &fakeClient{},
+		Runner:  &fakeRunner{},
+		UI:      ui.New(strings.NewReader(""), &out, &out, false),
+	}
+	if err := application.Run(context.Background(), []string{"tools", "list"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out.String()) != "lookup" {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestDisabledToolsDoNotStartExternalServer(t *testing.T) {
+	directory := t.TempDir()
+	marker := filepath.Join(directory, "started")
+	command := filepath.Join(directory, "server")
+	if err := os.WriteFile(command, []byte("#!/bin/sh\nprintf started > \"$1\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := json.Marshal(map[string]any{
+		"id":      "unused",
+		"command": command,
+		"args":    []string{marker},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "unused.json"), manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := mcptools.New(directory, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client := &fakeClient{tools: true, responses: []provider.Response{{Text: `{"cmd":"","info":"no tools needed","risk":"none","variables":[]}`, FinishReason: "stop"}}}
+	var out bytes.Buffer
+	application := &Application{
+		Config:      &config.Config{Key: "test", MaxHistoryTurns: 10},
+		History:     &history.Store{Path: filepath.Join(directory, "history.json")},
+		Tools:       manager.Registry(),
+		ToolManager: manager,
+		Client:      client,
+		Runner:      &fakeRunner{},
+		UI:          ui.New(strings.NewReader(""), &out, &out, false),
+	}
+	if err := application.process(context.Background(), "answer without tools", "question"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("external server started while use_tools=false: %v", err)
+	}
+	if len(client.requests) != 1 || len(client.requests[0].Tools) != 0 {
+		t.Fatalf("disabled tool definitions sent to provider: %#v", client.requests)
+	}
+}
+
+func TestRunToolRejectsCallsWhenToolsAreDisabled(t *testing.T) {
+	application := &Application{Config: &config.Config{}, Tools: testTools(t, fakeTool{})}
+	_, err := application.runTool(context.Background(), model.ToolCall{Function: model.FunctionCall{Name: "lookup", Arguments: `{}`}})
+	if err == nil || !strings.Contains(err.Error(), "use_tools=false") {
+		t.Fatalf("disabled tool call error = %v", err)
 	}
 }

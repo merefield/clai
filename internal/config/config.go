@@ -21,6 +21,7 @@ json_mode=false
 temp=0.1
 tokens=500
 reasoning=
+use_tools=false
 share_command_results=false
 result_lines=20
 confirm_dangerous_commands=true
@@ -42,6 +43,7 @@ type Config struct {
 	Temperature              float64
 	Tokens                   int
 	Reasoning                string
+	UseTools                 bool
 	ShareCommandResults      bool
 	ResultLines              int
 	ConfirmDangerousCommands bool
@@ -124,6 +126,7 @@ func (c *Config) refresh() {
 	c.Temperature = floatValue(c.values["temp"], 0.1)
 	c.Tokens = intValue(c.values["tokens"], 500, 1)
 	c.Reasoning = c.values["reasoning"]
+	c.UseTools = boolValue(c.values["use_tools"], false)
 	c.ShareCommandResults = boolValue(c.values["share_command_results"], false)
 	c.ResultLines = intValue(c.values["result_lines"], 20, 1)
 	c.ConfirmDangerousCommands = boolValue(c.values["confirm_dangerous_commands"], true)
@@ -163,7 +166,7 @@ func (c *Config) Save() error {
 }
 
 func defaultKeys() []string {
-	return []string{"key", "hi_contrast", "expose_current_dir", "max_history_turns", "api", "model", "json_mode", "temp", "tokens", "reasoning", "share_command_results", "result_lines", "confirm_dangerous_commands", "risk_appetite", "exec_query", "question_query", "error_query"}
+	return []string{"key", "hi_contrast", "expose_current_dir", "max_history_turns", "api", "model", "json_mode", "temp", "tokens", "reasoning", "use_tools", "share_command_results", "result_lines", "confirm_dangerous_commands", "risk_appetite", "exec_query", "question_query", "error_query"}
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {

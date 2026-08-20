@@ -23,8 +23,8 @@ The primary implementation is now Go. It keeps the existing `clai <request...>` 
 - Optional error analysis after a command fails
 - Persistent conversation history with configurable retention
 - Opt-in command-result sharing with output truncation
-- Native, compiled Go tools exposed through provider function calling
-- A Wikipedia lookup plugin that doubles as a copyable implementation tutorial
+- Hot-loaded MCP tool servers exposed through provider function calling
+- A standalone Go Wikipedia server that doubles as a copyable plugin tutorial
 - Shell integration for unquoted `*` and `?` in Bash and zsh
 
 ## Requirements
@@ -57,11 +57,7 @@ For a user-local installation:
 CLAI_BIN_DIR="$HOME/.local/bin" ./install.sh
 ```
 
-Ensure `$HOME/.local/bin` is on `PATH` if you use that location. `CLAI_BIN_NAME` can temporarily select another executable name, for example while comparing implementations:
-
-```bash
-CLAI_BIN_DIR="$HOME/.local/bin" CLAI_BIN_NAME=goclai ./install.sh
-```
+Ensure `$HOME/.local/bin` is on `PATH` if you use that location.
 
 For development, build and run without installing:
 
@@ -103,6 +99,7 @@ The defaults are:
 api=https://api.openai.com/v1/chat/completions
 model=gpt-4.1
 risk_appetite=0
+use_tools=false
 ```
 
 Configuration is stored in `~/.config/clai.cfg` with mode `0600`. The API key is stored in that plain-text local file, so protect the account and filesystem that contain it.
@@ -266,6 +263,7 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
 | `tokens` | `500` | Maximum requested output tokens. Invalid or non-positive values fall back to `500`. |
 | `reasoning` | empty | Optional reasoning-effort value; provider behavior is described above. |
+| `use_tools` | `false` | Opt in to discovering tools, sending their definitions to compatible providers, and allowing model-requested tool calls. |
 | `share_command_results` | `false` | Store executed-command results so they can be included in later model context. |
 | `result_lines` | `20` | Maximum recent stdout and stderr lines stored for each shared result. |
 | `confirm_dangerous_commands` | `true` | Require a second confirmation for danger-zone commands. |
@@ -315,52 +313,81 @@ When enabled, CLAI retains at most `result_lines` recent lines from each stdout 
 
 History files and newly created state directories use restrictive permissions. Clearing history removes the persisted history file but does not delete the configuration.
 
-## Native Go tools
+## Hot-loaded tools
 
-Tools are compiled Go capabilities exposed to compatible models through provider function calling. They let a model obtain information during its reasoning loop and then use the result in its final answer.
+CLAI loads tools from independent [Model Context Protocol](https://modelcontextprotocol.io/) servers at runtime. A tool server is a separate executable, can live in its own repository, and does not require an import, registry edit, CLAI branch, or CLAI rebuild. CLAI uses the official [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) over stdin/stdout.
 
-The legacy `~/.clai_tools/*.sh` loader has been removed from the Go application. Tools no longer source arbitrary Bash, depend on `jq`, or inherit CLAI's shell process. The registry validates names and schemas, dispatches typed implementations, JSON-encodes results, and rejects results larger than 32 KiB.
+External tools are disabled by default. Opt in by editing `~/.config/clai.cfg`:
 
-The initial [`wikipedia_lookup`](plugins/wikipedia/wikipedia.go) plugin searches Wikipedia, retrieves the best matching article's introductory plain-text extract, and returns its title, summary, language, and source URL. It uses the official MediaWiki [Search API](https://www.mediawiki.org/wiki/API:Search) and [TextExtracts API](https://www.mediawiki.org/wiki/Extension:TextExtracts).
+```ini
+use_tools=true
+```
 
-After a successful call, CLAI reports the tool and a plugin-controlled safe summary in the interface:
+When `use_tools=false`, ordinary and interactive requests do not scan manifests, load cached definitions, start tool servers, expose tool schemas to the provider, or execute a requested tool. The explicit `clai tools list|reload` and interactive `/tools list|reload` management commands remain available for inspecting and developing installed tools, but those tools are not exposed to normal requests until enabled.
+
+CLAI scans `${XDG_CONFIG_HOME:-$HOME/.config}/clai/tools.d/*.json`. Set `CLAI_TOOLS_DIR` to override that location. Tool definitions are cached in a private `.tool-cache` file in that directory, so an unchanged server does not start merely to advertise its tools. The server process starts lazily only if the model actually calls one of its tools, then remains available for the rest of that CLAI process.
+
+The first request after installing or changing a manifest or executable must discover that server's definitions. CLAI discovers all new or stale servers concurrently and refreshes the cache. Interactive sessions check for those changes before each request. Normal requests through providers without tool-call support skip external-tool loading entirely.
+
+These commands are also available:
+
+```bash
+clai tools list
+clai tools reload
+```
+
+Inside an interactive session, use `/tools list` or `/tools reload`. `tools list` uses valid cached definitions and discovers only new or changed servers. `tools reload` deliberately starts every enabled server and rediscovers all definitions, which is useful while developing a plugin.
+
+Each server's ID namespaces its tools. A server with ID `wikipedia` and MCP tool `lookup` is exposed to the LLM as `wikipedia__lookup`, preventing collisions between independently maintained plugins. Broken manifests and servers produce warnings and are omitted without disabling healthy plugins.
+
+Tool calls are currently available through OpenAI, generic OpenAI-compatible endpoints, and Ollama. Anthropic and Gemini requests do not yet include CLAI tool definitions.
+
+### Install the Wikipedia tutorial
+
+[`examples/wikipedia/main.go`](examples/wikipedia/main.go) is a complete standalone Go MCP server. It searches Wikipedia, retrieves the best matching introductory plain-text extract, and returns structured title, summary, language, and source URL fields. Its [`wikipedia.json`](examples/wikipedia/wikipedia.json) manifest is deliberately copyable.
+
+Install it independently of the CLAI binary:
+
+```bash
+make install-wikipedia
+clai tools list
+```
+
+The target builds the server as `~/.config/clai/tools.d/wikipedia` and installs its private manifest beside it. CLAI will then report successful calls without exposing raw arguments:
 
 ```text
 Used the Wikipedia tool with query "Margaret Thatcher".
 ```
 
-CLAI never prints raw tool arguments automatically. A plugin opts into additional detail through `InvocationSummarizer`, which prevents future plugins from accidentally displaying API keys or sensitive request fields.
+### Create a separately versioned Go tool
 
-Tool calls are currently available through OpenAI, generic OpenAI-compatible endpoints, and Ollama. Anthropic and Gemini requests do not yet include CLAI tool definitions.
-
-### Add a tool by copying the Wikipedia plugin
-
-The framework contract is public in [`pkg/tool`](pkg/tool/). Actual tools are kept outside the core under [`plugins/`](plugins/), and [`plugins/registry.go`](plugins/registry.go) is the only registration point.
-
-Start by copying the tutorial plugin:
+Start a new repository rather than adding the tool to CLAI:
 
 ```bash
-cp -R plugins/wikipedia plugins/my_service
+mkdir my-clai-tool
+cd my-clai-tool
+git init
+go mod init example.com/my-clai-tool
+go get github.com/modelcontextprotocol/go-sdk/mcp
 ```
 
-Then edit the copied package:
-
-1. Rename its Go package and `Plugin` implementation as desired.
-2. Define typed `Arguments` and `Result` structs.
-3. Change `Definition()` to provide the unique function name, human-facing display name, model-facing description, JSON parameter schema, and capability metadata.
-4. Change `Execute()` to validate arguments, perform the operation with its `context.Context`, and return a JSON-marshalable result.
-5. Add the constructor to [`plugins/registry.go`](plugins/registry.go).
-6. Copy and adapt the tests, injecting an HTTP client or other dependency so tests do not contact the live service.
-
-The essential implementation shape is:
+The essential server shape is:
 
 ```go
-type Plugin struct {
-	client *http.Client
-}
+package main
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log"
+	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
 
 type Arguments struct {
-	Query string `json:"query"`
+	Query string `json:"query" jsonschema:"topic to find"`
 }
 
 type Result struct {
@@ -368,86 +395,83 @@ type Result struct {
 	Source string `json:"source"`
 }
 
-func (p *Plugin) Definition() tool.Definition {
-	return tool.Definition{
-		Name:         "my_service_lookup",
-		DisplayName:  "My Service",
-		Description:  "Look up information using My Service.",
-		Capabilities: []tool.Capability{tool.CapabilityNetworkRead},
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query": map[string]any{"type": "string"},
-			},
-			"required": []string{"query"},
-		},
-	}
+func lookup(_ context.Context, _ *mcp.CallToolRequest, input Arguments) (*mcp.CallToolResult, Result, error) {
+	return nil, Result{Answer: "...", Source: "https://example.com/..."}, nil
 }
 
-func (p *Plugin) Execute(ctx context.Context, raw json.RawMessage) (any, error) {
-	var arguments Arguments
-	if err := json.Unmarshal(raw, &arguments); err != nil {
-		return nil, err
+func main() {
+	server := mcp.NewServer(&mcp.Implementation{Name: "my-service", Version: "1.0.0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "lookup",
+		Title:       "My Service",
+		Description: "Look up information using My Service.",
+	}, lookup)
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil &&
+		!errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "server is closing: EOF") {
+		log.Print(err)
 	}
-	// Perform the bounded, context-aware request here.
-	return Result{Answer: "...", Source: "https://example.com/..."}, nil
-}
-
-func (p *Plugin) InvocationSummary(raw json.RawMessage) string {
-	var arguments Arguments
-	if json.Unmarshal(raw, &arguments) != nil {
-		return ""
-	}
-	return fmt.Sprintf("with query %q", arguments.Query)
 }
 ```
 
-Returning a typed value keeps provider-specific message formatting out of the plugin. The registry serializes it as JSON before returning it to the LLM.
+MCP derives the JSON input and output schemas from the typed structs. Keep stdout exclusively for MCP messages; write diagnostics to stderr. Unit-test API behaviour with an injected HTTP client, as the Wikipedia example does.
 
-### Use environment variables for third-party API keys
+Build the executable, place it anywhere you control, and add a manifest under `tools.d`:
 
-A compiled plugin can read environment variables normally. Prefer reading a key once during registration and injecting it into the plugin rather than reading it on every call:
+```json
+{
+  "id": "my_service",
+  "command": "/home/alice/.local/bin/my-clai-tool",
+  "capabilities": ["network-read"],
+  "safe_arguments": {
+    "lookup": ["query"]
+  },
+  "timeout_seconds": 20
+}
+```
+
+`command` may be absolute or relative to the manifest. Manifests must be regular files that are not group- or world-writable. Commands must be executable regular files and must not be group- or world-writable.
+
+| Manifest field | Purpose |
+| --- | --- |
+| `id` | Required server namespace of up to 32 letters, digits, `_`, or `-`. |
+| `command` | Required absolute executable path or path relative to the manifest. |
+| `args` | Optional fixed command arguments. |
+| `environment` | Environment-variable names explicitly inherited from CLAI. |
+| `capabilities` | Descriptive `network-read`, `local-read`, or `local-write` metadata; it is not an OS sandbox. |
+| `safe_arguments` | Per-tool string arguments that may appear in invocation notices. |
+| `timeout_seconds` | Startup, discovery, and per-call timeout from 1 to 300 seconds; defaults to 15. |
+| `enabled` | Optional boolean; defaults to `true`. |
+
+`safe_arguments` controls which string arguments CLAI may show in an invocation notice. Omit it for tools whose arguments may be sensitive. CLAI never displays raw arguments automatically.
+
+Commit the tool's source, tests, `go.mod`, `go.sum`, README, and an example manifest to its own repository. Publish binaries or let users install with `go install`; only the local manifest and executable belong on the CLAI machine.
+
+### Use third-party API keys safely
+
+External servers inherit no environment variables by default. A manifest allowlists names whose current values CLAI may pass to that process:
+
+```json
+{
+  "id": "web_crawler",
+  "command": "/home/alice/.local/bin/my-crawler",
+  "environment": ["SPECIAL_CRAWLER_API_KEY"],
+  "capabilities": ["network-read"],
+  "timeout_seconds": 30
+}
+```
+
+The Go server reads it normally:
 
 ```go
-// plugins/registry.go
-registered := []tool.Tool{
-	wikipedia.New(client),
-}
-
-if apiKey := os.Getenv("SPECIAL_CRAWLER_API_KEY"); apiKey != "" {
-	registered = append(registered, crawler.New(client, apiKey))
-}
-
-return tool.NewRegistry(registered...)
+apiKey := os.Getenv("SPECIAL_CRAWLER_API_KEY")
 ```
 
-Store the value privately on the implementation and use it only to authenticate the outbound request:
+Store only the variable name in Git. Supply its value through the shell, systemd, a container secret, or another secret manager. Do not include keys in the MCP schema, invocation summaries, results, logs, URLs, or returned errors.
 
-```go
-type Plugin struct {
-	client *http.Client
-	apiKey string
-}
-
-func New(client *http.Client, apiKey string) *Plugin {
-	return &Plugin{client: client, apiKey: apiKey}
-}
-
-func (p *Plugin) Execute(ctx context.Context, raw json.RawMessage) (any, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://crawler.example/api", nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Authorization", "Bearer "+p.apiKey)
-	// Send the request, enforce status/body limits, and return a typed result.
-	return Result{}, nil
-}
-```
-
-Do not include API keys in the LLM-facing parameter schema, invocation summary, tool results, log messages, URLs, or returned errors. Environment variables remain part of the CLAI process and are not automatically sent to the model. A plugin can still leak them through its own code, so every added implementation must be reviewed.
+External servers run with the invoking user's authority and must be treated as trusted executable code. CLAI restricts their inherited environment, enforces manifest and executable permissions, bounds each discovery and call by the manifest timeout, limits encoded results to 32 KiB, and closes started subprocesses on reload or exit. The private definition cache contains schemas and descriptions only; it does not contain environment values, tool results, or API keys.
 
 > [!CAUTION]
-> Tool results are added to the conversation and may be sent to the configured model provider. Bound network timeouts and response sizes, return only necessary fields, include source URLs, and treat retrieved page content as untrusted data that may contain prompt injection.
+> Tool results are added to the conversation and may be sent to the configured model provider. Bound server-side network response sizes, return only necessary fields, include source URLs, and treat retrieved page content as untrusted data that may contain prompt injection.
 
 ## Architecture
 
@@ -463,9 +487,9 @@ The Go implementation keeps orchestration separate from operating-system and pro
 | `internal/provider` | Native HTTP payloads, authentication, response parsing, and provider-specific structured output. |
 | `internal/runner` | Context-aware Bash execution, live output, capture, and result truncation. |
 | `internal/ui` | Inline terminal styling, prompts, secret input, setup, confirmations, and spinner. |
-| `pkg/tool` | Public native-tool contract, validation, provider definitions, dispatch, and result limits. |
-| `plugins` | Explicit compiled-in tool registration. |
-| `plugins/wikipedia` | Copyable Wikipedia lookup example and its isolated HTTP implementation. |
+| `pkg/tool` | Internal adapter contract, validation, provider definitions, dispatch, and result limits. |
+| `internal/mcptools` | Manifest discovery, restricted subprocess environments, MCP sessions, namespacing, reloads, and lifecycle. |
+| `examples/wikipedia` | Copyable standalone Wikipedia MCP server, manifest, and isolated HTTP tests. |
 
 The application depends on interfaces for the provider client and command runner. That keeps orchestration tests deterministic and avoids live network calls or real command execution.
 
@@ -474,6 +498,7 @@ The application depends on interfaces for the provider client and command runner
 - [Cobra](https://github.com/spf13/cobra) supplies the command lifecycle, help, and version behavior while CLAI retains free-form arguments.
 - [Lip Gloss](https://github.com/charmbracelet/lipgloss) supplies declarative terminal styling.
 - [`golang.org/x/term`](https://pkg.go.dev/golang.org/x/term) provides terminal detection and hidden API-key input.
+- The official [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) supplies the external tool client/server protocol and stdio transport.
 - Go's `net/http` and `encoding/json` remain explicit because provider protocols differ enough that a generic REST abstraction would hide important behavior.
 - A full-screen Bubble Tea application is intentionally out of scope; CLAI keeps its compact inline workflow.
 
@@ -495,6 +520,7 @@ Available targets:
 | `make vet` | Run `go vet ./...`. |
 | `make integration-test` | Run the Go installer Bats suite. |
 | `make check` | Run vet, Go tests, and installer tests. |
+| `make install-wikipedia` | Build and install the optional tutorial MCP server and manifest. |
 | `make clean` | Run `go clean` and remove the local `clai` binary. |
 
 Run the race detector separately when changing concurrent or I/O behavior:

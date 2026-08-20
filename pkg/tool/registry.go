@@ -15,7 +15,7 @@ const MaxResultBytes = 32 << 10
 
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// Registry validates, exposes, and dispatches compiled-in tools.
+// Registry validates, exposes, and dispatches a snapshot of available tools.
 type Registry struct {
 	tools map[string]Tool
 }

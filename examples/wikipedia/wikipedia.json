@@ -1,0 +1,9 @@
+{
+  "id": "wikipedia",
+  "command": "./wikipedia",
+  "capabilities": ["network-read"],
+  "safe_arguments": {
+    "lookup": ["query"]
+  },
+  "timeout_seconds": 15
+}

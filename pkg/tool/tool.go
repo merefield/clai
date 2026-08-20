@@ -26,8 +26,8 @@ type Definition struct {
 	Capabilities []Capability
 }
 
-// Tool is implemented by a compiled-in CLAI tool. Implementations should
-// decode arguments into a typed struct and return a JSON-marshalable result.
+// Tool is CLAI's internal adapter contract. Runtime MCP tools and test tools
+// implement it so provider-specific formatting stays out of tool servers.
 type Tool interface {
 	Definition() Definition
 	Execute(context.Context, json.RawMessage) (any, error)
