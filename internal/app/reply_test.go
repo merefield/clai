@@ -39,12 +39,41 @@ func TestUnknownRiskFailsClosedForCommands(t *testing.T) {
 }
 
 func TestResolveVariableShellQuotes(t *testing.T) {
-	command, info := ResolveVariable(`printf %s "{{message}}"`, `print {{message}}`, "message", `it's complicated; rm -rf /`)
+	command, info, err := ResolveVariable(`printf %s "{{message}}"`, `print {{message}}`, "message", `it's complicated; rm -rf /`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if command != `printf %s 'it'\''s complicated; rm -rf /'` {
 		t.Fatalf("command = %q", command)
 	}
 	if info != `print it's complicated; rm -rf /` {
 		t.Fatalf("info = %q", info)
+	}
+}
+
+func TestResolveVariableRejectsUnsafeShellQuoteContexts(t *testing.T) {
+	commands := []string{
+		`echo "prefix {{value}}"`,
+		`echo 'prefix {{value}}'`,
+		"echo `printf {{value}}`",
+		"printf '%s\\n' first\nprintf '%s' {{value}}",
+		`echo \{{value}}`,
+		`echo ${{value}}`,
+	}
+	for _, command := range commands {
+		if _, _, err := ResolveVariable(command, "show {{value}}", "value", `"; touch /tmp/injected; #`); err == nil {
+			t.Errorf("ResolveVariable(%q) accepted an unsafe context", command)
+		}
+	}
+}
+
+func TestResolveVariableAllowsUnquotedWordComposition(t *testing.T) {
+	command, _, err := ResolveVariable(`example --name={{value}}`, "", "value", `a b; touch /tmp/injected`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command != `example --name='a b; touch /tmp/injected'` {
+		t.Fatalf("command = %q", command)
 	}
 }
 

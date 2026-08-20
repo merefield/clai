@@ -12,8 +12,7 @@ setup() {
 
   mkdir -p "$(dirname "$ACTIVE_CLAI")" "$LEGACY_INSTALL_DIR" "$LEGACY_TOOLS_DIR"
   mkdir -p "$(dirname "$CONFIG_PATH")" "$(dirname "$HISTORY_PATH")" "$MCP_TOOLS_DIR"
-  printf '\177ELFfake Go CLAI\n' > "$ACTIVE_CLAI"
-  chmod +x "$ACTIVE_CLAI"
+  go build -buildvcs=false -trimpath -o "$ACTIVE_CLAI" ./cmd/clai
   printf 'key=preserved\n' > "$CONFIG_PATH"
   printf '[]\n' > "$HISTORY_PATH"
   printf 'new MCP tool\n' > "$MCP_TOOLS_DIR/example"
@@ -83,10 +82,8 @@ run_cleanup() {
 }
 
 @test "legacy cleanup refuses to remove the active command target" {
-  rm "$ACTIVE_CLAI"
-  printf '\177ELFactive legacy target\n' > "$LEGACY_INSTALL_DIR/clai.sh"
-  chmod +x "$LEGACY_INSTALL_DIR/clai.sh"
-  ln -s "$LEGACY_INSTALL_DIR/clai.sh" "$ACTIVE_CLAI"
+	  mv "$ACTIVE_CLAI" "$LEGACY_INSTALL_DIR/clai.sh"
+	  ln -s "$LEGACY_INSTALL_DIR/clai.sh" "$ACTIVE_CLAI"
 
   run_cleanup --apply
 
@@ -95,12 +92,11 @@ run_cleanup() {
   [[ "$output" == *"active clai still resolves to the legacy payload"* ]]
 }
 
-@test "legacy cleanup refuses to run before a native Go binary is installed" {
-  printf '#!/bin/sh\n' > "$ACTIVE_CLAI"
-  chmod +x "$ACTIVE_CLAI"
+@test "legacy cleanup refuses a native executable that is not CLAI" {
+  cp "$(type -P true)" "$ACTIVE_CLAI"
 
   run_cleanup --apply
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"not a recognized Linux or macOS native binary"* ]]
+	  [[ "$output" == *"does not identify itself as CLAI with --version"* ]]
 }

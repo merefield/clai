@@ -174,7 +174,7 @@ func (a *Application) handleBuiltIn(ctx context.Context, args []string) (bool, e
 		if len(args) > 2 || (len(args) == 2 && args[1] != "--verbose") {
 			return true, fmt.Errorf("--show-history only supports --verbose")
 		}
-		fmt.Fprint(a.UI.Out, a.History.Render(len(args) == 2))
+		a.UI.Plain(a.History.Render(len(args) == 2))
 		return true, nil
 	}
 	if len(args) == 1 && args[0] == "--show-results-sharing" {
@@ -273,6 +273,11 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		reply, err := ParseReply(response.Text)
 		if err != nil {
 			reply = model.Reply{Info: strings.TrimSpace(response.Text), Risk: model.RiskNone, Variables: []model.Variable{}}
+		}
+		if kind == "question" {
+			reply.Command = ""
+			reply.Risk = model.RiskNone
+			reply.Variables = []model.Variable{}
 		}
 		if err := a.resolveVariables(&reply); err != nil {
 			a.UI.Cancel()
@@ -387,7 +392,11 @@ func (a *Application) resolveVariables(reply *model.Reply) error {
 		if value == "" {
 			return errors.New("variable collection cancelled")
 		}
-		reply.Command, reply.Info = ResolveVariable(reply.Command, reply.Info, variable.Name, value)
+		command, info, err := ResolveVariable(reply.Command, reply.Info, variable.Name, value)
+		if err != nil {
+			return err
+		}
+		reply.Command, reply.Info = command, info
 	}
 	reply.Variables = []model.Variable{}
 	return nil
@@ -412,19 +421,19 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 			}
 			edited = true
 		case "y":
-			if reply.Risk == model.RiskDanger && a.Config.ConfirmDangerousCommands {
-				confirm, err := a.UI.Choice("danger zone command, are you sure? [y/N]: ")
-				if err != nil {
-					return err
-				}
-				if confirm != "y" {
-					a.UI.Cancel()
-					return nil
-				}
-			}
 		default:
 			a.UI.Cancel()
 			return nil
+		}
+		if reply.Risk == model.RiskDanger && a.Config.ConfirmDangerousCommands {
+			confirm, err := a.UI.Choice("danger zone command, are you sure? [y/N]: ")
+			if err != nil {
+				return err
+			}
+			if confirm != "y" {
+				a.UI.Cancel()
+				return nil
+			}
 		}
 	}
 	a.UI.BlankLine()

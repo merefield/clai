@@ -39,8 +39,11 @@ func ShellInit(shell string) (string, error) {
 		return `_clai_noglob() {
   local _clai_status _clai_restore_glob=1
   case "${_CLAI_SHELL_FLAGS:-}" in *f*) _clai_restore_glob=0 ;; esac
-  command clai "$@"
-  _clai_status=$?
+  if command clai "$@"; then
+    _clai_status=0
+  else
+    _clai_status=$?
+  fi
   if [ "$_clai_restore_glob" -eq 1 ]; then set +f; fi
   unset _CLAI_SHELL_FLAGS
   return "$_clai_status"
@@ -79,7 +82,7 @@ func templateMessages(kind, system string) []model.Message {
 		add("how do I list all files?", `{ "cmd": "", "info": "Use the ls command with the -a flag to list all files, including hidden ones.", "risk": "none", "variables": [] }`)
 		add("how do I autocomplete commands?", `{ "cmd": "", "info": "Press Tab to autocomplete commands, file names, and directories.", "risk": "none", "variables": [] }`)
 	case "error":
-		add(`You executed "start avidemux". Which returned error "avidemux: command not found".`, `{ "cmd": "sudo install avidemux", "info": "The application was not found; installing it may resolve the error.", "risk": "reversible change", "variables": [] }`)
+		add(`You executed "ech hello". Which returned error "bash: ech: command not found".`, `{ "cmd": "echo hello", "info": "The command name was misspelled; echo prints the requested text.", "risk": "none", "variables": [] }`)
 	case "result":
 		// Result interpretation uses the real request and bounded command output,
 		// without command-generation examples that could invite another action.

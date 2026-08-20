@@ -83,14 +83,86 @@ func ShellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
-func ResolveVariable(command, info, name, value string) (string, string) {
+func ResolveVariable(command, info, name, value string) (string, string, error) {
 	placeholder := "{{" + name + "}}"
 	quoted := ShellQuote(value)
-	command = strings.ReplaceAll(command, `"`+placeholder+`"`, quoted)
-	command = strings.ReplaceAll(command, `'`+placeholder+`'`, quoted)
-	command = strings.ReplaceAll(command, placeholder, quoted)
+	command, err := resolveCommandVariable(command, placeholder, quoted)
+	if err != nil {
+		return command, info, err
+	}
 	info = strings.ReplaceAll(info, placeholder, value)
-	return command, info
+	return command, info, nil
+}
+
+func resolveCommandVariable(command, placeholder, quoted string) (string, error) {
+	if !strings.Contains(command, placeholder) {
+		return command, nil
+	}
+	if strings.ContainsAny(command, "\r\n") {
+		return command, fmt.Errorf("resolve %s: placeholders in multiline commands are unsupported", placeholder)
+	}
+	singleToken := "'" + placeholder + "'"
+	doubleToken := `"` + placeholder + `"`
+	var resolved strings.Builder
+	resolved.Grow(len(command) + len(quoted))
+	var quote byte
+	for i := 0; i < len(command); {
+		if quote == 0 {
+			if strings.HasPrefix(command[i:], singleToken) || strings.HasPrefix(command[i:], doubleToken) {
+				if i > 0 && command[i-1] == '$' {
+					return command, fmt.Errorf("resolve %s: unsupported shell quoting context", placeholder)
+				}
+				resolved.WriteString(quoted)
+				if command[i] == '\'' {
+					i += len(singleToken)
+				} else {
+					i += len(doubleToken)
+				}
+				continue
+			}
+		}
+		if strings.HasPrefix(command[i:], placeholder) {
+			if quote != 0 || (i > 0 && command[i-1] == '$') {
+				return command, fmt.Errorf("resolve %s: unsupported shell quoting context", placeholder)
+			}
+			resolved.WriteString(quoted)
+			i += len(placeholder)
+			continue
+		}
+		character := command[i]
+		resolved.WriteByte(character)
+		switch quote {
+		case 0:
+			switch character {
+			case '\'', '"', '`':
+				quote = character
+			case '\\':
+				if i+1 < len(command) {
+					if strings.HasPrefix(command[i+1:], placeholder) {
+						return command, fmt.Errorf("resolve %s: escaped placeholders are unsupported", placeholder)
+					}
+					i++
+					resolved.WriteByte(command[i])
+				}
+			}
+		case '\'':
+			if character == '\'' {
+				quote = 0
+			}
+		case '"', '`':
+			if character == '\\' && i+1 < len(command) {
+				if strings.HasPrefix(command[i+1:], placeholder) {
+					return command, fmt.Errorf("resolve %s: unsupported shell quoting context", placeholder)
+				}
+				i++
+				resolved.WriteByte(command[i])
+			} else if character == quote {
+				quote = 0
+			}
+		}
+		i++
+	}
+	return resolved.String(), nil
 }
 
 func normalizeVariables(variables []model.Variable, command, info string) []model.Variable {

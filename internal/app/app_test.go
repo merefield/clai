@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -212,7 +213,7 @@ func TestFailedSharedCommandResultsAreAlsoInterpreted(t *testing.T) {
 
 func TestProcessQuestionDoesNotRunCommand(t *testing.T) {
 	var out bytes.Buffer
-	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"","info":"approximately 9.4248","risk":"none","variables":[]}`, FinishReason: "stop"}}}
+	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"rm -rf /tmp/question-mode","info":"approximately 9.4248","risk":"danger zone","variables":[{"name":"target","prompt":"target"}]}`, FinishReason: "stop"}}}
 	commandRunner := &fakeRunner{}
 	application := &Application{
 		Config:  &config.Config{Key: "test", Model: "test", API: "http://test", MaxHistoryTurns: 10},
@@ -230,6 +231,54 @@ func TestProcessQuestionDoesNotRunCommand(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "approximately 9.4248") {
 		t.Fatalf("output = %q", out.String())
+	}
+	var reply model.Reply
+	if err := json.Unmarshal([]byte(application.History.Messages[len(application.History.Messages)-1].ContentText()), &reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Command != "" || reply.Risk != model.RiskNone || len(reply.Variables) != 0 {
+		t.Fatalf("question reply was not normalized: %#v", reply)
+	}
+}
+
+func TestEditedDangerousCommandStillRequiresDangerConfirmation(t *testing.T) {
+	var out bytes.Buffer
+	commandRunner := &fakeRunner{}
+	application := &Application{
+		Config: &config.Config{RiskAppetite: 0, ConfirmDangerousCommands: true},
+		Runner: commandRunner,
+		UI:     ui.New(strings.NewReader("e\n\nn\n"), &out, &out, true),
+	}
+	reply := model.Reply{Command: "rm -rf /tmp/example", Info: "removes the example", Risk: model.RiskDanger}
+
+	if err := application.confirmAndRun(context.Background(), "remove it", reply); err != nil {
+		t.Fatal(err)
+	}
+	if len(commandRunner.calls) != 0 {
+		t.Fatalf("dangerous command ran without second confirmation: %#v", commandRunner.calls)
+	}
+	if !strings.Contains(out.String(), "danger zone command, are you sure?") || !strings.Contains(out.String(), "[cancel]") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestShowHistorySanitizesStoredTerminalControls(t *testing.T) {
+	var out bytes.Buffer
+	application := &Application{
+		Config:  &config.Config{},
+		History: &history.Store{Messages: []model.Message{model.TextMessage("user", "safe\x1b]52;c;Y2xpcGJvYXJk\a\x1b[2J text")}},
+		Tools:   testTools(t),
+		UI:      ui.New(strings.NewReader(""), &out, &out, true),
+	}
+
+	if err := application.Run(context.Background(), []string{"--show-history"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "\x1b]") || strings.Contains(out.String(), "\x1b[2J") || strings.Contains(out.String(), "\a") {
+		t.Fatalf("history emitted terminal controls: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "safe text") {
+		t.Fatalf("history text was lost: %q", out.String())
 	}
 }
 
@@ -259,6 +308,37 @@ func TestBashShellInitPreventsGlobExpansion(t *testing.T) {
 	want := "<how>\n<much>\n<is>\n<3>\n<*>\n<pi>\n"
 	if string(output) != want {
 		t.Fatalf("output = %q, want %q", output, want)
+	}
+}
+
+func TestBashShellInitRestoresGlobbingUnderErrexit(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "clai")
+	if err := os.WriteFile(fake, []byte("#!/bin/bash\nexit 7\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	initialization, err := ShellInit("bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := initialization + `
+set -e
+trap 'case "$-" in *f*) exit 99 ;; esac' EXIT
+clai fail`
+	command := exec.Command("bash", "-O", "expand_aliases", "-c", script)
+	command.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	output, err := command.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 7 {
+		t.Fatalf("exit = %v, output = %q; want status 7 with globbing restored", err, output)
+	}
+}
+
+func TestErrorTemplateUsesAValidRepairCommand(t *testing.T) {
+	messages := templateMessages("error", "system")
+	repair := messages[len(messages)-1].ContentText()
+	if !strings.Contains(repair, `"cmd": "echo hello"`) || strings.Contains(repair, "sudo install") {
+		t.Fatalf("error repair example = %q", repair)
 	}
 }
 

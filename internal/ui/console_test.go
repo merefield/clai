@@ -66,6 +66,18 @@ func TestProviderTextCannotEmitTerminalControlSequences(t *testing.T) {
 	}
 }
 
+func TestPlainOutputSanitizesWithoutChangingLayout(t *testing.T) {
+	var output bytes.Buffer
+	console := New(strings.NewReader(""), &output, &output, true)
+
+	console.Plain("[1] user\n  safe\x1b]52;c;Y2xpcGJvYXJk\a\x1b[2J text\n")
+
+	want := "[1] user\n  safe text\n"
+	if output.String() != want {
+		t.Fatalf("output = %q, want %q", output.String(), want)
+	}
+}
+
 func TestDangerExplanationWrapsInsideSectionMargins(t *testing.T) {
 	var output bytes.Buffer
 	console := New(strings.NewReader(""), &output, &output, true)

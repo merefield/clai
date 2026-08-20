@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -230,7 +231,7 @@ func intValue(value string, fallback, minimum int) int {
 
 func floatValue(value string, fallback float64) float64 {
 	n, err := strconv.ParseFloat(value, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
 		return fallback
 	}
 	return n

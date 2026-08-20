@@ -119,3 +119,14 @@ func TestEnsureRejectsConfigSymlinks(t *testing.T) {
 		t.Fatalf("symlink target mode changed to %o", info.Mode().Perm())
 	}
 }
+
+func TestFloatValueRejectsNonFiniteValues(t *testing.T) {
+	for _, value := range []string{"NaN", "+Inf", "-Inf", "Infinity"} {
+		if got := floatValue(value, 0.1); got != 0.1 {
+			t.Errorf("floatValue(%q) = %v, want fallback", value, got)
+		}
+	}
+	if got := floatValue("0.25", 0.1); got != 0.25 {
+		t.Fatalf("finite value = %v", got)
+	}
+}

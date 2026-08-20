@@ -53,6 +53,15 @@ case "$binary_magic" in
 	;;
 esac
 
+version_output=$("$active_path" --version 2>/dev/null || true)
+case "$version_output" in
+"clai version "?*) ;;
+*)
+	printf 'Refusing cleanup: %s does not identify itself as CLAI with --version.\n' "$active_path" >&2
+	exit 1
+	;;
+esac
+
 legacy_install_dir=${CLAI_LEGACY_INSTALL_DIR:-/usr/local/lib/clai}
 legacy_script=$legacy_install_dir/clai.sh
 legacy_tools_dir=${CLAI_LEGACY_TOOLS_DIR:-${HOME:?HOME is required}/.clai_tools}

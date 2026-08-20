@@ -593,7 +593,7 @@ If every listed path is expected, apply it:
 ./scripts/cleanup-legacy.sh --apply
 ```
 
-The script refuses to proceed unless the active `clai` is a native Linux or macOS binary and refuses to remove a legacy payload still targeted by the active command. It removes only files whose SHA-256 hashes match the final stock Bash release, removes directories only when they become empty, and prints every preserved path. Unknown, modified, and third-party legacy plugins remain under `~/.clai_tools` for manual porting to MCP or archival.
+The script refuses to proceed unless the active `clai` is a native Linux or macOS binary that identifies itself through `clai --version`, and refuses to remove a legacy payload still targeted by the active command. It removes only files whose SHA-256 hashes match the final stock Bash release, removes directories only when they become empty, and prints every preserved path. Unknown, modified, and third-party legacy plugins remain under `~/.clai_tools` for manual porting to MCP or archival.
 
 For non-default old locations, identify both paths explicitly:
 

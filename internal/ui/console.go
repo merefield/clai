@@ -79,6 +79,14 @@ func (c *Console) BlankLine() {
 	fmt.Fprintln(c.Out)
 }
 
+// Plain writes untrusted text without styling while still removing terminal
+// control sequences. It is used for preformatted output such as history.
+func (c *Console) Plain(text string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fmt.Fprint(c.Out, safeTerminalText(text))
+}
+
 func (c *Console) Title(version string, tools []string) {
 	style := lipgloss.NewStyle().Bold(true)
 	c.section("🤖 " + style.Render("CLAI v"+safeTerminalText(version)))
