@@ -18,7 +18,7 @@ const defaultQuestionQuery = "Return only a single compact JSON object with cmd,
 
 const defaultErrorQuery = "Return only a single compact JSON object with cmd, info, risk and variables. Explain what the error means and why the suggested repair may work. Classify the repair risk using none, reversible change, or danger zone."
 
-func systemPrompt(configPath, statePath, toolsPath, toolCapability string) string {
+func systemPrompt(configPath, statePath, toolCapability string) string {
 	currentUser := os.Getenv("USER")
 	if currentUser == "" {
 		if u, err := user.Current(); err == nil {
@@ -26,7 +26,7 @@ func systemPrompt(configPath, statePath, toolsPath, toolCapability string) strin
 		}
 	}
 	home, _ := os.UserHomeDir()
-	return fmt.Sprintf("You are CLAI (clai) v%s, an advanced terminal assistant. Give precise curt answers without sign-offs or platitudes. Always assume the query is terminal and shell related. Respond with one JSON object containing cmd, info, risk, and variables. The user runs %s/%s as %s with home %s. LANG=%s and LC_TIME=%s. CLAI config: %s. State: %s. Tools: %s. %s", Version, runtime.GOOS, runtime.GOARCH, currentUser, home, os.Getenv("LANG"), os.Getenv("LC_TIME"), configPath, statePath, toolsPath, toolCapability)
+	return fmt.Sprintf("You are CLAI (clai) v%s, an advanced terminal assistant. Give precise curt answers without sign-offs or platitudes. Help with terminal tasks and explicit information requests. Respond with one JSON object containing cmd, info, risk, and variables after any necessary tool calls. The user runs %s/%s as %s with home %s. LANG=%s and LC_TIME=%s. CLAI config: %s. State: %s. %s", Version, runtime.GOOS, runtime.GOARCH, currentUser, home, os.Getenv("LANG"), os.Getenv("LC_TIME"), configPath, statePath, toolCapability)
 }
 
 func ShellInit(shell string) (string, error) {

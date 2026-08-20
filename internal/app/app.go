@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,20 +11,20 @@ import (
 	"github.com/merefield/clai/internal/config"
 	"github.com/merefield/clai/internal/history"
 	"github.com/merefield/clai/internal/model"
-	"github.com/merefield/clai/internal/plugin"
 	"github.com/merefield/clai/internal/provider"
 	"github.com/merefield/clai/internal/runner"
 	"github.com/merefield/clai/internal/ui"
+	"github.com/merefield/clai/pkg/tool"
+	"github.com/merefield/clai/plugins"
 )
 
 type Application struct {
-	Config    *config.Config
-	History   *history.Store
-	Plugins   *plugin.Manager
-	Client    provider.Client
-	Runner    runner.Runner
-	UI        *ui.Console
-	toolsPath string
+	Config  *config.Config
+	History *history.Store
+	Tools   *tool.Registry
+	Client  provider.Client
+	Runner  runner.Runner
+	UI      *ui.Console
 }
 
 func New(ctx context.Context, in io.Reader, out, errOut io.Writer) (*Application, error) {
@@ -46,19 +45,12 @@ func New(ctx context.Context, in io.Reader, out, errOut io.Writer) (*Application
 		fmt.Fprintf(errOut, "WARNING: Could not parse history at %s; starting empty: %v\n", historyPath, historyErr)
 		historyStore = &history.Store{Path: historyPath, Messages: []model.Message{}}
 	}
-	toolsPath, err := plugin.DefaultPath()
+	registeredTools, err := plugins.Registry(nil)
 	if err != nil {
-		return nil, err
-	}
-	plugins, warnings, err := plugin.Load(ctx, toolsPath)
-	if err != nil {
-		return nil, fmt.Errorf("load tools: %w", err)
-	}
-	for _, warning := range warnings {
-		fmt.Fprintf(errOut, "WARNING: %s\n", warning)
+		return nil, fmt.Errorf("register tools: %w", err)
 	}
 	console := ui.New(in, out, errOut, cfg.HighContrast)
-	return &Application{Config: cfg, History: historyStore, Plugins: plugins, Client: provider.New(cfg, nil), Runner: runner.Bash{Stdout: out, Stderr: errOut}, UI: console, toolsPath: toolsPath}, nil
+	return &Application{Config: cfg, History: historyStore, Tools: registeredTools, Client: provider.New(cfg, nil), Runner: runner.Bash{Stdout: out, Stderr: errOut}, UI: console}, nil
 }
 
 func (a *Application) Close() error {
@@ -81,7 +73,7 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		}
 		return a.process(ctx, query, "")
 	}
-	a.UI.Title(Version, a.Plugins.Names())
+	a.UI.Title(Version, a.Tools.Names())
 	a.UI.Info(`Hi! Ask a terminal question or give me a task. Type "exit" when done.`)
 	for {
 		query, err := a.UI.Prompt("CLAI> ")
@@ -241,14 +233,14 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 }
 
 func (a *Application) messages(kind string) []model.Message {
-	capability := "No local CLAI tools are available."
-	if len(a.Plugins.Tools) > 0 && a.Client.SupportsTools() {
-		capability = "Local CLAI tools are available and may be called when needed."
+	capability := "No native CLAI tools are available."
+	if a.Tools.Len() > 0 && a.Client.SupportsTools() {
+		capability = "Native CLAI tools are available and may be called when they provide information needed to answer the request."
 	}
-	if len(a.Plugins.Tools) > 0 && !a.Client.SupportsTools() {
-		capability = "Local tools are installed but unavailable through this provider."
+	if a.Tools.Len() > 0 && !a.Client.SupportsTools() {
+		capability = "Native CLAI tools are installed but unavailable through this provider."
 	}
-	system := systemPrompt(a.Config.Path, a.History.Path, a.toolsPath, capability) + " " + queryGuidance(kind, configuredQuery(a.Config, kind))
+	system := systemPrompt(a.Config.Path, a.History.Path, capability) + " " + queryGuidance(kind, configuredQuery(a.Config, kind))
 	messages := templateMessages(kind, system)
 	if a.Config.ExposeCurrentDir {
 		if cwd, err := os.Getwd(); err == nil {
@@ -274,18 +266,12 @@ func (a *Application) toolDefinitions() []model.ToolDefinition {
 	if !a.Client.SupportsTools() {
 		return nil
 	}
-	return a.Plugins.Definitions()
+	return a.Tools.Definitions()
 }
 
 func (a *Application) runTool(ctx context.Context, call model.ToolCall) (string, error) {
-	var args map[string]any
-	_ = json.Unmarshal([]byte(call.Function.Arguments), &args)
-	reason, _ := args["tool_reason"].(string)
-	if reason != "" {
-		a.UI.Info(reason)
-	}
 	a.UI.Info("Using tool \"" + call.Function.Name + "\"")
-	return a.Plugins.Run(ctx, call.Function.Name, call.Function.Arguments)
+	return a.Tools.Execute(ctx, call.Function.Name, call.Function.Arguments)
 }
 
 func (a *Application) resolveVariables(reply *model.Reply) error {

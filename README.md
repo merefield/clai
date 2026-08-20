@@ -7,7 +7,7 @@ clai list files by size
 clai how much is 3 times pi
 ```
 
-The primary implementation is now Go. It keeps the existing `clai <request...>` interface, configuration and history locations, risk controls, and optional Bash tools while moving API clients, orchestration, persistence, and terminal UI into typed Go packages.
+The primary implementation is now Go. It keeps the existing `clai <request...>` interface, configuration and history locations, and risk controls while moving API clients, orchestration, persistence, terminal UI, and LLM tools into typed Go packages.
 
 ![CLAI command suggestion and confirmation flow](docs/assets/examples.png)
 
@@ -23,7 +23,8 @@ The primary implementation is now Go. It keeps the existing `clai <request...>` 
 - Optional error analysis after a command fails
 - Persistent conversation history with configurable retention
 - Opt-in command-result sharing with output truncation
-- Compatibility with existing `~/.clai_tools/*.sh` tools
+- Native, compiled Go tools exposed through provider function calling
+- A Wikipedia lookup plugin that doubles as a copyable implementation tutorial
 - Shell integration for unquoted `*` and `?` in Bash and zsh
 
 ## Requirements
@@ -31,10 +32,10 @@ The primary implementation is now Go. It keeps the existing `clai <request...>` 
 To run a compiled CLAI binary:
 
 - Linux or macOS on AMD64 or ARM64
-- Bash, used to execute approved commands and legacy shell tools
+- Bash, used to execute approved commands
 - An API key, provider credential, or non-empty placeholder required by a local service configuration
 
-The Go binary implements HTTP and JSON handling itself. It does not require `curl` or `jq`; an optional shell tool may declare its own dependencies.
+The Go binary implements HTTP, JSON, and tool handling itself. It does not require `curl` or `jq`.
 
 Building from source requires the Go toolchain declared by [`go.mod`](go.mod): Go 1.26.6 for this branch.
 
@@ -283,14 +284,12 @@ The default compatible paths are:
 | --- | --- | --- |
 | Configuration | `~/.config/clai.cfg` | `CLAI_CONFIG` |
 | History | `${XDG_STATE_HOME:-$HOME/.local/state}/clai/history_com.json` | `CLAI_HISTORY` |
-| Shell tools | `~/.clai_tools` | `CLAI_TOOLS_DIR` |
 
 Path overrides are useful for tests or separate profiles:
 
 ```bash
 export CLAI_CONFIG=/tmp/clai-profile/config.cfg
 export CLAI_HISTORY=/tmp/clai-profile/history.json
-export CLAI_TOOLS_DIR=/tmp/clai-profile/tools
 ```
 
 ## History and command-result sharing
@@ -314,33 +313,124 @@ clai --toggle-results-sharing
 
 When enabled, CLAI retains at most `result_lines` recent lines from each stdout and stderr stream. These results become part of later conversation context and may therefore be sent to the configured provider. Do not enable sharing for commands likely to expose secrets or sensitive data.
 
-History files and newly created state directories use restrictive permissions. Clearing history removes the persisted history file but does not delete the configuration or tools.
+History files and newly created state directories use restrictive permissions. Clearing history removes the persisted history file but does not delete the configuration.
 
-## Plugins and tools
+## Native Go tools
 
-Plugins are optional local capabilities exposed to compatible models as function tools. They are not necessary for ordinary command generation: use them when the model needs trusted local information, such as reading a file or enumerating an exact directory, before it can answer.
+Tools are compiled Go capabilities exposed to compatible models through provider function calling. They let a model obtain information during its reasoning loop and then use the result in its final answer.
 
-The Go plugin manager deliberately preserves the original shell-tool contract:
+The legacy `~/.clai_tools/*.sh` loader has been removed from the Go application. Tools no longer source arbitrary Bash, depend on `jq`, or inherit CLAI's shell process. The registry validates names and schemas, dispatches typed implementations, JSON-encodes results, and rejects results larger than 32 KiB.
 
-1. CLAI finds sorted `*.sh` files in `~/.clai_tools`.
-2. It sources each file with Bash and calls `init` to obtain an OpenAI-style function definition as JSON.
-3. CLAI adds a required `tool_reason` argument so the model explains why it is invoking the tool.
-4. When selected by the model, CLAI sources the file again and calls `execute`, passing the complete JSON arguments as `$1`.
-5. Combined tool output is limited to 1,000 bytes before being returned to the model.
+The initial [`wikipedia_lookup`](plugins/wikipedia/wikipedia.go) plugin searches Wikipedia, retrieves the best matching article's introductory plain-text extract, and returns its title, summary, language, and source URL. It uses the official MediaWiki [Search API](https://www.mediawiki.org/wiki/API:Search) and [TextExtracts API](https://www.mediawiki.org/wiki/Extension:TextExtracts).
 
-Copy an example tool to enable it:
+Tool calls are currently available through OpenAI, generic OpenAI-compatible endpoints, and Ollama. Anthropic and Gemini requests do not yet include CLAI tool definitions.
+
+### Add a tool by copying the Wikipedia plugin
+
+The framework contract is public in [`pkg/tool`](pkg/tool/). Actual tools are kept outside the core under [`plugins/`](plugins/), and [`plugins/registry.go`](plugins/registry.go) is the only registration point.
+
+Start by copying the tutorial plugin:
 
 ```bash
-mkdir -p ~/.clai_tools
-cp tools/ls.sh ~/.clai_tools/
+cp -R plugins/wikipedia plugins/my_service
 ```
 
-The examples in [`tools/`](tools/) use utilities such as `jq`; those dependencies belong to the plugins, not the core Go binary. Running `clai` interactively lists successfully activated tools. Invalid plugins produce warnings, and duplicate function names stop startup rather than silently selecting one.
+Then edit the copied package:
 
-Tool calls are currently available through OpenAI, generic OpenAI-compatible endpoints, and Ollama. Anthropic and Gemini requests do not include local tool definitions.
+1. Rename its Go package and `Plugin` implementation as desired.
+2. Define typed `Arguments` and `Result` structs.
+3. Change `Definition()` to provide the unique function name, model-facing description, JSON parameter schema, and capability metadata.
+4. Change `Execute()` to validate arguments, perform the operation with its `context.Context`, and return a JSON-marshalable result.
+5. Add the constructor to [`plugins/registry.go`](plugins/registry.go).
+6. Copy and adapt the tests, injecting an HTTP client or other dependency so tests do not contact the live service.
+
+The essential implementation shape is:
+
+```go
+type Plugin struct {
+	client *http.Client
+}
+
+type Arguments struct {
+	Query string `json:"query"`
+}
+
+type Result struct {
+	Answer string `json:"answer"`
+	Source string `json:"source"`
+}
+
+func (p *Plugin) Definition() tool.Definition {
+	return tool.Definition{
+		Name:         "my_service_lookup",
+		Description:  "Look up information using My Service.",
+		Capabilities: []tool.Capability{tool.CapabilityNetworkRead},
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string"},
+			},
+			"required": []string{"query"},
+		},
+	}
+}
+
+func (p *Plugin) Execute(ctx context.Context, raw json.RawMessage) (any, error) {
+	var arguments Arguments
+	if err := json.Unmarshal(raw, &arguments); err != nil {
+		return nil, err
+	}
+	// Perform the bounded, context-aware request here.
+	return Result{Answer: "...", Source: "https://example.com/..."}, nil
+}
+```
+
+Returning a typed value keeps provider-specific message formatting out of the plugin. The registry serializes it as JSON before returning it to the LLM.
+
+### Use environment variables for third-party API keys
+
+A compiled plugin can read environment variables normally. Prefer reading a key once during registration and injecting it into the plugin rather than reading it on every call:
+
+```go
+// plugins/registry.go
+registered := []tool.Tool{
+	wikipedia.New(client),
+}
+
+if apiKey := os.Getenv("SPECIAL_CRAWLER_API_KEY"); apiKey != "" {
+	registered = append(registered, crawler.New(client, apiKey))
+}
+
+return tool.NewRegistry(registered...)
+```
+
+Store the value privately on the implementation and use it only to authenticate the outbound request:
+
+```go
+type Plugin struct {
+	client *http.Client
+	apiKey string
+}
+
+func New(client *http.Client, apiKey string) *Plugin {
+	return &Plugin{client: client, apiKey: apiKey}
+}
+
+func (p *Plugin) Execute(ctx context.Context, raw json.RawMessage) (any, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://crawler.example/api", nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+p.apiKey)
+	// Send the request, enforce status/body limits, and return a typed result.
+	return Result{}, nil
+}
+```
+
+Do not include API keys in the LLM-facing parameter schema, tool results, log messages, URLs, or returned errors. Environment variables remain part of the CLAI process and are not automatically sent to the model. A plugin can still leak them through its own code, so every added implementation must be reviewed.
 
 > [!CAUTION]
-> Shell tools are executable code, not sandboxed data. CLAI sources them and runs them with your user permissions. Install only tools you have reviewed and trust, and remember that their output may be sent to your model provider.
+> Tool results are added to the conversation and may be sent to the configured model provider. Bound network timeouts and response sizes, return only necessary fields, include source URLs, and treat retrieved page content as untrusted data that may contain prompt injection.
 
 ## Architecture
 
@@ -354,9 +444,11 @@ The Go implementation keeps orchestration separate from operating-system and pro
 | `internal/history` | Compatible JSON history, retention, rendering, clearing, and atomic persistence. |
 | `internal/model` | Shared typed messages, tool calls, replies, risks, and command results. |
 | `internal/provider` | Native HTTP payloads, authentication, response parsing, and provider-specific structured output. |
-| `internal/plugin` | Legacy Bash tool discovery, schema validation, invocation, and output limits. |
 | `internal/runner` | Context-aware Bash execution, live output, capture, and result truncation. |
 | `internal/ui` | Inline terminal styling, prompts, secret input, setup, confirmations, and spinner. |
+| `pkg/tool` | Public native-tool contract, validation, provider definitions, dispatch, and result limits. |
+| `plugins` | Explicit compiled-in tool registration. |
+| `plugins/wikipedia` | Copyable Wikipedia lookup example and its isolated HTTP implementation. |
 
 The application depends on interfaces for the provider client and command runner. That keeps orchestration tests deterministic and avoids live network calls or real command execution.
 
@@ -384,9 +476,9 @@ Available targets:
 | `make build` | Build `./clai` from `./cmd/clai`. |
 | `make test` | Run all Go unit tests. |
 | `make vet` | Run `go vet ./...`. |
-| `make lint` | Run ShellCheck on installers, legacy CLAI, and example tools. |
+| `make lint` | Run ShellCheck on the installers and archived Bash implementation. |
 | `make integration-test` | Run the Go installer Bats suite. |
-| `make legacy-test` | Run retained Bash behavior and plugin Bats suites. |
+| `make legacy-test` | Run the archived Bash behavior suite as a migration oracle. |
 | `make check` | Run vet, Go tests, lint, installer tests, and legacy tests. |
 | `make clean` | Run `go clean` and remove the local `clai` binary. |
 
@@ -406,14 +498,14 @@ goreleaser release --snapshot --clean
 
 ## Migration and legacy implementation
 
-The previous Bash application remains at [`clai.sh`](clai.sh), its installer at [`legacy/install.sh`](legacy/install.sh), and its full documentation at [`docs/legacy-bash.md`](docs/legacy-bash.md). They are retained as a compatibility oracle while Go parity is validated; the root installer and primary documentation now target the Go architecture.
+The previous Bash application remains at [`clai.sh`](clai.sh), its installer at [`legacy/install.sh`](legacy/install.sh), and its full documentation at [`docs/legacy-bash.md`](docs/legacy-bash.md). They are retained as a historical compatibility oracle while Go parity is validated; the root installer and primary documentation now target the Go architecture. The archived Bash file still contains its historical shell-tool implementation, but the Go binary neither discovers nor executes that format.
 
 The migration principles are:
 
 1. Preserve the `clai request words here` interface.
-2. Preserve existing configuration, history, prompt, risk, and tool contracts where practical.
+2. Preserve existing configuration, history, prompt, and risk contracts where practical.
 3. Keep the legacy Bats behavior suite running alongside typed Go tests.
-4. Keep provider, persistence, runner, plugin, and UI boundaries independently testable.
+4. Keep provider, persistence, runner, native-tool, and UI boundaries independently testable.
 5. Remove the legacy implementation only after behavioral parity is demonstrated.
 
 ## Credits and license

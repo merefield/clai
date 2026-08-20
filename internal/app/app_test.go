@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,9 +13,9 @@ import (
 	"github.com/merefield/clai/internal/config"
 	"github.com/merefield/clai/internal/history"
 	"github.com/merefield/clai/internal/model"
-	"github.com/merefield/clai/internal/plugin"
 	"github.com/merefield/clai/internal/provider"
 	"github.com/merefield/clai/internal/ui"
+	"github.com/merefield/clai/pkg/tool"
 )
 
 type fakeClient struct {
@@ -37,6 +38,25 @@ type fakeRunner struct {
 	calls   []string
 }
 
+type fakeTool struct{}
+
+func (fakeTool) Definition() tool.Definition {
+	return tool.Definition{Name: "lookup", Description: "Return test data.", Parameters: map[string]any{"type": "object"}}
+}
+
+func (fakeTool) Execute(_ context.Context, _ json.RawMessage) (any, error) {
+	return map[string]string{"value": "tool-data"}, nil
+}
+
+func testTools(t *testing.T, registered ...tool.Tool) *tool.Registry {
+	t.Helper()
+	registry, err := tool.NewRegistry(registered...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
+
 func (f *fakeRunner) Run(_ context.Context, command string, edited bool) model.CommandResult {
 	f.calls = append(f.calls, command)
 	if len(f.results) == 0 {
@@ -54,7 +74,7 @@ func TestProcessPreservesFreeFormQueryAndAutoRunsSafeCommand(t *testing.T) {
 	application := &Application{
 		Config:  &config.Config{Key: "test", Model: "test", API: "http://test", RiskAppetite: 1, MaxHistoryTurns: 10, ExposeCurrentDir: true},
 		History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
-		Plugins: &plugin.Manager{Tools: map[string]plugin.Tool{}},
+		Tools:   testTools(t),
 		Client:  client,
 		Runner:  commandRunner,
 		UI:      ui.New(strings.NewReader(""), &out, &errOut, false),
@@ -85,7 +105,7 @@ func TestProcessQuestionDoesNotRunCommand(t *testing.T) {
 	application := &Application{
 		Config:  &config.Config{Key: "test", Model: "test", API: "http://test", MaxHistoryTurns: 10},
 		History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
-		Plugins: &plugin.Manager{Tools: map[string]plugin.Tool{}},
+		Tools:   testTools(t),
 		Client:  client,
 		Runner:  commandRunner,
 		UI:      ui.New(strings.NewReader(""), &out, &out, false),
@@ -131,30 +151,18 @@ func TestBashShellInitPreventsGlobExpansion(t *testing.T) {
 }
 
 func TestProcessCompletesToolRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	script := `init() { printf '%s' '{"type":"function","function":{"name":"lookup","description":"test","parameters":{"type":"object","properties":{},"required":[]}}}'; }
-execute() { printf 'tool-data'; }
-`
-	if err := os.WriteFile(filepath.Join(dir, "lookup.sh"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	plugins, warnings, err := plugin.Load(context.Background(), dir)
-	if err != nil || len(warnings) != 0 {
-		t.Fatalf("plugins err=%v warnings=%v", err, warnings)
-	}
 	client := &fakeClient{tools: true, responses: []provider.Response{
-		{FinishReason: "tool_calls", ToolCalls: []model.ToolCall{{ID: "call-1", Type: "function", Function: model.FunctionCall{Name: "lookup", Arguments: `{"tool_reason":"verify"}`}}}},
+		{FinishReason: "tool_calls", ToolCalls: []model.ToolCall{{ID: "call-1", Type: "function", Function: model.FunctionCall{Name: "lookup", Arguments: `{}`}}}},
 		{FinishReason: "stop", Text: `{"cmd":"","info":"used tool-data","risk":"none","variables":[]}`},
 	}}
 	var out bytes.Buffer
 	application := &Application{
-		Config:    &config.Config{Key: "test", Model: "test", API: "http://test", MaxHistoryTurns: 10},
-		History:   &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
-		Plugins:   plugins,
-		Client:    client,
-		Runner:    &fakeRunner{},
-		UI:        ui.New(strings.NewReader(""), &out, &out, false),
-		toolsPath: dir,
+		Config:  &config.Config{Key: "test", Model: "test", API: "http://test", MaxHistoryTurns: 10},
+		History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+		Tools:   testTools(t, fakeTool{}),
+		Client:  client,
+		Runner:  &fakeRunner{},
+		UI:      ui.New(strings.NewReader(""), &out, &out, false),
 	}
 	if err := application.process(context.Background(), "look it up", ""); err != nil {
 		t.Fatal(err)
@@ -164,7 +172,7 @@ execute() { printf 'tool-data'; }
 	}
 	foundToolResult := false
 	for _, message := range application.History.Messages {
-		if message.Role == "tool" && message.ContentText() == "tool-data" {
+		if message.Role == "tool" && message.ContentText() == `{"value":"tool-data"}` {
 			foundToolResult = true
 		}
 	}

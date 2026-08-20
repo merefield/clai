@@ -14,10 +14,10 @@ vet:
 	go vet ./...
 
 lint:
-	shellcheck install.sh clai.sh legacy/install.sh tools/*.sh
+	shellcheck install.sh clai.sh legacy/install.sh
 
 legacy-test:
-	bats test/smoke.bats test/find_wild.bats
+	bats test/smoke.bats
 
 integration-test:
 	bats test/install.bats
