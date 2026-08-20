@@ -166,6 +166,9 @@ func TestSharedCommandResultsAreInterpretedImmediately(t *testing.T) {
 	if !strings.Contains(out.String(), "machine is not overwhelmed") || !strings.Contains(out.String(), "[ok]") {
 		t.Fatalf("output = %q", out.String())
 	}
+	if !strings.HasSuffix(out.String(), "\n\n") {
+		t.Fatalf("result interpretation did not leave a blank line: %q", out.String())
+	}
 	if len(application.History.Messages) != 4 {
 		t.Fatalf("history messages = %#v", application.History.Messages)
 	}

@@ -505,5 +505,6 @@ func (a *Application) interpretCommandResult(ctx context.Context, originalQuery 
 		return err
 	}
 	a.UI.Reply(conclusion)
+	a.UI.BlankLine()
 	return nil
 }
