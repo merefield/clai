@@ -605,16 +605,31 @@ The cleanup does not uninstall `curl`, `jq`, Bash, or any system package because
 
 ### Recommended migration
 
-Optionally create a private config backup, install the Go version, and test it before cleaning anything:
+Optionally create a private config backup, then install the Go version with either the release bootstrap or a source checkout.
+
+The release bootstrap is the quickest migration path. It downloads the binary for the current platform, verifies the release checksum and reported version, and replaces the active `/usr/local/bin/clai` command:
 
 ```bash
 install -m 0600 ~/.config/clai.cfg ~/.config/clai.cfg.pre-go
+curl -fsSL https://raw.githubusercontent.com/merefield/clai/main/install-release.sh | sh
+```
+
+Set `CLAI_BIN_DIR="$HOME/.local/bin"` on the `sh` command as shown in [Quickstart](#quickstart) when the existing command is installed there. Alternatively, build and install from source:
+
+```bash
+git clone https://github.com/merefield/clai.git
+cd clai
 ./install.sh
+```
+
+Whichever installation path you choose, test the Go binary before cleaning anything:
+
+```bash
 clai --version
 clai how much is 3 times pi
 ```
 
-Review the cleanup without changing the filesystem:
+The legacy cleanup script remains in the repository. If you used the release bootstrap without an existing checkout, clone the repository before continuing. Review the cleanup without changing the filesystem:
 
 ```bash
 ./scripts/cleanup-legacy.sh
