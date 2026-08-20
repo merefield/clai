@@ -129,8 +129,8 @@ clai "how do I show hidden files?"
 | `clai --show-history` | Render persisted conversation history. |
 | `clai --show-history --verbose` | Include full stored command stdout and stderr. |
 | `clai --clear-history` | Remove persisted conversation history. |
-| `clai --show-results-sharing` | Report whether command results are stored for later context. |
-| `clai --toggle-results-sharing` | Enable or disable command-result sharing. |
+| `clai --show-results-sharing` | Report whether command results are shared, interpreted, and stored. |
+| `clai --toggle-results-sharing` | Enable or disable command-result sharing and interpretation. |
 | `clai shell-init bash` | Print Bash integration for literal glob characters. |
 | `clai shell-init zsh` | Print zsh integration for literal glob characters. |
 | `clai --version` | Print the CLAI version. |
@@ -264,7 +264,7 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | `tokens` | `500` | Maximum requested output tokens. Invalid or non-positive values fall back to `500`. |
 | `reasoning` | empty | Optional reasoning-effort value; provider behavior is described above. |
 | `use_tools` | `false` | Opt in to discovering tools, sending their definitions to compatible providers, and allowing model-requested tool calls. |
-| `share_command_results` | `false` | Store executed-command results so they can be included in later model context. |
+| `share_command_results` | `false` | Send bounded command results for immediate model interpretation and retain them for later context. |
 | `result_lines` | `20` | Maximum recent stdout and stderr lines stored for each shared result. |
 | `confirm_dangerous_commands` | `true` | Require a second confirmation for danger-zone commands. |
 | `risk_appetite` | `0` | Automatic execution policy from `0` through `2`; invalid values fall back to `0`. |
@@ -309,7 +309,11 @@ clai --show-results-sharing
 clai --toggle-results-sharing
 ```
 
-When enabled, CLAI retains at most `result_lines` recent lines from each stdout and stderr stream. These results become part of later conversation context and may therefore be sent to the configured provider. Do not enable sharing for commands likely to expose secrets or sensitive data.
+When enabled, every executed command is followed by a second model request. CLAI sends the original request together with the command, exit status, edit status, and at most `result_lines` recent lines from each stdout and stderr stream. It then displays and stores the model's conclusions—for example, whether observed load and memory figures indicate that a machine is overwhelmed.
+
+The interpretation request cannot call tools, and CLAI discards any command, risk, or variables returned in the interpretation response. Both successful and failed command results are interpreted. This adds one provider request, with corresponding latency and cost, for each executed command.
+
+Shared results also become part of later conversation context. Do not enable sharing for commands likely to expose secrets or sensitive data, and treat command output as potentially untrusted content; the interpretation prompt explicitly tells the model not to follow instructions found in stdout or stderr.
 
 History files and newly created state directories use restrictive permissions. Clearing history removes the persisted history file but does not delete the configuration.
 

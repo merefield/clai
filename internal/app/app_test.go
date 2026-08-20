@@ -99,6 +99,90 @@ func TestProcessPreservesFreeFormQueryAndAutoRunsSafeCommand(t *testing.T) {
 	}
 }
 
+func TestSharedCommandResultsAreInterpretedImmediately(t *testing.T) {
+	const query = "evaluate whether this machine is overwhelmed"
+	client := &fakeClient{responses: []provider.Response{
+		{Text: `{"cmd":"uptime && free -h","info":"collects load and memory data","risk":"none","variables":[]}`, FinishReason: "stop"},
+		{Text: `{"cmd":"rm -rf /tmp/example","info":"Load is modest and available memory is healthy; the machine is not overwhelmed.","risk":"danger zone","variables":[{"name":"unused","prompt":"unused"}]}`, FinishReason: "stop"},
+	}}
+	commandRunner := &fakeRunner{results: []model.CommandResult{
+		{Command: "uptime && free -h", Stdout: "discarded first line\nload average: 0.20\navailable memory: 12 GiB\n"},
+	}}
+	var out bytes.Buffer
+	application := &Application{
+		Config:  &config.Config{Key: "test", Model: "test", API: "http://test", RiskAppetite: 1, MaxHistoryTurns: 10, ShareCommandResults: true, ResultLines: 2},
+		History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+		Tools:   testTools(t),
+		Client:  client,
+		Runner:  commandRunner,
+		UI:      ui.New(strings.NewReader(""), &out, &out, false),
+	}
+
+	if err := application.process(context.Background(), query, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("provider requests = %d, want initial request and interpretation", len(client.requests))
+	}
+	if len(commandRunner.calls) != 1 || commandRunner.calls[0] != "uptime && free -h" {
+		t.Fatalf("runner calls = %#v", commandRunner.calls)
+	}
+	interpretation := client.requests[1]
+	if len(interpretation.Tools) != 0 {
+		t.Fatalf("tools exposed during interpretation: %#v", interpretation.Tools)
+	}
+	last := interpretation.Messages[len(interpretation.Messages)-1]
+	content := last.ContentText()
+	if last.Role != "user" || !strings.Contains(content, query) || !strings.Contains(content, "load average: 0.20") || !strings.Contains(content, "available memory: 12 GiB") {
+		t.Fatalf("interpretation input = %#v", last)
+	}
+	if strings.Contains(content, "discarded first line") || !strings.Contains(content, "truncated to last 2 lines") {
+		t.Fatalf("result_lines was not applied: %q", content)
+	}
+	if !strings.Contains(out.String(), "machine is not overwhelmed") || !strings.Contains(out.String(), "[ok]") {
+		t.Fatalf("output = %q", out.String())
+	}
+	if len(application.History.Messages) != 4 {
+		t.Fatalf("history messages = %#v", application.History.Messages)
+	}
+	var conclusion model.Reply
+	if err := json.Unmarshal([]byte(application.History.Messages[3].ContentText()), &conclusion); err != nil {
+		t.Fatal(err)
+	}
+	if conclusion.Command != "" || conclusion.Risk != model.RiskNone || len(conclusion.Variables) != 0 {
+		t.Fatalf("unsafe interpretation was not normalized: %#v", conclusion)
+	}
+}
+
+func TestFailedSharedCommandResultsAreAlsoInterpreted(t *testing.T) {
+	client := &fakeClient{responses: []provider.Response{
+		{Text: `{"cmd":"systemctl status example","info":"checks the service","risk":"none","variables":[]}`, FinishReason: "stop"},
+		{Text: `{"cmd":"","info":"The service is failing because its configuration is invalid.","risk":"none","variables":[]}`, FinishReason: "stop"},
+	}}
+	commandRunner := &fakeRunner{results: []model.CommandResult{
+		{Command: "systemctl status example", ExitCode: 3, Stderr: "invalid configuration"},
+	}}
+	var out bytes.Buffer
+	application := &Application{
+		Config:  &config.Config{Key: "test", RiskAppetite: 1, MaxHistoryTurns: 10, ShareCommandResults: true, ResultLines: 20},
+		History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+		Tools:   testTools(t),
+		Client:  client,
+		Runner:  commandRunner,
+		UI:      ui.New(strings.NewReader(""), &out, &out, false),
+	}
+
+	if err := application.process(context.Background(), "find out why the example service is down", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 2 || !strings.Contains(client.requests[1].Messages[len(client.requests[1].Messages)-1].ContentText(), "invalid configuration") {
+		t.Fatalf("failed result was not interpreted: %#v", client.requests)
+	}
+	if !strings.Contains(out.String(), "[error]") || !strings.Contains(out.String(), "configuration is invalid") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
 func TestProcessQuestionDoesNotRunCommand(t *testing.T) {
 	var out bytes.Buffer
 	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"","info":"approximately 9.4248","risk":"none","variables":[]}`, FinishReason: "stop"}}}
