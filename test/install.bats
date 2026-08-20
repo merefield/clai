@@ -5,37 +5,20 @@ setup() {
   TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/clai-install.XXXXXX")"
   mkdir -p "$TEST_ROOT/fakebin"
   mkdir -p "$TEST_ROOT/bin"
-  mkdir -p "$TEST_ROOT/lib"
 }
 
 teardown() {
   rm -rf "$TEST_ROOT"
 }
 
-@test "install script reports download failures cleanly" {
-  cat > "$TEST_ROOT/fakebin/curl" <<'EOF'
-#!/bin/bash
-exit 22
-EOF
-  chmod +x "$TEST_ROOT/fakebin/curl"
-
-  run env \
-    PATH="$TEST_ROOT/fakebin:$PATH" \
-    CLAI_BIN_DIR="$TEST_ROOT/bin" \
-    bash ./install.sh
-
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Failed to download clai.sh"* ]]
-}
-
-@test "install script installs a real script and symlink into an overridden bin dir" {
-  cat > "$TEST_ROOT/fakebin/curl" <<'EOF'
-#!/bin/bash
+write_fake_go_builder() {
+  cat > "$TEST_ROOT/fakebin/go" <<'EOF'
+#!/bin/sh
 output=""
-while [ $# -gt 0 ]; do
+while [ "$#" -gt 0 ]; do
   case "$1" in
-    --output)
-      output="$2"
+    -o)
+      output=$2
       shift 2
       ;;
     *)
@@ -43,71 +26,89 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-printf '%s\n' '#!/bin/bash' 'echo installed clai' > "$output"
+[ -n "$output" ] || exit 2
+printf '%s\n' '#!/bin/sh' 'echo installed clai' > "$output"
+chmod +x "$output"
 EOF
-  chmod +x "$TEST_ROOT/fakebin/curl"
+  chmod +x "$TEST_ROOT/fakebin/go"
+}
 
-  cat > "$TEST_ROOT/fakebin/sudo" <<'EOF'
-#!/bin/bash
-"$@"
+@test "Go installer reports a failed build" {
+  cat > "$TEST_ROOT/fakebin/go" <<'EOF'
+#!/bin/sh
+echo "fake build failure" >&2
+exit 1
 EOF
-  chmod +x "$TEST_ROOT/fakebin/sudo"
+  chmod +x "$TEST_ROOT/fakebin/go"
 
   run env \
     PATH="$TEST_ROOT/fakebin:$PATH" \
-    CLAI_INSTALL_DIR="$TEST_ROOT/lib/clai" \
     CLAI_BIN_DIR="$TEST_ROOT/bin" \
-    bash ./install.sh
+    sh ./install.sh
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Building CLAI"* ]]
+  [[ "$output" == *"fake build failure"* ]]
+  [ ! -e "$TEST_ROOT/bin/clai" ]
+}
+
+@test "Go installer builds and installs clai into an overridden bin directory" {
+  write_fake_go_builder
+
+  run env \
+    PATH="$TEST_ROOT/fakebin:$PATH" \
+    CLAI_BIN_DIR="$TEST_ROOT/bin" \
+    sh ./install.sh
 
   [ "$status" -eq 0 ]
-  [ -f "$TEST_ROOT/lib/clai/clai.sh" ]
-  [ -x "$TEST_ROOT/lib/clai/clai.sh" ]
-  [ -L "$TEST_ROOT/bin/clai" ]
   [ -x "$TEST_ROOT/bin/clai" ]
+  [[ "$output" == *"Installed clai to $TEST_ROOT/bin/clai"* ]]
+
   run "$TEST_ROOT/bin/clai"
   [ "$status" -eq 0 ]
   [ "$output" = "installed clai" ]
 }
 
-@test "install script fails when the exposed symlink target is not executable" {
-  cat > "$TEST_ROOT/fakebin/curl" <<'EOF'
-#!/bin/bash
-output=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --output)
-      output="$2"
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-  esac
-done
-printf '%s\n' '#!/bin/bash' 'echo installed clai' > "$output"
-EOF
-  chmod +x "$TEST_ROOT/fakebin/curl"
-
-  cat > "$TEST_ROOT/fakebin/sudo" <<'EOF'
-#!/bin/bash
-"$@"
-EOF
-  chmod +x "$TEST_ROOT/fakebin/sudo"
-
-  cat > "$TEST_ROOT/fakebin/ln" <<'EOF'
-#!/bin/bash
-dest="${@: -1}"
-rm -f "$dest"
-/bin/ln -s /nonexistent/clai.sh "$dest"
-EOF
-  chmod +x "$TEST_ROOT/fakebin/ln"
+@test "Go installer honours a temporary binary name override" {
+  write_fake_go_builder
 
   run env \
     PATH="$TEST_ROOT/fakebin:$PATH" \
-    CLAI_INSTALL_DIR="$TEST_ROOT/lib/clai" \
     CLAI_BIN_DIR="$TEST_ROOT/bin" \
-    bash ./install.sh
+    CLAI_BIN_NAME="clai-go-preview" \
+    sh ./install.sh
 
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Failed to create CLAI symlink in $TEST_ROOT/bin"* ]]
+  [ "$status" -eq 0 ]
+  [ -x "$TEST_ROOT/bin/clai-go-preview" ]
+  [ ! -e "$TEST_ROOT/bin/clai" ]
+}
+
+@test "make install creates a fresh prefix bin directory" {
+	write_fake_go_builder
+	prefix="$TEST_ROOT/fresh-prefix"
+
+	run env \
+		PATH="$TEST_ROOT/fakebin:$PATH" \
+		PREFIX="$prefix" \
+		make install OUTPUT="$TEST_ROOT/built-clai"
+
+	[ "$status" -eq 0 ]
+	[ -x "$prefix/bin/clai" ]
+}
+
+@test "Go installer points out a detected legacy Bash payload" {
+  write_fake_go_builder
+  legacy_dir="$TEST_ROOT/legacy-clai"
+  mkdir -p "$legacy_dir"
+  printf 'legacy\n' > "$legacy_dir/clai.sh"
+
+  run env \
+    PATH="$TEST_ROOT/fakebin:$PATH" \
+    CLAI_BIN_DIR="$TEST_ROOT/bin" \
+    CLAI_LEGACY_INSTALL_DIR="$legacy_dir" \
+    sh ./install.sh
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Legacy Bash payload detected at $legacy_dir/clai.sh"* ]]
+  [[ "$output" == *"./scripts/cleanup-legacy.sh"* ]]
 }

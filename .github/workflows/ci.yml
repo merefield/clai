@@ -15,8 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install runtime and lint dependencies
-        run: sudo apt-get update && sudo apt-get install -y curl jq shellcheck
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.6
+          cache: true
 
       - name: Setup Bats
         uses: bats-core/bats-action@3.0.1
@@ -24,6 +27,4 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run checks
-        env:
-          CLAI_ENABLE_PTY_TESTS: "true"
         run: make check
