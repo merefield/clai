@@ -427,6 +427,7 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 			return nil
 		}
 	}
+	a.UI.BlankLine()
 	result := a.Runner.Run(ctx, command, edited)
 	if result.ExitCode == 0 {
 		a.UI.OK("[ok]")

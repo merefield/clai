@@ -37,6 +37,7 @@ func (f *fakeClient) SupportsTools() bool { return f.tools }
 type fakeRunner struct {
 	results []model.CommandResult
 	calls   []string
+	output  *bytes.Buffer
 }
 
 type fakeTool struct{}
@@ -60,12 +61,35 @@ func testTools(t *testing.T, registered ...tool.Tool) *tool.Registry {
 
 func (f *fakeRunner) Run(_ context.Context, command string, edited bool) model.CommandResult {
 	f.calls = append(f.calls, command)
+	if f.output != nil {
+		f.output.WriteString("command result\n")
+	}
 	if len(f.results) == 0 {
 		return model.CommandResult{Command: command, Edited: edited}
 	}
 	result := f.results[0]
 	f.results = f.results[1:]
 	return result
+}
+
+func TestCommandOutputHasBlankLineAfterExplanation(t *testing.T) {
+	var out bytes.Buffer
+	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"printf result","info":"collects the requested information","risk":"none","variables":[]}`, FinishReason: "stop"}}}
+	application := &Application{
+		Config:  &config.Config{Key: "test", RiskAppetite: 1, MaxHistoryTurns: 10},
+		History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+		Tools:   testTools(t),
+		Client:  client,
+		Runner:  &fakeRunner{output: &out},
+		UI:      ui.New(strings.NewReader(""), &out, &out, true),
+	}
+
+	if err := application.process(context.Background(), "collect information", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "  collects the requested information\n\ncommand result\n") {
+		t.Fatalf("command output was not separated from explanation: %q", out.String())
+	}
 }
 
 func TestProcessPreservesFreeFormQueryAndAutoRunsSafeCommand(t *testing.T) {

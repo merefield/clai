@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/term"
 
 	"github.com/merefield/clai/internal/model"
@@ -24,8 +25,14 @@ type Console struct {
 	reader       *bufio.Reader
 	interactive  bool
 	highContrast bool
+	width        int
 	mu           sync.Mutex
 }
+
+const (
+	sectionLeftMargin  = 2
+	sectionRightMargin = 2
+)
 
 func New(in io.Reader, out, errOut io.Writer, highContrast bool) *Console {
 	interactive := false
@@ -61,6 +68,14 @@ func (c *Console) OK(text string) {
 
 func (c *Console) Cancel() {
 	c.section(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render("[cancel]"))
+}
+
+// BlankLine separates CLAI's explanation or confirmation from live command
+// output without applying section styling.
+func (c *Console) BlankLine() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fmt.Fprintln(c.Out)
 }
 
 func (c *Console) Title(version string, tools []string) {
@@ -203,5 +218,24 @@ func (c *Console) promptDefault(label, current string) (string, error) {
 func (c *Console) section(text string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	fmt.Fprintf(c.Out, "\n  %s\n", strings.ReplaceAll(text, "\n", "\n  "))
+	if width := c.terminalWidth(); width > sectionLeftMargin+sectionRightMargin {
+		text = ansi.Wrap(text, width-sectionLeftMargin-sectionRightMargin, " ")
+	}
+	margin := strings.Repeat(" ", sectionLeftMargin)
+	fmt.Fprintf(c.Out, "\n%s%s\n", margin, strings.ReplaceAll(text, "\n", "\n"+margin))
+}
+
+func (c *Console) terminalWidth() int {
+	if c.width > 0 {
+		return c.width
+	}
+	file, ok := c.Out.(*os.File)
+	if !ok || !term.IsTerminal(int(file.Fd())) {
+		return 0
+	}
+	width, _, err := term.GetSize(int(file.Fd()))
+	if err != nil {
+		return 0
+	}
+	return width
 }
