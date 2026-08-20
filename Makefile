@@ -1,11 +1,12 @@
 SHELL := /bin/bash
 BINARY := clai
+OUTPUT ?= $(BINARY)
 PACKAGE := ./cmd/clai
 
 .PHONY: build test vet integration-test check install install-wikipedia clean
 
 build:
-	go build -buildvcs=false -trimpath -o $(BINARY) $(PACKAGE)
+	go build -buildvcs=false -trimpath -o $(OUTPUT) $(PACKAGE)
 
 test:
 	go test ./...
@@ -19,7 +20,8 @@ integration-test:
 check: vet test integration-test
 
 install: build
-	install -m 0755 $(BINARY) $${DESTDIR}$${PREFIX:-/usr/local}/bin/$(BINARY)
+	mkdir -p $${DESTDIR}$${PREFIX:-/usr/local}/bin
+	install -m 0755 $(OUTPUT) $${DESTDIR}$${PREFIX:-/usr/local}/bin/$(BINARY)
 
 install-wikipedia:
 	set -eu; \
@@ -31,4 +33,4 @@ install-wikipedia:
 
 clean:
 	go clean
-	rm -f $(BINARY)
+	rm -f $(OUTPUT)

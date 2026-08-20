@@ -15,8 +15,14 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if err := newRootCommand(ctx).ExecuteContext(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		os.Exit(1)
+	}
+}
 
-	root := &cobra.Command{
+func newRootCommand(ctx context.Context) *cobra.Command {
+	return &cobra.Command{
 		Use:                "clai [request...]",
 		Short:              "AI-powered terminal assistant",
 		Version:            app.Version,
@@ -54,9 +60,5 @@ func main() {
 			}()
 			return application.Run(ctx, args)
 		},
-	}
-	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR:", err)
-		os.Exit(1)
 	}
 }

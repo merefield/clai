@@ -266,6 +266,48 @@ func TestManifestRejectsWritableFiles(t *testing.T) {
 	}
 }
 
+func TestSignaturesDetectExecutableContentChangesWithUnchangedMetadata(t *testing.T) {
+	directory := t.TempDir()
+	commandPath := filepath.Join(directory, "tool")
+	first := []byte("#!/bin/sh\necho one\n")
+	second := []byte("#!/bin/sh\necho two\n")
+	if len(first) != len(second) {
+		t.Fatal("test executable versions must have equal length")
+	}
+	if err := os.WriteFile(commandPath, first, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(directory, "tool.json")
+	writeManifest(t, manifestPath, map[string]any{"id": "tool", "command": "tool"})
+	manifest, enabled, err := readManifest(manifestPath)
+	if err != nil || !enabled {
+		t.Fatalf("read manifest: enabled=%v err=%v", enabled, err)
+	}
+	firstManifestSignature := manifestSignature(manifest)
+	firstDirectorySignature := directorySignature(directory)
+	info, err := os.Stat(commandPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(commandPath, second, info.Mode().Perm()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(commandPath, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	manifest, enabled, err = readManifest(manifestPath)
+	if err != nil || !enabled {
+		t.Fatalf("re-read manifest: enabled=%v err=%v", enabled, err)
+	}
+	if got := manifestSignature(manifest); got == firstManifestSignature {
+		t.Fatal("manifest signature ignored executable content change")
+	}
+	if got := directorySignature(directory); got == firstDirectorySignature {
+		t.Fatal("directory signature ignored executable content change")
+	}
+}
+
 func writeManifest(t *testing.T, path string, value any) {
 	t.Helper()
 	encoded, err := json.MarshalIndent(value, "", "  ")

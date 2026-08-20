@@ -74,7 +74,7 @@ make build
 make install PREFIX="$HOME/.local"
 ```
 
-Release archives are configured through [GoReleaser](.goreleaser.yaml) for Linux and macOS on AMD64 and ARM64.
+Release archives are configured through [GoReleaser](.goreleaser.yaml) for Linux and macOS on AMD64 and ARM64. Release binaries report the release tag as their version.
 
 ## First run and setup
 
@@ -209,7 +209,7 @@ When confirmation is required, CLAI prompts with `execute command? [y/e/N]:`:
 
 Danger-zone commands always receive the normal confirmation. When `confirm_dangerous_commands=true`, accepting one produces a second `danger zone command, are you sure? [y/N]:` prompt.
 
-Approved commands run through `bash -o errexit -o pipefail -c`. Stdout and stderr stream to the terminal. After a failed command in an interactive terminal, CLAI can send the command and its stderr back to the provider to request an explanation and possible repair.
+Approved commands run through `bash -o errexit -o pipefail -c`. Stdout and stderr stream to the terminal without truncation, while CLAI retains only the most recent 256 KiB of each stream. Cancellation terminates the command's process group, and detached descendants cannot keep CLAI blocked on inherited output pipes. After a failed command in an interactive terminal, CLAI can send the command and its stderr back to the provider to request an explanation and possible repair.
 
 Risk is model-generated guidance, not a security boundary. Read every proposed or edited command before approving it.
 
@@ -249,7 +249,7 @@ reasoning=true
 
 ## Configuration reference
 
-CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `key=value` format.
+CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `key=value` format. The config path must be a regular file rather than a directory or symbolic link; CLAI enforces mode `0600` before reading it.
 
 | Key | Default | Purpose |
 | --- | --- | --- |
@@ -309,7 +309,7 @@ clai --show-results-sharing
 clai --toggle-results-sharing
 ```
 
-When enabled, every executed command is followed by a second model request. CLAI sends the original request together with the command, exit status, edit status, and at most `result_lines` recent lines from each stdout and stderr stream. It then displays and stores the model's conclusions—for example, whether observed load and memory figures indicate that a machine is overwhelmed.
+When enabled, every executed command is followed by a second model request. CLAI sends the original request together with the command, exit status, edit status, and at most `result_lines` recent lines and 64 KiB from each stdout and stderr stream. The byte limit also bounds a single unusually long line. CLAI then displays and stores the model's conclusions—for example, whether observed load and memory figures indicate that a machine is overwhelmed.
 
 The interpretation request cannot call tools, and CLAI discards any command, risk, or variables returned in the interpretation response. Both successful and failed command results are interpreted. This adds one provider request, with corresponding latency and cost, for each executed command.
 
@@ -331,7 +331,7 @@ When `use_tools=false`, ordinary and interactive requests do not scan manifests,
 
 CLAI scans `${XDG_CONFIG_HOME:-$HOME/.config}/clai/tools.d/*.json`. Set `CLAI_TOOLS_DIR` to override that location. Tool definitions are cached in a private `.tool-cache` file in that directory, so an unchanged server does not start merely to advertise its tools. The server process starts lazily only if the model actually calls one of its tools, then remains available for the rest of that CLAI process.
 
-The first request after installing or changing a manifest or executable must discover that server's definitions. CLAI discovers all new or stale servers concurrently and refreshes the cache. Interactive sessions check for those changes before each request. Normal requests through providers without tool-call support skip external-tool loading entirely.
+The first request after installing or changing a manifest or executable must discover that server's definitions. Executable contents—not only timestamps and file sizes—participate in cache invalidation. CLAI discovers all new or stale servers concurrently and refreshes the cache. Interactive sessions check for those changes before each request. Normal requests through providers without tool-call support skip external-tool loading entirely.
 
 These commands are also available:
 

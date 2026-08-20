@@ -436,8 +436,8 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 	}
 	if a.Config.ShareCommandResults {
 		stored := result
-		stored.Stdout = runner.TailLines(stored.Stdout, a.Config.ResultLines)
-		stored.Stderr = runner.TailLines(stored.Stderr, a.Config.ResultLines)
+		stored.Stdout = runner.TailOutput(stored.Stdout, a.Config.ResultLines, runner.MaxSharedStreamBytes)
+		stored.Stderr = runner.TailOutput(stored.Stderr, a.Config.ResultLines, runner.MaxSharedStreamBytes)
 		if err := a.History.AppendCommandResult(stored); err != nil {
 			return err
 		}

@@ -160,7 +160,7 @@ func TestSharedCommandResultsAreInterpretedImmediately(t *testing.T) {
 	if last.Role != "user" || !strings.Contains(content, query) || !strings.Contains(content, "load average: 0.20") || !strings.Contains(content, "available memory: 12 GiB") {
 		t.Fatalf("interpretation input = %#v", last)
 	}
-	if strings.Contains(content, "discarded first line") || !strings.Contains(content, "truncated to last 2 lines") {
+	if strings.Contains(content, "discarded first line") || !strings.Contains(content, "earlier output truncated") {
 		t.Fatalf("result_lines was not applied: %q", content)
 	}
 	if !strings.Contains(out.String(), "machine is not overwhelmed") || !strings.Contains(out.String(), "[ok]") {

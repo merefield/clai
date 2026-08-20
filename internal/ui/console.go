@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -52,18 +53,18 @@ func (c *Console) Info(text string) {
 	if c.highContrast {
 		style = lipgloss.NewStyle()
 	}
-	c.section(style.Render(text))
+	c.section(style.Render(safeTerminalText(text)))
 }
 
 func (c *Console) Error(text string) {
 	if text == "" {
 		return
 	}
-	c.section(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(text))
+	c.section(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(safeTerminalText(text)))
 }
 
 func (c *Console) OK(text string) {
-	c.section(lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(text))
+	c.section(lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(safeTerminalText(text)))
 }
 
 func (c *Console) Cancel() {
@@ -80,11 +81,11 @@ func (c *Console) BlankLine() {
 
 func (c *Console) Title(version string, tools []string) {
 	style := lipgloss.NewStyle().Bold(true)
-	c.section("🤖 " + style.Render("CLAI v"+version))
+	c.section("🤖 " + style.Render("CLAI v"+safeTerminalText(version)))
 	if len(tools) > 0 {
 		fmt.Fprintln(c.Out, "\n🔧 "+style.Render("Activated Tools"))
 		for _, name := range tools {
-			fmt.Fprintf(c.Out, "  %s\n", style.Render(name))
+			fmt.Fprintf(c.Out, "  %s\n", style.Render(safeTerminalText(name)))
 		}
 	}
 }
@@ -102,17 +103,17 @@ func (c *Console) Reply(reply model.Reply) {
 		color = "9"
 	}
 	commandStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Background(lipgloss.Color("236"))
-	c.section(commandStyle.Render(" " + reply.Command + " "))
+	c.section(commandStyle.Render(" " + safeTerminalText(reply.Command) + " "))
 	if reply.Risk == model.RiskDanger {
 		label := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true).Render("DANGER ZONE: ")
-		fmt.Fprintf(c.Out, "  %s%s\n", label, reply.Info)
+		c.section(label + safeTerminalText(reply.Info))
 	} else {
 		c.Info(reply.Info)
 	}
 }
 
 func (c *Console) Prompt(label string) (string, error) {
-	fmt.Fprintf(c.Out, "\n  %s", label)
+	fmt.Fprintf(c.Out, "\n  %s", safeTerminalText(label))
 	line, err := c.reader.ReadString('\n')
 	if err != nil && err != io.EOF {
 		return "", err
@@ -121,7 +122,7 @@ func (c *Console) Prompt(label string) (string, error) {
 }
 
 func (c *Console) Secret(label string) (string, error) {
-	fmt.Fprint(c.Out, label)
+	fmt.Fprint(c.Out, safeTerminalText(label))
 	if f, ok := c.In.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
 		value, err := term.ReadPassword(int(f.Fd()))
 		fmt.Fprintln(c.Out)
@@ -140,6 +141,7 @@ func (c *Console) Choice(label string) (string, error) {
 }
 
 func (c *Console) Spinner(ctx context.Context, title string) func() {
+	title = safeTerminalText(title)
 	if !c.interactive {
 		fmt.Fprintf(c.Out, "\n  %s", title)
 		return func() { fmt.Fprintln(c.Out) }
@@ -168,6 +170,25 @@ func (c *Console) Spinner(ctx context.Context, title string) func() {
 		}
 	}()
 	return func() { cancel(); <-done }
+}
+
+// safeTerminalText removes terminal control sequences from provider- and
+// plugin-controlled text before CLAI adds its own styling. Newlines are kept
+// for readable multi-line responses and tabs become ordinary spaces.
+func safeTerminalText(text string) string {
+	text = ansi.Strip(text)
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '\n':
+			return r
+		case '\t':
+			return ' '
+		}
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
+			return -1
+		}
+		return r
+	}, text)
 }
 
 func (c *Console) Setup(currentKey, currentAPI, currentModel string, currentRisk int) (key, api, selectedModel string, risk int, err error) {

@@ -63,3 +63,59 @@ func TestSetSavePreservesEqualsInValues(t *testing.T) {
 		t.Fatalf("save mismatch: %#v", reloaded)
 	}
 }
+
+func TestEnsureSecuresAnExistingRegularConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clai.cfg")
+	if err := os.WriteFile(path, []byte("key=secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(path); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %o", info.Mode().Perm())
+	}
+}
+
+func TestEnsureRejectsNonRegularConfigPaths(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clai.cfg")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(path); err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("Ensure error = %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o755 {
+		t.Fatalf("directory was modified: mode=%v", info.Mode())
+	}
+}
+
+func TestEnsureRejectsConfigSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.cfg")
+	path := filepath.Join(dir, "clai.cfg")
+	if err := os.WriteFile(target, []byte("key=secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := Ensure(path); err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("Ensure error = %v", err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("symlink target mode changed to %o", info.Mode().Perm())
+	}
+}

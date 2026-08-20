@@ -67,8 +67,14 @@ func DefaultPath() (string, error) {
 }
 
 func Ensure(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		_ = os.Chmod(path, 0o600)
+	info, err := os.Lstat(path)
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("config path %q must be a regular file", path)
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			return fmt.Errorf("secure config permissions: %w", err)
+		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err

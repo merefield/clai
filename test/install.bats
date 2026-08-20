@@ -82,3 +82,16 @@ EOF
   [ -x "$TEST_ROOT/bin/clai-go-preview" ]
   [ ! -e "$TEST_ROOT/bin/clai" ]
 }
+
+@test "make install creates a fresh prefix bin directory" {
+	write_fake_go_builder
+	prefix="$TEST_ROOT/fresh-prefix"
+
+	run env \
+		PATH="$TEST_ROOT/fakebin:$PATH" \
+		PREFIX="$prefix" \
+		make install OUTPUT="$TEST_ROOT/built-clai"
+
+	[ "$status" -eq 0 ]
+	[ -x "$prefix/bin/clai" ]
+}

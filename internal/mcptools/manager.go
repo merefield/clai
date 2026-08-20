@@ -723,13 +723,8 @@ func writeDefinitionCache(directory string, cache definitionCache) error {
 func manifestSignature(manifest Manifest) string {
 	hash := sha256.New()
 	body, readErr := os.ReadFile(manifest.manifestPath)
-	fmt.Fprintf(hash, "%x\x00%v\x00%s", body, readErr, manifest.resolvedCommand)
-	info, statErr := os.Stat(manifest.resolvedCommand)
-	if statErr != nil {
-		fmt.Fprint(hash, statErr)
-	} else {
-		fmt.Fprintf(hash, "\x00%d\x00%d\x00%d", info.Size(), info.ModTime().UnixNano(), info.Mode())
-	}
+	fmt.Fprintf(hash, "%x\x00%v", body, readErr)
+	writeFileSignature(hash, manifest.resolvedCommand)
 	return fmt.Sprintf("%x", hash.Sum(nil))
 }
 
@@ -757,12 +752,26 @@ func directorySignature(directory string) string {
 		if !filepath.IsAbs(command) {
 			command = filepath.Join(filepath.Dir(path), command)
 		}
-		info, statErr := os.Stat(command)
-		if statErr != nil {
-			fmt.Fprintf(hash, "\x00%s\x00%v", command, statErr)
-			continue
-		}
-		fmt.Fprintf(hash, "\x00%s\x00%d\x00%d\x00%d", command, info.Size(), info.ModTime().UnixNano(), info.Mode())
+		writeFileSignature(hash, command)
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+func writeFileSignature(hash io.Writer, path string) {
+	fmt.Fprintf(hash, "\x00%s\x00", path)
+	file, err := os.Open(path)
+	if err != nil {
+		fmt.Fprint(hash, err)
+		return
+	}
+	defer file.Close()
+	info, statErr := file.Stat()
+	if statErr != nil {
+		fmt.Fprint(hash, statErr)
+		return
+	}
+	fmt.Fprintf(hash, "%d\x00%d\x00%d\x00", info.Size(), info.ModTime().UnixNano(), info.Mode())
+	if _, err := io.Copy(hash, file); err != nil {
+		fmt.Fprint(hash, "\x00", err)
+	}
 }
