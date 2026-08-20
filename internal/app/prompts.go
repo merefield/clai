@@ -12,7 +12,7 @@ import (
 
 // Version is a development fallback. Release builds replace it from the Git
 // tag through GoReleaser's -X linker flag.
-var Version = "1.1.0-go"
+var Version = "dev"
 
 const defaultExecQuery = "Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'cmd' must contain one or more shell commands that perform the task, or be empty only as a last resort. 'info' must be a single-line explanation. 'risk' must be exactly 'none', 'reversible change', or 'danger zone'. Use 'none' only for read-only inspection. Use 'reversible change' for changes that are normally undoable. Use 'danger zone' for deletion, overwrite, reset, force, or hard-to-reverse changes. 'variables' must be an array. Represent missing user values as {{variable_name}} in cmd and info and include matching objects with name and prompt. Do not quote placeholders in cmd; CLAI shell-escapes substitutions."
 

@@ -42,6 +42,39 @@ The Go binary implements HTTP, JSON, and tool handling itself. It does not requi
 
 Building from source requires the Go toolchain declared by [`go.mod`](go.mod): Go 1.26.6 for this branch.
 
+## Quickstart
+
+The recommended installer downloads the pre-built release for the current operating system and architecture, verifies it against the release SHA-256 checksum, checks the binary's reported version, and installs it as `/usr/local/bin/clai`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/merefield/clai/main/install-release.sh | sh
+```
+
+The bootstrap requires `curl` or `wget`, `tar`, and either `sha256sum` (Linux) or `shasum` (macOS). It uses `sudo` only when the destination is not writable.
+
+For a user-local installation that does not require `sudo`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/merefield/clai/main/install-release.sh |
+  CLAI_BIN_DIR="$HOME/.local/bin" sh
+```
+
+Ensure `$HOME/.local/bin` is on `PATH` if you use that location. To install a particular release reproducibly, provide its tag:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/merefield/clai/main/install-release.sh |
+  sh -s -- --version v1.2.3
+```
+
+You can also download and inspect [`install-release.sh`](install-release.sh) before running it. The installer supports `--help`, `--version TAG`, and `--bin-dir DIR`; the equivalent environment variables are `CLAI_VERSION` and `CLAI_BIN_DIR`.
+
+After installation, configure a provider and try a request:
+
+```bash
+clai setup
+clai list files by size
+```
+
 ## Install from source
 
 Clone the repository and run the installer from its root:
@@ -78,6 +111,7 @@ make install PREFIX="$HOME/.local"
 ```
 
 Release archives are configured through [GoReleaser](.goreleaser.yaml) for Linux and macOS on AMD64 and ARM64. Release binaries report the release tag as their version.
+Ordinary source builds report `clai version dev`, so release numbers have a single source of truth: the Git tag.
 
 ## First run and setup
 
