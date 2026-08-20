@@ -1,466 +1,142 @@
-# > clai
+# CLAI
 
-Forgotten the exact form of that terminal command? No problem!
+CLAI is an AI-powered terminal assistant that turns natural-language requests into reviewed shell commands.
 
-`clai` _(clai)_ lets you describe what you want in natural language, then drafts the command for you to review.
+This `go_migration` branch contains the compatibility-first Go implementation. The previous Bash implementation remains available as [`clai.sh`](clai.sh), with its original documentation archived at [`docs/legacy-bash.md`](docs/legacy-bash.md), while parity work continues.
 
-If you forget to specify an important variable, such as a branch name, `clai` will prompt for it in a small wizard before showing the final command, which you are free to run, edit, or cancel.
+## Status
 
-Suggested commands are coloured with a simple 🟢 Green, 🟠 Amber, 🔴 Red traffic-light system so you get an immediate visual feel for their risk level.
+The port currently implements the core CLAI workflow:
 
-`clai` is an AI-powered Bash terminal assistant. It uses modern LLM APIs to answer terminal questions, suggest commands, and support tool-based extensions through its local plugin system.
+- direct requests such as `clai list files by size`
+- interactive sessions with `clai`
+- OpenAI and generic OpenAI-compatible Chat Completions endpoints
+- Ollama `/api/chat`, Anthropic Messages, and Gemini `generateContent`
+- structured `cmd`, `info`, `risk`, and `variables` responses
+- command review, editing, risk appetite, and danger-zone confirmation
+- Bash command execution with live stdout and stderr
+- compatible `~/.clai_tools/*.sh` plugins through a Bash adapter
+- compatible configuration and persisted history formats
+- setup, history, history clearing, and command-result sharing controls
 
-![CLAI command suggestion and confirmation flow](docs/assets/examples.png)
+The Go implementation is not yet declared a byte-for-byte UI replacement. Applicable legacy Bats scenarios run alongside the Go tests, and the installer suite now exercises the Go-binary installation path.
 
-## Setup
+## Requirements
 
-### Runtime prerequisites
+- Go 1.26.6 for building; `go.mod` declares the toolchain
+- Bash at runtime for suggested command execution and legacy shell plugins
 
-- Bash
-- [curl](https://curl.se/)
-- [jq](https://jqlang.org/)
-- A non-empty API key accepted by [OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [Gemini / Google AI](https://ai.google.dev/), or your local/self-hosted OpenAI-compatible endpoint
+HTTP and JSON are implemented with Go's standard library, so runtime installations do not require `curl` or `jq`.
 
-Install CLAI with:
-
-```bash
-curl -sS https://raw.githubusercontent.com/merefield/clai/main/install.sh | bash
-```
-
-> [!WARNING]
-> Never run unknown scripts without reviewing them for safety. Read the install script [here](https://raw.githubusercontent.com/merefield/clai/main/install.sh).
-
-Run `clai` to start CLAI.
-
-By default, the installer downloads the real script to `/usr/local/lib/clai/clai.sh` and exposes `clai` by creating a symlink in `/usr/local/bin`, which is typically already on your `PATH`.
-
-The default install path uses `sudo` because it writes to system locations. To install somewhere user-local instead, set `CLAI_INSTALL_DIR` and `CLAI_BIN_DIR` before running the installer.
-
-On the first invocation without a configured key, CLAI starts a setup wizard and prompts for:
-
-- API key
-- API base URL
-- model
-- risk appetite
-
-The defaults are:
-
-- API base URL: `https://api.openai.com/v1/chat/completions`
-- model: `gpt-4.1`
-- risk appetite: `0`
-
-You can point CLAI at:
-
-- [OpenAI](https://platform.openai.com/)
-- [Anthropic](https://console.anthropic.com/)
-- [Gemini / Google AI](https://ai.google.dev/)
-- a local or self-hosted OpenAI-compatible endpoint by setting `api=` and `model=` accordingly
-
-You can re-run that setup wizard at any time with either:
-
-```bash
-clai setup
-```
-
-or:
-
-```bash
-clai --setup
-```
-
-<details>
-<summary><b>Manual Setup</b></summary>
-
-1. Clone or download the repository:
-
-	```bash
-	git clone https://github.com/merefield/clai.git
-	```
-2. Make the script executable:
-
-	```bash
-	chmod +x clai.sh
-	```
-
-3. Execute CLAI directly:
-
-	```bash
-	./clai.sh
-	```
-
-4. Expose `clai` on your command line. The recommended approach is to place a symlink in a directory that is already on your `PATH`:
-
-	* System-wide default: symlink into `/usr/local/bin`:
-
-		```bash
-		ln -s path/to/clai.sh /usr/local/bin/clai
-		```
-
-	* User-local alternative without `sudo`: symlink into `~/.local/bin` and ensure that directory is on your `PATH`:
-
-		```bash
-		mkdir -p ~/.local/bin
-		ln -s path/to/clai.sh ~/.local/bin/clai
-		```
-
-	* An alias is possible, but it is less universal than a symlink because it only applies to a specific shell configuration:
-
-		```conf
-		alias clai='path/to/clai.sh'
-		```
-
-</details>
-
-## How to use
-
-Start an interactive session by running `clai`, or pass a request directly:
-
-```bash
-clai create a new directory and add a README file inside it
-```
-
-Ask a terminal question by including a question mark (quote the request in zsh):
-
-```bash
-clai "how do I list files by size?"
-```
-
-CLAI shows suggested commands for you to review, edit, run, or cancel.
-
-## Runtime Scope
-
-`> clai` is intentionally a Bash-first project. It may be invoked from zsh and other shells, but the script itself is expected to run under Bash rather than natively under multiple shell interpreters.
-
-This keeps the implementation and test surface narrower, and it lets the project stay focused on Bash compatibility, including older Bash versions such as the default Bash shipped on macOS.
-
-## Features
-
-CLAI offers the following features:
-
-- **100% Shell Script**\
-	Single Bash script with only `curl` and `jq` as runtime dependencies.
-
-- **Plugins!**\
-	Extend CLAI's functionality by adding plugins known as "tools".
-
-- **Natural Language Interface**\
-	Communicate with the terminal using everyday language.
-
-- **Question Answering**\
-	Get answers to terminal questions by including a question mark in your request (but note special consideration for zsh users below)
-
-- **Command Suggestions**\
-	Receive intelligent command suggestions based on your input.
-
-- **Command Information**\
-	Get detailed information about the suggested commands.
-
-- **Distribution Awareness**\
-	Get answers and commands that are compatible with your system and distro where CLAI can detect them.
-
-- **Command Execution**\
-	Choose to execute the suggested commands directly from CLAI.
-
-- **Command Editing**\
-	Edit the suggested commands before execution.
-
-- **Error Examination**\
-	Examine the error messages generated by the suggested commands and attempt to fix them.
-
-- **Persistent Memory**\
-	Remembers your previous requests and uses them to improve future suggestions.
-
-- **Directory Awareness**\
-	Automatically detects and uses the current directory when executing commands.
-
-- **Locale Awareness**\
-	Automatically detects your system's locale and uses it to provide localized responses.
-
-## Roadmap Themes
-
-These are candidate product directions for CLAI after the current hardening and test coverage work. Each theme is tagged with a rough implementation priority, how well it fits CLAI's current product shape, and expected complexity.
-
-| Theme | Priority | Fit | Complexity | Description |
-| --- | --- | --- | --- | --- |
-| Built-in docs and help index | High | High | Low | Add a local, curated self-documentation layer for CLAI's own paths, config, tools, history, and troubleshooting so self-questions do not depend entirely on the model. |
-| Repo-aware mode | High | High | Medium | Detect repository context such as current branch, changed files, project scripts, and likely test commands so CLAI can give project-aware answers instead of generic shell suggestions. |
-| Approval policies | High | High | Medium | Let users define command safety rules such as auto-approve read-only commands, always confirm package installs, or always block destructive patterns. |
-| Two-step risk classification | Medium | High | Medium | Split command generation from risk scoring so CLAI can first produce `cmd` and `info`, then run a second, narrower pass that rates the proposed command as `none`, `reversible change`, or `danger zone` using the user request, command, and described effect together. |
-| `clai doctor` diagnostics | Medium | High | Medium | Add a built-in diagnostics command that checks common local problems such as missing dependencies, broken PATH entries, config mistakes, permission problems, and basic connectivity issues. |
-| Command plan mode | Medium | Medium | Medium | For larger tasks, let CLAI propose a short plan of steps before suggesting or executing commands, so the user can approve the approach before any action is taken. |
-| Session snapshots | Low | Medium | Medium | Save and restore named working contexts including conversation state, current directory, and relevant notes so users can resume project-specific sessions more deliberately. |
-| Safer file edit workflow | Medium | High | High | Move beyond plain shell command suggestions for editing by supporting structured previews, diffs, patch application, and possibly an undo path for CLAI-driven edits. |
-| Tool sandbox classes | Medium | High | High | Classify tools as read-only, local-write, networked, or dangerous and use that metadata in prompts, approval flow, and future policy controls. |
-| Structured task workflows | Medium | Medium | High | Add reusable higher-level workflows for common tasks such as setting up a Python environment, triaging a failing test, or walking through a release checklist. |
-| Command result learning | Low | Medium | High | Let users mark CLAI suggestions as correct, unsafe, or unhelpful and use that local feedback to steer future prompt context and approval behavior. |
-
-## Special considerations for zsh users
-
-Unfortunately, zsh treats “?” and “*” as filename-globs.
-
-If your question ends with a “?”, either:
-
-– quote it (clai "how to list contents of a directory?")
-– or create an alias that disables globbing: alias clai='noglob clai'.
-
-## Configuration
-
-On the first run, a configuration file named `clai.cfg` will be created in your `~/.config` directory.
-
-CLAI will create `~/.config` automatically if needed and will write `clai.cfg` with restrictive permissions.
-
-> [!IMPORTANT]
-> If you run into config-related issues after updating CLAI, re-run `clai setup` or remove `~/.config/clai.cfg` to regenerate it.
-
-If there is no configured key, CLAI will start the setup wizard automatically on invocation and prompt for the key, base URL, and model. You can also re-run that flow explicitly with `clai setup` or `clai --setup`.
-
-You can still edit the file manually. The `key=` value should contain the credential for your configured provider. For local or self-hosted OpenAI-compatible endpoints, CLAI still expects `key=` to be non-empty, so use whatever token or placeholder value your endpoint accepts.
-
-> [!CAUTION]
-> Keeping the key in a plain text file is dangerous, and it is your responsibility to keep it secure.
-
-You can also change the model name, sampling temperature, base URL, and many other settings in this file.
-
-The history retention setting is `max_history_turns=`. It controls how many user conversation turns CLAI persists across sessions.
-
-### Config keys
-
-| Key | Default | Purpose |
-| --- | --- | --- |
-| `key` | empty | Credential for the configured provider. CLAI requires this to be non-empty before it will make requests. |
-| `hi_contrast` | `false` | Uses less muted info text output. |
-| `expose_current_dir` | `true` | Includes the current working directory in the runtime context sent to the model. |
-| `max_history_turns` | `10` | Number of user conversation turns to persist across sessions. |
-| `api` | `https://api.openai.com/v1/chat/completions` | Chat Completions API endpoint. |
-| `model` | `gpt-4.1` | Model name sent in the request payload. |
-| `json_mode` | `false` | Requests provider-enforced JSON output so CLAI can reliably parse the expected `cmd`, `info`, `risk`, and `variables` fields. OpenAI, Anthropic, and Gemini use native structured-output fields; Ollama `/api/chat` endpoints use `format: "json"`; unknown endpoints fall back to the existing OpenAI-compatible JSON object mode. |
-| `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
-| `tokens` | `500` | Maximum token count requested from the API. OpenAI-compatible chat completions send this as `max_completion_tokens`; Ollama `/api/chat` sends it as `options.num_predict`; provider-native APIs use their equivalent token limit field. Invalid values fall back to `500`. |
-| `reasoning` | empty | Optional reasoning effort setting. On OpenAI `/completions` endpoints, CLAI sends this as `reasoning_effort` only for known reasoning model families such as `o*`, `gpt-5*`, and `codex*`; non-reasoning models such as `gpt-4.1` ignore this config. Generic OpenAI-compatible `/completions` endpoints still receive `reasoning_effort`. On `/api/chat` endpoints (Ollama-style), CLAI sends `think: true` and requests JSON output with `format: "json"` when this is set. |
-| `share_command_results` | `false` | Shares structured command stdout, stderr, exit code, and edited state with later CLAI turns by storing it in history after execution. Enabling this can expose sensitive command output to later model context. |
-| `result_lines` | `20` | Maximum number of stdout and stderr lines to keep per stored command result. Invalid values fall back to `20`. |
-| `confirm_dangerous_commands` | `true` | Requires a second confirmation before executing commands marked as `danger zone`. |
-| `risk_appetite` | `0` | Controls which non-danger commands can run without confirmation after CLAI shows the command and explanation. `0` always prompts, `1` auto-runs green `none` commands, and `2` auto-runs green plus amber `reversible change` commands. Invalid values fall back to `0`. |
-| `exec_query` | empty | Optional extra system guidance for normal command-generation mode. |
-| `question_query` | empty | Optional extra system guidance for question-answering mode. |
-| `error_query` | empty | Optional extra system guidance for error-recovery mode. |
-
-If `exec_query`, `question_query`, or `error_query` are left empty, CLAI uses its built-in defaults.
-
-To enable reasoning, add a `reasoning=` line to `~/.config/clai.cfg`:
-
-```ini
-reasoning=high
-```
-
-For OpenAI `/completions` endpoints, CLAI sends that value as `reasoning_effort` only when the configured model is a known reasoning model family such as `o*`, `gpt-5*`, or `codex*`. This avoids OpenAI errors from non-reasoning chat models such as `gpt-4.1`. Generic OpenAI-compatible `/completions` endpoints still receive `reasoning_effort`.
-
-For Ollama-style `/api/chat` endpoints, any non-empty `reasoning` value enables `think: true` in the request payload. CLAI also sends `format: "json"` when either `json_mode=true` or `reasoning` is set, because CLAI needs parseable JSON to split the model response into command, explanation, risk, and variables.
-
-Ollama `/api/chat` request behavior:
-
-| Config | Ollama payload fields |
-| --- | --- |
-| `json_mode=false`, `reasoning=` empty | Sends `model`, `messages`, `stream: false`, and `options` with `num_predict` and `temperature`. |
-| `json_mode=true`, `reasoning=` empty | Adds `format: "json"` for parseable structured output. |
-| `reasoning` set, regardless of `json_mode` | Adds `think: true` and `format: "json"`. |
-
-Recommended Ollama setup for Gemma 4:
-
-```ini
-key=ollama
-api=http://localhost:11434/api/chat
-model=gemma4:latest
-json_mode=true
-reasoning=true
-temp=0.1
-tokens=500
-```
-
-The `key` value only needs to be non-empty for local Ollama. Set `reasoning=true` to send Ollama `think: true`; set `json_mode=true` to request parseable JSON with `format: "json"`.
-
-Provider notes:
-
-- OpenAI-compatible and Anthropic endpoints send the configured `model` directly in the request body.
-- OpenAI-compatible chat completions send the configured `tokens` value as `max_completion_tokens`.
-- Ollama `/api/chat` sends the configured `tokens` value as `options.num_predict` and disables streaming with `stream: false`.
-- If `reasoning` is set: OpenAI `/completions` endpoints receive `reasoning_effort` only for known reasoning model families, generic `/completions` endpoints receive `reasoning_effort`, and Ollama `/api/chat` endpoints receive `think: true` plus `format: "json"`.
-- If `json_mode=true`: Ollama `/api/chat` endpoints receive `format: "json"` even when `reasoning` is empty.
-- For Gemini endpoints, CLAI treats `model` as authoritative and rewrites the effective request URL to target that model, even if the configured `api` URL template contains a different model name.
-- Local or self-hosted OpenAI-compatible endpoints can be used by pointing `api` at the compatible base URL and setting the desired `model`.
-- Local CLAI tool calls are currently only sent on OpenAI-compatible endpoints and Ollama `/api/chat` endpoints. Anthropic and Gemini still use native structured outputs for normal responses, but CLAI tells those models not to rely on tool calls.
-
-When `json_mode=true`, CLAI asks the model to return structured `cmd`, `info`, `risk`, and `variables` fields. The `risk` value must be one of:
-
-- `none`
-- `reversible change`
-- `danger zone`
-
-CLAI uses that `risk` value to color suggested commands in the terminal.
-
-The `variables` field is an array of missing user-specified values that CLAI must collect before it can run the command. When a command is missing a value, the model returns `{{variable_name}}` placeholders in `cmd` and `info`, plus matching `variables` entries with a `name` and `prompt`. CLAI shell-escapes collected values before inserting them into `cmd`, and it refuses to run commands that still contain unresolved placeholders.
-
-To toggle `share_command_results` directly from the CLI, run:
-
-```bash
-clai --toggle-results-sharing
-```
-
-When you enable it, CLAI warns that shared command results may contain sensitive stdout/stderr, will be stored in history, and may be sent back to CLAI in later context.
-
-To see whether command results are currently being shared, run:
-
-```bash
-clai --show-results-sharing
-```
-
-To view the currently persisted CLAI history in a readable form, run:
-
-```bash
-clai --show-history
-```
-
-By default, stored command-result stdout and stderr are shown as compact previews containing the first 3 lines of each block.
-
-For full stored stdout/stderr blocks in command results, use:
-
-```bash
-clai --show-history --verbose
-```
-
-Persistent CLAI state, including conversation history, is stored under `${XDG_STATE_HOME:-~/.local/state}/clai/`.
-
-To clear persisted CLAI history explicitly, run:
-
-```bash
-clai --clear-history
-```
-
-This clears CLAI's persisted history file under the CLAI state directory.
-
-Transient request payloads, API responses, and tool logs are written to secure temporary files created with `mktemp` and are deleted automatically when the session exits.
-
-API requests are built as structured JSON and CLAI distinguishes transport failures, HTTP errors, and successful JSON responses when reporting errors.
-
-## Command workflow
-
-For direct built-in history reset without going through the model, you can also run:
-
-```bash
-clai clear your history
-```
-
-### Command confirmation flow
-
-When CLAI suggests a command, it shows the command and a short explanation, then prompts:
-
-- `y`: execute the suggested command
-- `e`: edit the suggested command before execution
-- `N` or Enter: cancel the command
-
-In interactive mode, this lets you inspect or adjust the generated command before anything runs.
-
-The `risk_appetite` config can skip that prompt for non-danger commands after the command and explanation have been shown:
-
-- `0`: always prompt before executing suggested commands.
-- `1`: run green `none` commands immediately; prompt for amber and red.
-- `2`: run green `none` and amber `reversible change` commands immediately; prompt for red.
-
-Red `danger zone` commands always keep the normal confirmation flow.
-
-If the model marks any command inputs as missing in the structured `variables` field, CLAI prompts for those values first, substitutes them into the command and explanation, and only then shows the final command for confirmation or automatic execution, depending on `risk_appetite`.
-
-You can think of this as a small variable wizard. For example, if CLAI suggests `git checkout -b {{branch_name}}`, it will first ask you for the branch name, substitute that value into the command, and only then apply the normal risk appetite behavior.
-
-Suggested commands are color-coded by the model-reported `risk` field:
-
-- green: `none`
-- yellow: `reversible change`
-- red: `danger zone`
-
-If `confirm_dangerous_commands=true`, danger-zone commands require an extra confirmation after the initial `y`:
-
-- first prompt: `execute command? [y/e/N]:`
-- second prompt for red commands: `danger zone command, are you sure? [y/N]:`
-
-### Error recovery flow
-
-If an executed command fails, CLAI shows the error and prompts:
-
-- `y`: ask CLAI to examine the error and suggest a fix
-- `N` or Enter: stop there and return without further analysis
-
-This uses CLAI's error mode, which sends the failed command and captured error text back through the model so it can propose a repair.
-
-## Plugins and tools
-
-Plugins are local CLAI tools that expand CLAI's functionality, but they are not included in the default CLAI setup.\
-All tools should be placed in your `~/.clai_tools` directory.\
-You can see which tools are currently installed by running `clai`, and CLAI will list them for you.
-
-Local tool calling currently uses the OpenAI-compatible tool format on OpenAI-compatible endpoints and Ollama's `/api/chat` tool-call shape on Ollama endpoints. If you point CLAI at Anthropic or Gemini endpoints, CLAI will still use provider-native structured outputs for normal responses, but it will not send local tools in the request and will tell the model not to rely on tool calls.
-
-Tools are nothing more than a shell script with a `init` and `execute` function.\
-You can find examples and available tools in the [tools folder](https://github.com/merefield/clai/tree/main/tools).\
-Feel free to move them to your `~/.clai_tools` directory to enable them!
-
-## Known Issues
-
-- In Command Mode, avoid using single quotes in your requests.\
-	For instance, the command `clai what's the current time?` will not work. However, both `clai "what's the current time?"` and `clai what is the current time?` will execute successfully.\
-	Please note that this issue is specific to the terminal, and does not occur in Interactive Mode.
-
-## Development
-
-End users do not need the test framework. `bats` and `shellcheck` are only needed for local development and CI.
-
-### Local setup for testing
-
-On Ubuntu, install the development dependencies with:
-
-```bash
-sudo apt update
-sudo apt install bats shellcheck jq curl
-```
-
-### Running checks locally
-
-Run all checks:
+## Build and run
 
 ```bash
 make check
+make build
+./clai setup
+./clai how much is 3 times pi
 ```
 
-Run only the shell linter:
+Install the locally built command as `clai`:
 
 ```bash
-make lint
+./install.sh
 ```
 
-Run only the test suite:
+The default destination is `/usr/local/bin/clai`. Override it with `CLAI_BIN_DIR` or `CLAI_BIN_NAME`.
+
+## Shell parsing
+
+Ordinary prompts do not need surrounding quotes:
 
 ```bash
-make test
+clai create a directory named reports
 ```
 
-### Current test coverage
+The parent shell still interprets glob and syntax characters before CLAI receives the arguments. Use words, escaping, quoting, or shell-specific `noglob` integration when needed:
 
-The Bats suite currently covers:
+```bash
+clai how much is 3 times pi
+clai how much is 3 \* pi
+clai "how much is 3 * pi"
+```
 
-- first-run config bootstrap and private state creation
-- installer download failure and overridden install-target success paths
-- request payload generation and API transport / HTTP error handling
-- history persistence, trimming, normalization, and deprecated config fallback behavior
-- tool-call round trips, including the non-associative-array fallback path used for older Bash compatibility
-- command suggestion accept, decline, and edit flows
-- malformed response fallbacks, including truncated JSON, missing content, and malformed tool arguments
+For the exact unquoted form, install CLAI's shell integration in your shell profile:
 
-The suite stays deterministic and avoids making successful live API calls.
+```bash
+# ~/.bashrc
+eval "$(clai shell-init bash)"
+```
 
-One PTY-backed edit-path test is enabled in CI and skipped locally unless `CLAI_ENABLE_PTY_TESTS=true` is set.
+```zsh
+# ~/.zshrc
+eval "$(clai shell-init zsh)"
+```
 
-## Credits
+After starting a new shell, glob characters following `clai` are passed literally:
 
-`> clai` is a hard fork of the original [`bash-ai`](https://github.com/Hezkore/bash-ai) project to which I've contributed by [@Hezkore](https://github.com/Hezkore), which itself was inspired by [Your AI](https://github.com/ekkinox/yai).
+```bash
+clai how much is 3 * pi
+```
 
-This fork exists because I intend to completely rewrite the project and prefer to have more immediate decision-making capability while doing that work.
+## Compatibility paths
+
+By default, CLAI deliberately reads the existing CLAI-compatible locations:
+
+- config: `~/.config/clai.cfg`
+- history: `${XDG_STATE_HOME:-~/.local/state}/clai/history_com.json`
+- plugins: `~/.clai_tools`
+
+Override any path when testing against isolated state:
+
+```bash
+export CLAI_CONFIG="/tmp/clai-go/config.cfg"
+export CLAI_HISTORY="/tmp/clai-go/history.json"
+export CLAI_TOOLS_DIR="/tmp/clai-go/tools"
+```
+
+## Commands
+
+```text
+clai setup
+clai --setup
+clai --show-history [--verbose]
+clai --clear-history
+clai --show-results-sharing
+clai --toggle-results-sharing
+clai shell-init bash|zsh
+clai --version
+clai --help
+```
+
+## Architecture
+
+The entry point uses Cobra while keeping free-form request arguments intact. Lip Gloss owns terminal styling. Core behaviour is split into small packages:
+
+```text
+cmd/clai         command entry point
+internal/app     orchestration, prompts, risk and response handling
+internal/config  compatible key=value configuration
+internal/history JSON history persistence and retention
+internal/provider native HTTP adapters for supported providers
+internal/plugin  legacy Bash plugin discovery and execution
+internal/runner  reviewed Bash command execution and capture
+internal/ui      inline terminal rendering and input
+```
+
+Provider, command-runner, and terminal boundaries are interfaces so tests can exercise orchestration without network calls or executing suggested commands.
+
+## Framework choices
+
+- [Cobra](https://github.com/spf13/cobra) provides command lifecycle, help, and version behaviour.
+- [Lip Gloss](https://github.com/charmbracelet/lipgloss) provides declarative terminal styling.
+- Go's `net/http` and `encoding/json` remain explicit because provider payloads differ meaningfully and do not benefit from a generic REST wrapper.
+- A full-screen Bubble Tea application is intentionally deferred: the migration target is CLAI's existing inline workflow, not a UI redesign.
+
+## Migration principles
+
+1. Keep configuration, history, prompts, risk semantics, and legacy tools compatible.
+2. Preserve the `clai request words here` interface throughout migration.
+3. Treat the existing Bash/Bats behaviour as the contract.
+4. Add Go unit tests at each typed boundary and black-box parity tests around the final binary.
+5. Keep the legacy implementation available until behavioural parity is demonstrated.
