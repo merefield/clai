@@ -37,6 +37,9 @@ func TestRegistryBuildsSortedProviderDefinitionsAndExecutes(t *testing.T) {
 	if result != `{"answer":"first"}` {
 		t.Fatalf("result = %q", result)
 	}
+	if summary := registry.InvocationSummary("alpha", `{}`); summary != "Used the alpha tool." {
+		t.Fatalf("invocation summary = %q", summary)
+	}
 }
 
 func TestRegistryRejectsDuplicateNamesAndInvalidArguments(t *testing.T) {

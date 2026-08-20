@@ -20,6 +20,7 @@ const (
 // Definition is the provider-independent description of an LLM-facing tool.
 type Definition struct {
 	Name         string
+	DisplayName  string
 	Description  string
 	Parameters   map[string]any
 	Capabilities []Capability
@@ -30,4 +31,11 @@ type Definition struct {
 type Tool interface {
 	Definition() Definition
 	Execute(context.Context, json.RawMessage) (any, error)
+}
+
+// InvocationSummarizer is optional. A tool can implement it to expose a safe,
+// human-readable subset of its arguments in CLAI's interface. It must never
+// return credentials or other secret values.
+type InvocationSummarizer interface {
+	InvocationSummary(json.RawMessage) string
 }

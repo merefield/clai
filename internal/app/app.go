@@ -270,8 +270,12 @@ func (a *Application) toolDefinitions() []model.ToolDefinition {
 }
 
 func (a *Application) runTool(ctx context.Context, call model.ToolCall) (string, error) {
-	a.UI.Info("Using tool \"" + call.Function.Name + "\"")
-	return a.Tools.Execute(ctx, call.Function.Name, call.Function.Arguments)
+	result, err := a.Tools.Execute(ctx, call.Function.Name, call.Function.Arguments)
+	if err != nil {
+		return "", err
+	}
+	a.UI.Info(a.Tools.InvocationSummary(call.Function.Name, call.Function.Arguments))
+	return result, nil
 }
 
 func (a *Application) resolveVariables(reply *model.Reply) error {

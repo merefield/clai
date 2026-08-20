@@ -323,6 +323,14 @@ The legacy `~/.clai_tools/*.sh` loader has been removed from the Go application.
 
 The initial [`wikipedia_lookup`](plugins/wikipedia/wikipedia.go) plugin searches Wikipedia, retrieves the best matching article's introductory plain-text extract, and returns its title, summary, language, and source URL. It uses the official MediaWiki [Search API](https://www.mediawiki.org/wiki/API:Search) and [TextExtracts API](https://www.mediawiki.org/wiki/Extension:TextExtracts).
 
+After a successful call, CLAI reports the tool and a plugin-controlled safe summary in the interface:
+
+```text
+Used the Wikipedia tool with query "Margaret Thatcher".
+```
+
+CLAI never prints raw tool arguments automatically. A plugin opts into additional detail through `InvocationSummarizer`, which prevents future plugins from accidentally displaying API keys or sensitive request fields.
+
 Tool calls are currently available through OpenAI, generic OpenAI-compatible endpoints, and Ollama. Anthropic and Gemini requests do not yet include CLAI tool definitions.
 
 ### Add a tool by copying the Wikipedia plugin
@@ -339,7 +347,7 @@ Then edit the copied package:
 
 1. Rename its Go package and `Plugin` implementation as desired.
 2. Define typed `Arguments` and `Result` structs.
-3. Change `Definition()` to provide the unique function name, model-facing description, JSON parameter schema, and capability metadata.
+3. Change `Definition()` to provide the unique function name, human-facing display name, model-facing description, JSON parameter schema, and capability metadata.
 4. Change `Execute()` to validate arguments, perform the operation with its `context.Context`, and return a JSON-marshalable result.
 5. Add the constructor to [`plugins/registry.go`](plugins/registry.go).
 6. Copy and adapt the tests, injecting an HTTP client or other dependency so tests do not contact the live service.
@@ -363,6 +371,7 @@ type Result struct {
 func (p *Plugin) Definition() tool.Definition {
 	return tool.Definition{
 		Name:         "my_service_lookup",
+		DisplayName:  "My Service",
 		Description:  "Look up information using My Service.",
 		Capabilities: []tool.Capability{tool.CapabilityNetworkRead},
 		Parameters: map[string]any{
@@ -382,6 +391,14 @@ func (p *Plugin) Execute(ctx context.Context, raw json.RawMessage) (any, error) 
 	}
 	// Perform the bounded, context-aware request here.
 	return Result{Answer: "...", Source: "https://example.com/..."}, nil
+}
+
+func (p *Plugin) InvocationSummary(raw json.RawMessage) string {
+	var arguments Arguments
+	if json.Unmarshal(raw, &arguments) != nil {
+		return ""
+	}
+	return fmt.Sprintf("with query %q", arguments.Query)
 }
 ```
 
@@ -427,7 +444,7 @@ func (p *Plugin) Execute(ctx context.Context, raw json.RawMessage) (any, error) 
 }
 ```
 
-Do not include API keys in the LLM-facing parameter schema, tool results, log messages, URLs, or returned errors. Environment variables remain part of the CLAI process and are not automatically sent to the model. A plugin can still leak them through its own code, so every added implementation must be reviewed.
+Do not include API keys in the LLM-facing parameter schema, invocation summary, tool results, log messages, URLs, or returned errors. Environment variables remain part of the CLAI process and are not automatically sent to the model. A plugin can still leak them through its own code, so every added implementation must be reviewed.
 
 > [!CAUTION]
 > Tool results are added to the conversation and may be sent to the configured model provider. Bound network timeouts and response sizes, return only necessary fields, include source URLs, and treat retrieved page content as untrusted data that may contain prompt injection.

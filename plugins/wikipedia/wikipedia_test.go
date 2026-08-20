@@ -60,6 +60,9 @@ func TestWikipediaLookupSearchesThenReturnsPlainTextExtract(t *testing.T) {
 	if result.URL != "https://en.wikipedia.org/wiki/Cretaceous%E2%80%93Paleogene_extinction_event" {
 		t.Fatalf("url = %q", result.URL)
 	}
+	if summary := plugin.InvocationSummary(json.RawMessage(`{"query":"K-Pg   extinction"}`)); summary != `with query "K-Pg extinction"` {
+		t.Fatalf("invocation summary = %q", summary)
+	}
 }
 
 func TestWikipediaLookupReturnsStructuredNotFoundResult(t *testing.T) {

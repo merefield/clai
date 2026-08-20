@@ -62,6 +62,7 @@ func New(client *http.Client) *Plugin {
 func (p *Plugin) Definition() tool.Definition {
 	return tool.Definition{
 		Name:         "wikipedia_lookup",
+		DisplayName:  "Wikipedia",
 		Description:  "Search Wikipedia and return the best matching article's title, introductory summary, and source URL. Use this for factual background that benefits from an encyclopedic source.",
 		Capabilities: []tool.Capability{tool.CapabilityNetworkRead},
 		Parameters: map[string]any{
@@ -81,6 +82,20 @@ func (p *Plugin) Definition() tool.Definition {
 			"required": []string{"query"},
 		},
 	}
+}
+
+// InvocationSummary deliberately exposes only the public search query. It does
+// not echo raw JSON arguments, keeping this pattern safe for keyed plugins.
+func (p *Plugin) InvocationSummary(raw json.RawMessage) string {
+	var arguments Arguments
+	if json.Unmarshal(raw, &arguments) != nil {
+		return ""
+	}
+	query := strings.Join(strings.Fields(arguments.Query), " ")
+	if query == "" {
+		return ""
+	}
+	return fmt.Sprintf("with query %q", query)
 }
 
 func (p *Plugin) Execute(ctx context.Context, raw json.RawMessage) (any, error) {

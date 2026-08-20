@@ -115,3 +115,28 @@ func (r *Registry) Execute(ctx context.Context, name, arguments string) (string,
 	}
 	return string(encoded), nil
 }
+
+// InvocationSummary describes a completed call without exposing raw arguments.
+// Details are included only when the implementation explicitly marks them safe.
+func (r *Registry) InvocationSummary(name, arguments string) string {
+	if r == nil {
+		return "Used an unknown tool."
+	}
+	implementation, exists := r.tools[name]
+	if !exists {
+		return fmt.Sprintf("Used tool %q.", name)
+	}
+	definition := implementation.Definition()
+	label := strings.Join(strings.Fields(definition.DisplayName), " ")
+	if label == "" {
+		label = definition.Name
+	}
+	message := "Used the " + label + " tool"
+	if summarizer, ok := implementation.(InvocationSummarizer); ok && json.Valid([]byte(arguments)) {
+		detail := strings.Join(strings.Fields(summarizer.InvocationSummary(json.RawMessage(arguments))), " ")
+		if detail != "" {
+			message += " " + detail
+		}
+	}
+	return message + "."
+}

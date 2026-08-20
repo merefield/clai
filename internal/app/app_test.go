@@ -179,4 +179,7 @@ func TestProcessCompletesToolRoundTrip(t *testing.T) {
 	if !foundToolResult {
 		t.Fatalf("history = %#v", application.History.Messages)
 	}
+	if !strings.Contains(out.String(), "Used the lookup tool.") {
+		t.Fatalf("tool invocation was not reported: %q", out.String())
+	}
 }
