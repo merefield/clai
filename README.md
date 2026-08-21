@@ -3,7 +3,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/merefield/clai/ci.yml?branch=main&label=CI&logo=github&style=flat-square)](https://github.com/merefield/clai/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/merefield/clai?display_name=tag&sort=semver&style=flat-square&cacheSeconds=300)](https://github.com/merefield/clai/releases/latest)
 [![Go 1.26.6](https://img.shields.io/badge/Go-1.26.6-00ADD8?logo=go&logoColor=white&style=flat-square)](go.mod)
-[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE.txt)
+[![License](https://img.shields.io/github/license/merefield/clai?style=flat-square&cacheSeconds=300)](LICENSE.txt)
 
 CLAI is an AI-powered terminal assistant that turns natural-language requests into shell commands you can inspect, edit, approve, or reject before they run.
 
@@ -673,4 +673,4 @@ Do not apply cleanup until the Go binary has passed your normal workflows. Befor
 
 CLAI is a hard fork of [`bash-ai`](https://github.com/Hezkore/bash-ai), which was inspired by [Your AI](https://github.com/ekkinox/yai).
 
-CLAI is distributed under the [GNU General Public License v3.0](LICENSE.txt).
+CLAI is distributed under the [GNU General Public License version 3 or any later version](LICENSE.txt).
