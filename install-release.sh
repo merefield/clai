@@ -67,6 +67,9 @@ if [ -z "$repository_owner" ] || [ -z "$repository_name" ] || [ "$repository_nam
 fi
 
 [ -n "$bin_dir" ] || fail "CLAI_BIN_DIR must not be empty"
+if { [ -e "$bin_dir" ] || [ -L "$bin_dir" ]; } && [ ! -d "$bin_dir" ]; then
+  fail "CLAI_BIN_DIR exists and is not a directory: $bin_dir"
+fi
 case "$binary_name" in
   ''|*/*) fail "CLAI_BIN_NAME must be a single file name" ;;
 esac

@@ -136,3 +136,29 @@ teardown() {
   [[ "$output" == *"unsupported operating system: FreeBSD"* ]]
   [ ! -e "$CURL_LOG" ]
 }
+
+@test "release installer rejects a bin path that is not a directory" {
+  occupied_path="$TEST_ROOT/not-a-directory"
+  printf 'occupied\n' > "$occupied_path"
+
+  run env \
+    PATH="$TEST_ROOT/fakebin:$PATH" \
+    CLAI_BIN_DIR="$occupied_path" \
+    sh ./install-release.sh
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"CLAI_BIN_DIR exists and is not a directory: $occupied_path"* ]]
+  [ ! -e "$CURL_LOG" ]
+
+  symlink_path="$TEST_ROOT/file-symlink"
+  ln -s "$occupied_path" "$symlink_path"
+
+  run env \
+    PATH="$TEST_ROOT/fakebin:$PATH" \
+    CLAI_BIN_DIR="$symlink_path" \
+    sh ./install-release.sh
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"CLAI_BIN_DIR exists and is not a directory: $symlink_path"* ]]
+  [ ! -e "$CURL_LOG" ]
+}
