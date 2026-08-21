@@ -1,5 +1,10 @@
 # CLAI
 
+[![CI](https://img.shields.io/github/actions/workflow/status/merefield/clai/ci.yml?branch=main&label=CI&logo=github&style=flat-square)](https://github.com/merefield/clai/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/merefield/clai?display_name=tag&sort=semver&style=flat-square)](https://github.com/merefield/clai/releases/latest)
+[![Go 1.26.6](https://img.shields.io/badge/Go-1.26.6-00ADD8?logo=go&logoColor=white&style=flat-square)](go.mod)
+[![License: GPL-3.0](https://img.shields.io/github/license/merefield/clai?style=flat-square)](LICENSE.txt)
+
 CLAI is an AI-powered terminal assistant that turns natural-language requests into shell commands you can inspect, edit, approve, or reject before they run.
 
 ```text
@@ -573,11 +578,21 @@ go test -race ./...
 
 Tests use fake providers and isolated temporary state; they do not make successful live API calls. CI runs the full `make check` workflow.
 
-GoReleaser builds static Linux and macOS archives and a checksum file from tags:
+GoReleaser builds static Linux and macOS archives and a checksum file from tags. Test the release configuration locally without publishing:
 
 ```bash
-goreleaser release --snapshot --clean
+goreleaser release --snapshot --clean --skip=publish
 ```
+
+Pushing a new semantic-version tag such as `v2.1.0` runs [the release workflow](.github/workflows/release.yml), repeats the complete check suite, and publishes only a GitHub Release with the configured archives and `checksums.txt`. No package manager, container registry, or announcement publisher is configured.
+
+Because `v2.0.0` was created before the workflow existed, publish it once after this workflow reaches `main`:
+
+```bash
+gh workflow run release.yml --ref main -f tag=v2.0.0
+```
+
+The workflow checks out and validates the selected tag before building, so the resulting binary version and archive names continue to come from that tag.
 
 ## Migration from the Bash version
 
