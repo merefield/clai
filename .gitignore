@@ -4,4 +4,5 @@ dev/
 /clai
 /dist/
 /.cache/
+/.gocache/
 *.out

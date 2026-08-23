@@ -26,11 +26,13 @@ const (
 )
 
 type Request struct {
-	Messages []model.Message
-	Tools    []model.ToolDefinition
+	Messages           []model.Message
+	Tools              []model.ToolDefinition
+	PreviousResponseID string
 }
 
 type Response struct {
+	ID           string
 	Text         string
 	FinishReason string
 	ToolCalls    []model.ToolCall
@@ -128,6 +130,9 @@ func (c *HTTPClient) build(input Request) (map[string]any, string, map[string]st
 }
 
 func (c *HTTPClient) openAIPayload(input Request) map[string]any {
+	if isResponses(c.config.API) {
+		return c.responsesPayload(input)
+	}
 	payload := map[string]any{"model": c.config.Model, "messages": input.Messages}
 	ollama := isOllama(c.config.API)
 	if ollama {
@@ -158,6 +163,100 @@ func (c *HTTPClient) openAIPayload(input Request) map[string]any {
 		payload["tool_choice"] = "auto"
 	}
 	return payload
+}
+
+func (c *HTTPClient) responsesPayload(input Request) map[string]any {
+	instructions, items := responsesInput(input.Messages, input.PreviousResponseID != "")
+	payload := map[string]any{
+		"model":             c.config.Model,
+		"input":             items,
+		"max_output_tokens": c.config.Tokens,
+	}
+	if input.PreviousResponseID != "" {
+		payload["previous_response_id"] = input.PreviousResponseID
+	}
+	if !isReasoningModel(c.config.Model) {
+		payload["temperature"] = c.config.Temperature
+	}
+	if instructions != "" {
+		payload["instructions"] = instructions
+	}
+	if c.config.JSONMode {
+		payload["text"] = map[string]any{"format": map[string]any{"type": "json_schema", "name": "clai_response", "strict": true, "schema": responseSchema()}}
+	}
+	if c.config.Reasoning != "" && isReasoningModel(c.config.Model) {
+		payload["reasoning"] = map[string]any{"effort": c.config.Reasoning}
+	}
+	if len(input.Tools) > 0 {
+		payload["tools"] = responsesTools(input.Tools)
+		payload["tool_choice"] = "auto"
+	}
+	return payload
+}
+
+func responsesInput(messages []model.Message, continuation bool) (string, []map[string]any) {
+	if continuation {
+		return "", responsesContinuationInput(messages)
+	}
+	var instructions []string
+	items := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		switch message.Role {
+		case "system":
+			if text := strings.TrimSpace(message.ContentText()); text != "" {
+				instructions = append(instructions, text)
+			}
+		case "tool":
+			items = append(items, map[string]any{"type": "function_call_output", "call_id": message.ToolCallID, "output": message.ContentText()})
+		default:
+			for _, call := range message.ToolCalls {
+				items = append(items, map[string]any{"type": "function_call", "call_id": call.ID, "name": call.Function.Name, "arguments": call.Function.Arguments})
+			}
+			if len(message.ToolCalls) == 0 && (message.Role == "user" || message.Role == "assistant") {
+				items = append(items, map[string]any{"role": message.Role, "content": message.ContentText()})
+			}
+		}
+	}
+	return strings.Join(instructions, "\n\n"), items
+}
+
+func responsesContinuationInput(messages []model.Message) []map[string]any {
+	start := 0
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role == "assistant" && len(messages[index].ToolCalls) > 0 {
+			start = index + 1
+			break
+		}
+	}
+	items := make([]map[string]any, 0)
+	for _, message := range messages[start:] {
+		if message.Role == "tool" {
+			items = append(items, map[string]any{"type": "function_call_output", "call_id": message.ToolCallID, "output": message.ContentText()})
+		}
+	}
+	return items
+}
+
+func responsesTools(tools []model.ToolDefinition) []model.ToolDefinition {
+	converted := make([]model.ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		function, _ := tool["function"].(map[string]any)
+		if tool["type"] == "function" && function != nil {
+			converted = append(converted, model.ToolDefinition{
+				"type":        "function",
+				"name":        function["name"],
+				"description": function["description"],
+				"parameters":  function["parameters"],
+			})
+			continue
+		}
+		copied := model.ToolDefinition{}
+		for key, value := range tool {
+			copied[key] = value
+		}
+		converted = append(converted, copied)
+	}
+	return converted
 }
 
 func (c *HTTPClient) anthropicPayload(input Request) map[string]any {
@@ -230,6 +329,9 @@ func (c *HTTPClient) parse(body []byte) (Response, error) {
 	case Gemini:
 		return parseGemini(raw)
 	default:
+		if isResponses(c.config.API) {
+			return parseResponses(raw)
+		}
 		if isOllama(c.config.API) {
 			message, _ := raw["message"].(map[string]any)
 			return Response{Text: contentString(message["content"]), FinishReason: stringField(raw, "done_reason"), ToolCalls: parseToolCalls(message["tool_calls"])}, nil
@@ -242,6 +344,42 @@ func (c *HTTPClient) parse(body []byte) (Response, error) {
 		message, _ := choice["message"].(map[string]any)
 		return Response{Text: contentString(message["content"]), FinishReason: stringField(choice, "finish_reason"), ToolCalls: parseToolCalls(message["tool_calls"])}, nil
 	}
+}
+
+func parseResponses(raw map[string]any) (Response, error) {
+	output, _ := raw["output"].([]any)
+	if len(output) == 0 {
+		return Response{}, errors.New("API returned no output")
+	}
+	var text strings.Builder
+	var calls []model.ToolCall
+	for index, item := range output {
+		object, _ := item.(map[string]any)
+		switch object["type"] {
+		case "message":
+			content, _ := object["content"].([]any)
+			for _, part := range content {
+				partObject, _ := part.(map[string]any)
+				if partObject["type"] == "output_text" || partObject["type"] == "text" {
+					fmt.Fprint(&text, contentString(partObject["text"]))
+				}
+			}
+		case "function_call":
+			id := contentString(object["call_id"])
+			if id == "" {
+				id = contentString(object["id"])
+			}
+			if id == "" {
+				id = fmt.Sprintf("response_tool_call_%d", index)
+			}
+			calls = append(calls, model.ToolCall{ID: id, Type: "function", Function: model.FunctionCall{Name: contentString(object["name"]), Arguments: contentString(object["arguments"])}})
+		}
+	}
+	finish := stringField(raw, "status")
+	if len(calls) > 0 {
+		finish = "tool_calls"
+	}
+	return Response{ID: stringField(raw, "id"), Text: text.String(), FinishReason: finish, ToolCalls: calls}, nil
 }
 
 func parseGemini(raw map[string]any) (Response, error) {
@@ -328,6 +466,10 @@ func geminiEndpoint(endpoint, selectedModel string) string {
 
 func isCompletions(endpoint string) bool {
 	return strings.Contains(endpoint, "/completions")
+}
+
+func isResponses(endpoint string) bool {
+	return strings.Contains(endpoint, "/responses")
 }
 
 func isOllama(endpoint string) bool {

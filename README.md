@@ -261,23 +261,35 @@ CLAI selects its native adapter from the configured `api` URL:
 
 | Provider | Typical endpoint | Authentication and behavior |
 | --- | --- | --- |
-| OpenAI | `https://api.openai.com/v1/chat/completions` | Bearer token; supports native JSON Schema and local tool calls. |
+| OpenAI Chat Completions | `https://api.openai.com/v1/chat/completions` | Bearer token; supports native JSON Schema and local tool calls. |
+| OpenAI Responses | `https://api.openai.com/v1/responses` | Bearer token; supports native JSON Schema, reasoning effort, and local tool calls through the Responses API. |
 | OpenAI-compatible | Provider-specific Chat Completions URL | Bearer token; uses the OpenAI-compatible message and tool format. |
 | Ollama | `http://localhost:11434/api/chat` | Uses the configured model, disables streaming, and supports Ollama tool-call responses. Keep `key` non-empty even if the service ignores it. |
 | Anthropic | `https://api.anthropic.com/v1/messages` | Uses `x-api-key` and the Messages payload. Local CLAI tools are not sent. |
 | Gemini | A `generativelanguage.googleapis.com` `generateContent` URL | Uses `x-goog-api-key`; the configured model replaces the model segment in the request URL. Local CLAI tools are not sent. |
 
-Provider detection is URL-based. Other URLs use the generic OpenAI-compatible adapter, so use a Chat Completions-compatible endpoint and model.
+Provider detection is URL-based. Use `/v1/responses` for OpenAI models that require or work best with the Responses API. Other URLs use the generic OpenAI-compatible adapter, so use a Chat Completions-compatible endpoint and model unless the provider explicitly implements the Responses request and response shape.
 
 When `json_mode=true`, CLAI requests provider-enforced structured JSON:
 
-- OpenAI uses JSON Schema.
+- OpenAI Chat Completions uses JSON Schema through `response_format`.
+- OpenAI Responses uses JSON Schema through `text.format`.
 - Generic OpenAI-compatible endpoints request a JSON object.
 - Ollama sends `format: "json"`.
 - Anthropic uses structured output configuration.
 - Gemini uses a JSON response schema.
 
-For Ollama, any non-empty `reasoning` value enables `think: true` and also requests JSON output. For OpenAI completion endpoints, `reasoning` is sent as `reasoning_effort` only for known reasoning-model families; generic compatible completion endpoints receive the configured value directly.
+For OpenAI Responses, `reasoning` is sent as `reasoning.effort` only for known reasoning-model families; CLAI also omits `temperature` for those reasoning models because they do not accept sampling parameters. For OpenAI Chat Completions, `reasoning` is sent as `reasoning_effort` only for known reasoning-model families; generic compatible completion endpoints receive the configured value directly. For Ollama, any non-empty `reasoning` value enables `think: true` and also requests JSON output.
+
+Example OpenAI Responses configuration:
+
+```ini
+key=sk-...
+api=https://api.openai.com/v1/responses
+model=gpt-5.2
+json_mode=true
+reasoning=medium
+```
 
 Example Ollama configuration:
 

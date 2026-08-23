@@ -344,7 +344,7 @@ func TestErrorTemplateUsesAValidRepairCommand(t *testing.T) {
 
 func TestProcessCompletesToolRoundTrip(t *testing.T) {
 	client := &fakeClient{tools: true, responses: []provider.Response{
-		{FinishReason: "tool_calls", ToolCalls: []model.ToolCall{{ID: "call-1", Type: "function", Function: model.FunctionCall{Name: "lookup", Arguments: `{}`}}}},
+		{ID: "resp-1", FinishReason: "tool_calls", ToolCalls: []model.ToolCall{{ID: "call-1", Type: "function", Function: model.FunctionCall{Name: "lookup", Arguments: `{}`}}}},
 		{FinishReason: "stop", Text: `{"cmd":"","info":"used tool-data","risk":"none","variables":[]}`},
 	}}
 	var out bytes.Buffer
@@ -361,6 +361,9 @@ func TestProcessCompletesToolRoundTrip(t *testing.T) {
 	}
 	if len(client.requests) != 2 {
 		t.Fatalf("requests = %d", len(client.requests))
+	}
+	if client.requests[1].PreviousResponseID != "resp-1" {
+		t.Fatalf("previous response id = %q", client.requests[1].PreviousResponseID)
 	}
 	foundToolResult := false
 	for _, message := range application.History.Messages {
