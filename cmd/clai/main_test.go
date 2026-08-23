@@ -18,7 +18,7 @@ func TestRootCommandVersion(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := output.String(), "clai version "+app.Version+"\n"; got != want {
+	if got, want := output.String(), "clai version "+app.CurrentVersion()+"\n"; got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }

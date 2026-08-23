@@ -111,6 +111,30 @@ teardown() {
   grep -q '/releases/download/v1.2.3/clai_1.2.3_darwin_arm64.tar.gz$' "$CURL_LOG"
 }
 
+@test "release installer accepts SemVer build metadata" {
+  export FIXTURE_TAG=v1.2.3+build.5
+  export FIXTURE_ASSET=clai_1.2.3+build.5_linux_amd64.tar.gz
+  sed -i 's/clai version 1.2.3/clai version 1.2.3+build.5/' "$FIXTURE_DIR/package/clai"
+  tar -czf "$FIXTURE_DIR/archive.tar.gz" -C "$FIXTURE_DIR/package" clai
+  export FIXTURE_HASH
+  FIXTURE_HASH=$(sha256sum "$FIXTURE_DIR/archive.tar.gz" | awk '{ print $1 }')
+
+  run env PATH="$TEST_ROOT/fakebin:$PATH" CLAI_BIN_DIR="$TEST_ROOT/nested/user/bin" \
+    sh ./install-release.sh --version "$FIXTURE_TAG"
+
+  [ "$status" -eq 0 ]
+  [ -x "$TEST_ROOT/nested/user/bin/clai" ]
+}
+
+@test "release installer rejects invalid semantic versions" {
+  run env PATH="$TEST_ROOT/fakebin:$PATH" CLAI_BIN_DIR="$TEST_ROOT/bin" \
+    sh ./install-release.sh --version v1.2.3-01
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"invalid semantic release tag"* ]]
+  [ ! -e "$CURL_LOG" ]
+}
+
 @test "release installer refuses a checksum mismatch" {
   export FIXTURE_HASH=0000000000000000000000000000000000000000000000000000000000000000
 
@@ -161,4 +185,20 @@ teardown() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"CLAI_BIN_DIR exists and is not a directory: $symlink_path"* ]]
   [ ! -e "$CURL_LOG" ]
+}
+
+@test "release installer requires an owner and repository" {
+  run env PATH="$TEST_ROOT/fakebin:$PATH" CLAI_REPOSITORY=clai CLAI_BIN_DIR="$TEST_ROOT/bin" sh ./install-release.sh
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"CLAI_REPOSITORY must have the form owner/repository"* ]]
+  [ ! -e "$CURL_LOG" ]
+}
+
+@test "release installer rejects a directory at the final target" {
+  mkdir "$TEST_ROOT/bin/clai"
+  run env PATH="$TEST_ROOT/fakebin:$PATH" CLAI_BIN_DIR="$TEST_ROOT/bin" sh ./install-release.sh
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"installation target exists and is a directory"* ]]
 }
