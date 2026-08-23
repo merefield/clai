@@ -26,11 +26,13 @@ const (
 )
 
 type Request struct {
-	Messages []model.Message
-	Tools    []model.ToolDefinition
+	Messages           []model.Message
+	Tools              []model.ToolDefinition
+	PreviousResponseID string
 }
 
 type Response struct {
+	ID           string
 	Text         string
 	FinishReason string
 	ToolCalls    []model.ToolCall
@@ -164,12 +166,17 @@ func (c *HTTPClient) openAIPayload(input Request) map[string]any {
 }
 
 func (c *HTTPClient) responsesPayload(input Request) map[string]any {
-	instructions, items := responsesInput(input.Messages)
+	instructions, items := responsesInput(input.Messages, input.PreviousResponseID != "")
 	payload := map[string]any{
 		"model":             c.config.Model,
 		"input":             items,
-		"temperature":       c.config.Temperature,
 		"max_output_tokens": c.config.Tokens,
+	}
+	if input.PreviousResponseID != "" {
+		payload["previous_response_id"] = input.PreviousResponseID
+	}
+	if !isReasoningModel(c.config.Model) {
+		payload["temperature"] = c.config.Temperature
 	}
 	if instructions != "" {
 		payload["instructions"] = instructions
@@ -177,7 +184,7 @@ func (c *HTTPClient) responsesPayload(input Request) map[string]any {
 	if c.config.JSONMode {
 		payload["text"] = map[string]any{"format": map[string]any{"type": "json_schema", "name": "clai_response", "strict": true, "schema": responseSchema()}}
 	}
-	if c.config.Reasoning != "" {
+	if c.config.Reasoning != "" && isReasoningModel(c.config.Model) {
 		payload["reasoning"] = map[string]any{"effort": c.config.Reasoning}
 	}
 	if len(input.Tools) > 0 {
@@ -187,7 +194,10 @@ func (c *HTTPClient) responsesPayload(input Request) map[string]any {
 	return payload
 }
 
-func responsesInput(messages []model.Message) (string, []map[string]any) {
+func responsesInput(messages []model.Message, continuation bool) (string, []map[string]any) {
+	if continuation {
+		return "", responsesContinuationInput(messages)
+	}
 	var instructions []string
 	items := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
@@ -208,6 +218,23 @@ func responsesInput(messages []model.Message) (string, []map[string]any) {
 		}
 	}
 	return strings.Join(instructions, "\n\n"), items
+}
+
+func responsesContinuationInput(messages []model.Message) []map[string]any {
+	start := 0
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role == "assistant" && len(messages[index].ToolCalls) > 0 {
+			start = index + 1
+			break
+		}
+	}
+	items := make([]map[string]any, 0)
+	for _, message := range messages[start:] {
+		if message.Role == "tool" {
+			items = append(items, map[string]any{"type": "function_call_output", "call_id": message.ToolCallID, "output": message.ContentText()})
+		}
+	}
+	return items
 }
 
 func responsesTools(tools []model.ToolDefinition) []model.ToolDefinition {
@@ -352,7 +379,7 @@ func parseResponses(raw map[string]any) (Response, error) {
 	if len(calls) > 0 {
 		finish = "tool_calls"
 	}
-	return Response{Text: text.String(), FinishReason: finish, ToolCalls: calls}, nil
+	return Response{ID: stringField(raw, "id"), Text: text.String(), FinishReason: finish, ToolCalls: calls}, nil
 }
 
 func parseGemini(raw map[string]any) (Response, error) {

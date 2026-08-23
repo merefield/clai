@@ -279,7 +279,7 @@ When `json_mode=true`, CLAI requests provider-enforced structured JSON:
 - Anthropic uses structured output configuration.
 - Gemini uses a JSON response schema.
 
-For OpenAI Responses, `reasoning` is sent as `reasoning.effort`. For OpenAI Chat Completions, `reasoning` is sent as `reasoning_effort` only for known reasoning-model families; generic compatible completion endpoints receive the configured value directly. For Ollama, any non-empty `reasoning` value enables `think: true` and also requests JSON output.
+For OpenAI Responses, `reasoning` is sent as `reasoning.effort` only for known reasoning-model families; CLAI also omits `temperature` for those reasoning models because they do not accept sampling parameters. For OpenAI Chat Completions, `reasoning` is sent as `reasoning_effort` only for known reasoning-model families; generic compatible completion endpoints receive the configured value directly. For Ollama, any non-empty `reasoning` value enables `think: true` and also requests JSON output.
 
 Example OpenAI Responses configuration:
 

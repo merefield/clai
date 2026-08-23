@@ -57,6 +57,9 @@ func TestResponsesPayloadUsesNativeInputStructuredOutputReasoningAndTools(t *tes
 	if _, exists := payload["response_format"]; exists {
 		t.Fatalf("responses payload should not contain chat response_format: %#v", payload)
 	}
+	if _, exists := payload["temperature"]; exists {
+		t.Fatalf("reasoning model responses payload should not contain temperature: %#v", payload)
+	}
 	input := payload["input"].([]map[string]any)
 	if input[0]["role"] != "user" || input[1]["role"] != "assistant" || input[2]["type"] != "function_call" || input[3]["type"] != "function_call_output" {
 		t.Fatalf("input = %#v", input)
@@ -77,6 +80,46 @@ func TestResponsesPayloadUsesNativeInputStructuredOutputReasoningAndTools(t *tes
 	}
 }
 
+func TestResponsesPayloadKeepsSamplingAndOmitsReasoningForNonReasoningModels(t *testing.T) {
+	cfg := &config.Config{API: "https://api.openai.com/v1/responses", Model: "gpt-4.1", Key: "secret", JSONMode: true, Reasoning: "medium", Tokens: 500, Temperature: 0.1}
+	client := &HTTPClient{config: cfg, kind: OpenAI}
+	payload := client.openAIPayload(Request{Messages: []model.Message{model.TextMessage("user", "hello")}})
+	if payload["temperature"].(float64) != 0.1 {
+		t.Fatalf("temperature = %#v", payload["temperature"])
+	}
+	if _, exists := payload["reasoning"]; exists {
+		t.Fatalf("non-reasoning model responses payload should not contain reasoning: %#v", payload)
+	}
+}
+
+func TestResponsesPayloadUsesPreviousResponseIDForToolContinuation(t *testing.T) {
+	cfg := &config.Config{API: "https://api.openai.com/v1/responses", Model: "gpt-5.2", Key: "secret", JSONMode: true, Reasoning: "medium", Tokens: 500, Temperature: 0.1}
+	client := &HTTPClient{config: cfg, kind: OpenAI}
+	olderTool := model.TextMessage("tool", "old")
+	olderTool.ToolCallID = "call_old"
+	latestTool := model.TextMessage("tool", "latest")
+	latestTool.ToolCallID = "call_latest"
+	payload := client.openAIPayload(Request{
+		PreviousResponseID: "resp_previous",
+		Messages: []model.Message{
+			model.TextMessage("system", "follow policy"),
+			olderTool,
+			{Role: "assistant", ToolCalls: []model.ToolCall{{ID: "call_latest", Type: "function", Function: model.FunctionCall{Name: "lookup", Arguments: `{}`}}}},
+			latestTool,
+		},
+	})
+	if payload["previous_response_id"] != "resp_previous" {
+		t.Fatalf("previous response id = %#v", payload["previous_response_id"])
+	}
+	if _, exists := payload["instructions"]; exists {
+		t.Fatalf("continuation should not resend instructions: %#v", payload)
+	}
+	input := payload["input"].([]map[string]any)
+	if len(input) != 1 || input[0]["type"] != "function_call_output" || input[0]["call_id"] != "call_latest" || input[0]["output"] != "latest" {
+		t.Fatalf("continuation input = %#v", input)
+	}
+}
+
 func TestCompleteOpenAIResponsesParsesMessagesAndToolCalls(t *testing.T) {
 	var request map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -89,7 +132,7 @@ func TestCompleteOpenAIResponsesParsesMessagesAndToolCalls(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
 		}
-		body := `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"partial "},{"type":"output_text","text":"answer"}]},{"type":"function_call","call_id":"call_abc","name":"wiki__lookup","arguments":"{\"query\":\"Ada\"}"}]}`
+		body := `{"id":"resp_123","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"partial "},{"type":"output_text","text":"answer"}]},{"type":"function_call","call_id":"call_abc","name":"wiki__lookup","arguments":"{\"query\":\"Ada\"}"}]}`
 		return jsonResponse(body), nil
 	})}
 	cfg := &config.Config{API: "https://api.openai.com/v1/responses", Model: "gpt-5.2", Key: "test-key", Tokens: 42, Temperature: 0.2}
@@ -98,7 +141,7 @@ func TestCompleteOpenAIResponsesParsesMessagesAndToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Text != "partial answer" || response.FinishReason != "tool_calls" || len(response.ToolCalls) != 1 {
+	if response.ID != "resp_123" || response.Text != "partial answer" || response.FinishReason != "tool_calls" || len(response.ToolCalls) != 1 {
 		t.Fatalf("response = %#v", response)
 	}
 	call := response.ToolCalls[0]

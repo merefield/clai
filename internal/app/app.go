@@ -245,10 +245,11 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		}
 	}
 	a.History.AppendText("user", query)
+	previousResponseID := ""
 	for round := 0; round < 9; round++ {
 		messages := a.messages(kind)
 		stop := a.UI.Spinner(ctx, "Thinking...")
-		response, err := a.Client.Complete(ctx, provider.Request{Messages: messages, Tools: a.toolDefinitions()})
+		response, err := a.Client.Complete(ctx, provider.Request{Messages: messages, Tools: a.toolDefinitions(), PreviousResponseID: previousResponseID})
 		stop()
 		if err != nil {
 			return err
@@ -257,6 +258,7 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 			if len(response.ToolCalls) == 0 {
 				return fmt.Errorf("API requested tools without supplying tool calls")
 			}
+			previousResponseID = response.ID
 			a.History.AppendToolCalls(response.ToolCalls)
 			for _, call := range response.ToolCalls {
 				output, toolErr := a.runTool(ctx, call)
