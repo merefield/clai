@@ -3,6 +3,9 @@ package runner
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -76,14 +79,20 @@ func TestBashDoesNotWaitIndefinitelyForBackgroundOutputPipes(t *testing.T) {
 }
 
 func TestBashCancellationKillsTheCommandGroup(t *testing.T) {
+	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "orphaned-child"))
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	result := (Bash{}).Run(ctx, `sleep 10 & wait`, false)
+	command := fmt.Sprintf(`(sleep 1; printf orphaned > %q) & wait`, marker)
+	result := (Bash{}).Run(ctx, command, false)
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("cancelled command took %s", elapsed)
 	}
 	if result.ExitCode == 0 {
 		t.Fatalf("result = %#v", result)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("cancelled child survived and wrote %s", marker)
 	}
 }

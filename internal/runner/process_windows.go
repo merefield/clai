@@ -3,8 +3,10 @@
 package runner
 
 import (
+	"errors"
 	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -17,7 +19,16 @@ func configureCommand(cmd *exec.Cmd) {
 		if cmd.Process == nil {
 			return os.ErrProcessDone
 		}
-		return cmd.Process.Kill()
+		// Process.Kill only terminates bash itself on Windows. taskkill /T
+		// follows the process tree so commands spawned by bash do not survive
+		// context cancellation.
+		if err := exec.Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F").Run(); err == nil {
+			return nil
+		}
+		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return err
+		}
+		return nil
 	}
 	cmd.WaitDelay = commandWaitDelay
 }
