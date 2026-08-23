@@ -25,6 +25,82 @@ func TestOpenAIPayloadUsesStructuredOutputAndTools(t *testing.T) {
 	}
 }
 
+func TestResponsesPayloadUsesNativeInputStructuredOutputReasoningAndTools(t *testing.T) {
+	cfg := &config.Config{API: "https://api.openai.com/v1/responses", Model: "gpt-5.2", Key: "secret", JSONMode: true, Reasoning: "medium", Tokens: 500, Temperature: 0.1}
+	client := &HTTPClient{config: cfg, kind: OpenAI}
+	payload := client.openAIPayload(Request{
+		Messages: []model.Message{
+			model.TextMessage("system", "follow policy"),
+			model.TextMessage("user", "hello"),
+			model.TextMessage("assistant", "hi"),
+			{Role: "assistant", ToolCalls: []model.ToolCall{{ID: "call_1", Type: "function", Function: model.FunctionCall{Name: "wiki__lookup", Arguments: `{"query":"Ada"}`}}}},
+			func() model.Message {
+				message := model.TextMessage("tool", `{"answer":"Ada Lovelace"}`)
+				message.ToolCallID = "call_1"
+				return message
+			}(),
+		},
+		Tools: []model.ToolDefinition{{"type": "function", "function": map[string]any{"name": "wiki__lookup", "description": "looks up a topic", "parameters": map[string]any{"type": "object"}}}},
+	})
+	if payload["instructions"] != "follow policy" {
+		t.Fatalf("instructions = %#v", payload["instructions"])
+	}
+	if _, exists := payload["messages"]; exists {
+		t.Fatalf("responses payload should not contain chat messages: %#v", payload)
+	}
+	input := payload["input"].([]map[string]any)
+	if input[0]["role"] != "user" || input[1]["role"] != "assistant" || input[2]["type"] != "function_call" || input[3]["type"] != "function_call_output" {
+		t.Fatalf("input = %#v", input)
+	}
+	text := payload["text"].(map[string]any)
+	if text["format"].(map[string]any)["type"] != "json_schema" {
+		t.Fatalf("text format = %#v", text)
+	}
+	if payload["reasoning"].(map[string]any)["effort"] != "medium" {
+		t.Fatalf("reasoning = %#v", payload["reasoning"])
+	}
+	tools := payload["tools"].([]model.ToolDefinition)
+	if tools[0]["name"] != "wiki__lookup" {
+		t.Fatalf("tools = %#v", tools)
+	}
+	if _, exists := tools[0]["function"]; exists {
+		t.Fatalf("responses tool should be flat: %#v", tools[0])
+	}
+}
+
+func TestCompleteOpenAIResponsesParsesMessagesAndToolCalls(t *testing.T) {
+	var request map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != "https://api.openai.com/v1/responses" {
+			t.Errorf("endpoint = %q", r.URL.String())
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		body := `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"partial "},{"type":"output_text","text":"answer"}]},{"type":"function_call","call_id":"call_abc","name":"wiki__lookup","arguments":"{\"query\":\"Ada\"}"}]}`
+		return jsonResponse(body), nil
+	})}
+	cfg := &config.Config{API: "https://api.openai.com/v1/responses", Model: "gpt-5.2", Key: "test-key", Tokens: 42, Temperature: 0.2}
+	client := New(cfg, httpClient)
+	response, err := client.Complete(context.Background(), Request{Messages: []model.Message{model.TextMessage("user", "hello")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text != "partial answer" || response.FinishReason != "tool_calls" || len(response.ToolCalls) != 1 {
+		t.Fatalf("response = %#v", response)
+	}
+	call := response.ToolCalls[0]
+	if call.ID != "call_abc" || call.Function.Name != "wiki__lookup" || call.Function.Arguments != `{"query":"Ada"}` {
+		t.Fatalf("tool call = %#v", call)
+	}
+	if request["max_output_tokens"].(float64) != 42 {
+		t.Fatalf("payload = %#v", request)
+	}
+}
+
 func TestCompleteGenericOpenAICompatible(t *testing.T) {
 	var request map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -66,6 +142,9 @@ func TestGeminiEndpointUsesConfiguredModel(t *testing.T) {
 func TestDetectProviders(t *testing.T) {
 	if Detect("https://api.openai.com/v1/chat/completions") != OpenAI {
 		t.Fatal("openai detection")
+	}
+	if Detect("https://api.openai.com/v1/responses") != OpenAI {
+		t.Fatal("openai responses detection")
 	}
 	if Detect("https://api.anthropic.com/v1/messages") != Anthropic {
 		t.Fatal("anthropic detection")
