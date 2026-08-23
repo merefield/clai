@@ -16,6 +16,12 @@ func TestOpenAIPayloadUsesStructuredOutputAndTools(t *testing.T) {
 	cfg := &config.Config{API: "https://api.openai.com/v1/chat/completions", Model: "gpt-4.1", Key: "secret", JSONMode: true, Tokens: 500, Temperature: 0.1}
 	client := &HTTPClient{config: cfg, kind: OpenAI}
 	payload := client.openAIPayload(Request{Messages: []model.Message{model.TextMessage("user", "hello")}, Tools: []model.ToolDefinition{{"type": "function"}}})
+	if _, exists := payload["messages"]; !exists {
+		t.Fatalf("chat completions payload should contain messages: %#v", payload)
+	}
+	if _, exists := payload["input"]; exists {
+		t.Fatalf("chat completions payload should not contain responses input: %#v", payload)
+	}
 	format, ok := payload["response_format"].(map[string]any)
 	if !ok || format["type"] != "json_schema" {
 		t.Fatalf("response_format = %#v", payload["response_format"])
@@ -47,6 +53,9 @@ func TestResponsesPayloadUsesNativeInputStructuredOutputReasoningAndTools(t *tes
 	}
 	if _, exists := payload["messages"]; exists {
 		t.Fatalf("responses payload should not contain chat messages: %#v", payload)
+	}
+	if _, exists := payload["response_format"]; exists {
+		t.Fatalf("responses payload should not contain chat response_format: %#v", payload)
 	}
 	input := payload["input"].([]map[string]any)
 	if input[0]["role"] != "user" || input[1]["role"] != "assistant" || input[2]["type"] != "function_call" || input[3]["type"] != "function_call_output" {
