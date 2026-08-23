@@ -64,11 +64,12 @@ curl -fsSL https://raw.githubusercontent.com/merefield/clai/main/install-release
   CLAI_BIN_DIR="$HOME/.local/bin" sh
 ```
 
-Ensure `$HOME/.local/bin` is on `PATH` if you use that location. To install a particular release reproducibly, provide its tag:
+Ensure `$HOME/.local/bin` is on `PATH` if you use that location. To install a particular release reproducibly, replace `vX.Y.Z` with a tag from [Releases](https://github.com/merefield/clai/releases):
 
 ```bash
+release_tag=vX.Y.Z
 curl -fsSL https://raw.githubusercontent.com/merefield/clai/main/install-release.sh |
-  sh -s -- --version v1.2.3
+  sh -s -- --version "$release_tag"
 ```
 
 On Windows, download and inspect the PowerShell installer, then run it for the current process without changing the machine-wide execution policy:

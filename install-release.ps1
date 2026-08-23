@@ -45,6 +45,8 @@ switch ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString())
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $headers = @{ "User-Agent" = "clai-release-installer" }
+$webRequestArgs = @{}
+if ($PSVersionTable.PSVersion.Major -lt 6) { $webRequestArgs.UseBasicParsing = $true }
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("clai-release-install-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 
@@ -66,8 +68,8 @@ try {
 
     Write-Host "Downloading CLAI $releaseTag for windows/$releaseArch..."
     try {
-        Invoke-WebRequest -Uri "$releaseUrl/$archiveName" -Headers $headers -OutFile $archivePath -UseBasicParsing
-        Invoke-WebRequest -Uri "$releaseUrl/checksums.txt" -Headers $headers -OutFile $checksumsPath -UseBasicParsing
+        Invoke-WebRequest -Uri "$releaseUrl/$archiveName" -Headers $headers -OutFile $archivePath @webRequestArgs
+        Invoke-WebRequest -Uri "$releaseUrl/checksums.txt" -Headers $headers -OutFile $checksumsPath @webRequestArgs
     } catch { Fail "release download failed: $($_.Exception.Message)" }
 
     $matchingChecksums = @(Get-Content -LiteralPath $checksumsPath | ForEach-Object {
