@@ -84,7 +84,7 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 	if err := a.ensureToolsLoaded(ctx); err != nil {
 		return err
 	}
-	a.UI.Title(Version, a.Tools.Names())
+	a.UI.Title(CurrentVersion(), a.Tools.Names())
 	a.UI.Info(`Hi! Ask a terminal question or give me a task. Type "exit" when done.`)
 	for {
 		query, err := a.UI.Prompt("CLAI> ")

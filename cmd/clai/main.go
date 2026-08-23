@@ -25,7 +25,7 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 	return &cobra.Command{
 		Use:                "clai [request...]",
 		Short:              "AI-powered terminal assistant",
-		Version:            app.Version,
+		Version:            app.CurrentVersion(),
 		DisableFlagParsing: true,
 		SilenceErrors:      true,
 		SilenceUsage:       true,
@@ -35,7 +35,7 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 				return command.Help()
 			}
 			if len(args) == 1 && (args[0] == "--version" || args[0] == "-v") {
-				fmt.Fprintf(command.OutOrStdout(), "clai version %s\n", app.Version)
+				fmt.Fprintf(command.OutOrStdout(), "clai version %s\n", app.CurrentVersion())
 				return nil
 			}
 			if len(args) >= 1 && args[0] == "shell-init" {

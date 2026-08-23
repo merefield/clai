@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -26,7 +27,7 @@ func TestLoadCreatesCompatibleDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %o", info.Mode().Perm())
 	}
 	contents, err := os.ReadFile(path)
@@ -76,7 +77,7 @@ func TestEnsureSecuresAnExistingRegularConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %o", info.Mode().Perm())
 	}
 }
@@ -93,7 +94,7 @@ func TestEnsureRejectsNonRegularConfigPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.IsDir() || info.Mode().Perm() != 0o755 {
+	if !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o755) {
 		t.Fatalf("directory was modified: mode=%v", info.Mode())
 	}
 }
@@ -115,7 +116,7 @@ func TestEnsureRejectsConfigSymlinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 		t.Fatalf("symlink target mode changed to %o", info.Mode().Perm())
 	}
 }

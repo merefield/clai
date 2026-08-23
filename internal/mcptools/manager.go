@@ -522,7 +522,7 @@ func readManifest(path string) (Manifest, bool, error) {
 	if !info.Mode().IsRegular() {
 		return Manifest{}, false, fmt.Errorf("read MCP manifest %s: not a regular file", path)
 	}
-	if info.Mode().Perm()&0o022 != 0 {
+	if insecureWritePermissions(info) {
 		return Manifest{}, false, fmt.Errorf("read MCP manifest %s: file must not be group- or world-writable", path)
 	}
 	file, err := os.Open(path)
@@ -568,10 +568,10 @@ func validateManifest(manifest *Manifest) error {
 	if err != nil {
 		return fmt.Errorf("inspect command %s: %w", command, err)
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+	if !executableRegularFile(info) {
 		return fmt.Errorf("command %s is not an executable regular file", command)
 	}
-	if info.Mode().Perm()&0o022 != 0 {
+	if insecureWritePermissions(info) {
 		return fmt.Errorf("command %s must not be group- or world-writable", command)
 	}
 	manifest.resolvedCommand = command
@@ -652,7 +652,7 @@ func readDefinitionCache(directory string) (definitionCache, error) {
 	if err != nil {
 		return empty, fmt.Errorf("read MCP definition cache: %w", err)
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+	if !privateRegularFile(info) {
 		return empty, fmt.Errorf("read MCP definition cache: %s must be a private regular file", path)
 	}
 	file, err := os.Open(path)

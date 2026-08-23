@@ -1,6 +1,7 @@
 package app
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"os/user"
@@ -10,9 +11,20 @@ import (
 	"github.com/merefield/clai/internal/model"
 )
 
-// Version is a development fallback. Release builds replace it from the Git
-// tag through GoReleaser's -X linker flag.
-var Version = "dev"
+//go:embed VERSION
+var sourceVersion string
+
+// buildVersion is populated from the release tag by GoReleaser.
+var buildVersion string
+
+// CurrentVersion returns the release build version, or the maintained source
+// version for local builds.
+func CurrentVersion() string {
+	if version := strings.TrimSpace(buildVersion); version != "" {
+		return strings.TrimPrefix(version, "v")
+	}
+	return strings.TrimSpace(sourceVersion)
+}
 
 const defaultExecQuery = "Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'cmd' must contain one or more shell commands that perform the task, or be empty only as a last resort. 'info' must be a single-line explanation. 'risk' must be exactly 'none', 'reversible change', or 'danger zone'. Use 'none' only for read-only inspection. Use 'reversible change' for changes that are normally undoable. Use 'danger zone' for deletion, overwrite, reset, force, or hard-to-reverse changes. 'variables' must be an array. Represent missing user values as {{variable_name}} in cmd and info and include matching objects with name and prompt. Do not quote placeholders in cmd; CLAI shell-escapes substitutions."
 
@@ -30,7 +42,7 @@ func systemPrompt(configPath, statePath, toolCapability string) string {
 		}
 	}
 	home, _ := os.UserHomeDir()
-	return fmt.Sprintf("You are CLAI (clai) v%s, an advanced terminal assistant. Give precise curt answers without sign-offs or platitudes. Help with terminal tasks and explicit information requests. Respond with one JSON object containing cmd, info, risk, and variables after any necessary tool calls. The user runs %s/%s as %s with home %s. LANG=%s and LC_TIME=%s. CLAI config: %s. State: %s. %s", Version, runtime.GOOS, runtime.GOARCH, currentUser, home, os.Getenv("LANG"), os.Getenv("LC_TIME"), configPath, statePath, toolCapability)
+	return fmt.Sprintf("You are CLAI (clai) v%s, an advanced terminal assistant. Give precise curt answers without sign-offs or platitudes. Help with terminal tasks and explicit information requests. Respond with one JSON object containing cmd, info, risk, and variables after any necessary tool calls. The user runs %s/%s as %s with home %s. LANG=%s and LC_TIME=%s. CLAI config: %s. State: %s. %s", CurrentVersion(), runtime.GOOS, runtime.GOARCH, currentUser, home, os.Getenv("LANG"), os.Getenv("LC_TIME"), configPath, statePath, toolCapability)
 }
 
 func ShellInit(shell string) (string, error) {

@@ -39,8 +39,8 @@ The primary implementation is now Go. It keeps the existing `clai <request...>` 
 
 To run a compiled CLAI binary:
 
-- Linux or macOS on AMD64 or ARM64
-- Bash, used to execute approved commands
+- Linux, macOS, or Windows on AMD64 or ARM64
+- Bash on `PATH`, used to execute approved commands (Git Bash is suitable on Windows)
 - An API key, provider credential, or non-empty placeholder required by a local service configuration
 
 The Go binary implements HTTP, JSON, and tool handling itself. It does not require `curl` or `jq`.
@@ -64,14 +64,24 @@ curl -fsSL https://raw.githubusercontent.com/merefield/clai/main/install-release
   CLAI_BIN_DIR="$HOME/.local/bin" sh
 ```
 
-Ensure `$HOME/.local/bin` is on `PATH` if you use that location. To install a particular release reproducibly, provide its tag:
+Ensure `$HOME/.local/bin` is on `PATH` if you use that location. To install a particular release reproducibly, replace `vX.Y.Z` with a tag from [Releases](https://github.com/merefield/clai/releases):
 
 ```bash
+release_tag=vX.Y.Z
 curl -fsSL https://raw.githubusercontent.com/merefield/clai/main/install-release.sh |
-  sh -s -- --version v1.2.3
+  sh -s -- --version "$release_tag"
 ```
 
-You can also download and inspect [`install-release.sh`](install-release.sh) before running it. The installer supports `--help`, `--version TAG`, and `--bin-dir DIR`; the equivalent environment variables are `CLAI_VERSION` and `CLAI_BIN_DIR`.
+On Windows, download and inspect the PowerShell installer, then run it for the current process without changing the machine-wide execution policy:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/merefield/clai/main/install-release.ps1 -OutFile install-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-release.ps1
+```
+
+The Unix installer supports `--help`, `--version TAG`, and `--bin-dir DIR`; the PowerShell installer accepts `-Version`, `-BinDir`, and `-Repository`. Both also support the corresponding `CLAI_*` environment variables.
+
+The Windows installer defaults to `%LOCALAPPDATA%\Programs\clai\bin` and reports when that directory must be added to `PATH`. CLAI still invokes Bash for approved commands, so install Git Bash or another Windows Bash and ensure `bash.exe` is on `PATH`.
 
 After installation, configure a provider and try a request:
 
@@ -115,8 +125,7 @@ make build
 make install PREFIX="$HOME/.local"
 ```
 
-Release archives are configured through [GoReleaser](.goreleaser.yaml) for Linux and macOS on AMD64 and ARM64. Release binaries report the release tag as their version.
-Ordinary source builds report `clai version dev`, so release numbers have a single source of truth: the Git tag.
+Release archives are configured through [GoReleaser](.goreleaser.yaml) for Linux, macOS, and Windows on AMD64 and ARM64. Release binaries report the release tag as their version. Local builds read the maintained version from [`internal/app/VERSION`](internal/app/VERSION); the release workflow refuses a tag that does not match it.
 
 ## First run and setup
 
@@ -590,21 +599,15 @@ go test -race ./...
 
 Tests use fake providers and isolated temporary state; they do not make successful live API calls. CI runs the full `make check` workflow.
 
-GoReleaser builds static Linux and macOS archives and a checksum file from tags. Test the release configuration locally without publishing:
+GoReleaser builds static Linux, macOS, and Windows archives and a checksum file from tags. Test the release configuration locally without publishing:
 
 ```bash
 goreleaser release --snapshot --clean --skip=publish
 ```
 
-Pushing a new semantic-version tag such as `v2.1.0` runs [the release workflow](.github/workflows/release.yml), repeats the complete check suite, and publishes only a GitHub Release with the configured archives and `checksums.txt`. No package manager, container registry, or announcement publisher is configured.
+Pushing a semantic-version tag that matches [`internal/app/VERSION`](internal/app/VERSION) runs [the release workflow](.github/workflows/release.yml), repeats the complete cross-platform check suite, and publishes only a GitHub Release with the configured archives and `checksums.txt`. No package manager, container registry, or announcement publisher is configured. The workflow checks out and validates the selected tag before building, so the binary version and archive names continue to come from that tag.
 
-Because `v2.0.0` was created before the workflow existed, publish it once after this workflow reaches `main`:
-
-```bash
-gh workflow run release.yml --ref main -f tag=v2.0.0
-```
-
-The workflow checks out and validates the selected tag before building, so the resulting binary version and archive names continue to come from that tag.
+For a new release, update `internal/app/VERSION` in the release PR, merge it, then create and push the matching `vX.Y.Z` tag from that merge commit. Do not maintain the release number in any other source or workflow file.
 
 ## Migration from the Bash version
 

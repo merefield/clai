@@ -11,6 +11,7 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
@@ -18,10 +19,13 @@ builds:
       - -buildvcs=false
       - -trimpath
     ldflags:
-      - -s -w -X github.com/merefield/clai/internal/app.Version={{ .Version }}
+      - -s -w -X github.com/merefield/clai/internal/app.buildVersion={{ .Version }}
 
 archives:
   - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
