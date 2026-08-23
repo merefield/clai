@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -241,6 +242,9 @@ func TestDefaultDirectoryHonoursOverride(t *testing.T) {
 }
 
 func TestManifestRejectsWritableFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ACLs are not represented by os.FileMode permission bits")
+	}
 	directory := t.TempDir()
 	commandPath := filepath.Join(directory, "tool")
 	if err := os.WriteFile(commandPath, []byte("#!/bin/sh\n"), 0o700); err != nil {
