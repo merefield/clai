@@ -197,7 +197,7 @@ func (c *HTTPClient) evaluate(ctx context.Context, payload request) (map[string]
 		return nil, fmt.Errorf("read system one response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("system one request failed (HTTP %d): %s", resp.StatusCode, strings.TrimSpace(string(responseBody)))
+		return nil, fmt.Errorf("system one request failed (HTTP %d): %q", resp.StatusCode, strings.TrimSpace(string(responseBody)))
 	}
 	var decoded response
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {

@@ -274,3 +274,34 @@ func TestChoiceResponseValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPErrorEscapesTerminalControls(t *testing.T) {
+	for _, body := range []string{
+		"service unavailable",
+		"failure\x1b[2J\x1b[Hforged success",
+		"failure\x1b]52;c;c2VjcmV0\a",
+		"failure\rforged\nmessage\b\t\x00",
+		"failure\u009b2J\u009d52;c;data\u009c",
+	} {
+		t.Run(fmt.Sprintf("%q", body), func(t *testing.T) {
+			client, err := New("key", "https://example.test", "model", &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				response := jsonResponse(body)
+				response.StatusCode = http.StatusBadGateway
+				return response, nil
+			})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.AuditRisk(context.Background(), RiskRequest{})
+			want := fmt.Sprintf("system one request failed (HTTP 502): %q", strings.TrimSpace(body))
+			if err == nil || err.Error() != want {
+				t.Fatalf("error = %v; want %s", err, want)
+			}
+			for _, r := range err.Error() {
+				if r < 32 || (r >= 127 && r <= 159) {
+					t.Fatalf("raw terminal control %U in error", r)
+				}
+			}
+		})
+	}
+}
