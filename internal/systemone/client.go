@@ -65,11 +65,11 @@ type response struct {
 }
 
 type answer struct {
-	Type       string             `json:"type"`
-	Choice     string             `json:"choice,omitempty"`
-	Confidence float64            `json:"confidence,omitempty"`
-	Prob       map[string]float64 `json:"probabilities,omitempty"`
-	Noul       float64            `json:"noul,omitempty"`
+	Type       string              `json:"type"`
+	Choice     string              `json:"choice,omitempty"`
+	Confidence *float64            `json:"confidence,omitempty"`
+	Prob       map[string]*float64 `json:"probabilities,omitempty"`
+	Noul       float64             `json:"noul,omitempty"`
 }
 
 func Configured(key, api, model string) bool {
@@ -143,7 +143,7 @@ func (c *HTTPClient) RouteIntent(ctx context.Context, input IntentRequest) (Inte
 	if !ok || value.Type != "choice" || value.Choice == "" {
 		return IntentDecision{}, fmt.Errorf("system one intent response missing choice")
 	}
-	return IntentDecision{Intent: value.Choice, Confidence: value.Confidence}, nil
+	return IntentDecision{Intent: value.Choice, Confidence: *value.Confidence}, nil
 }
 
 func (c *HTTPClient) AuditRisk(ctx context.Context, input RiskRequest) (RiskDecision, error) {
@@ -170,7 +170,7 @@ func (c *HTTPClient) AuditRisk(ctx context.Context, input RiskRequest) (RiskDeci
 	if !ok || value.Type != "choice" || value.Choice == "" {
 		return RiskDecision{}, fmt.Errorf("system one risk response missing choice")
 	}
-	return RiskDecision{Risk: value.Choice, Confidence: value.Confidence}, nil
+	return RiskDecision{Risk: value.Choice, Confidence: *value.Confidence}, nil
 }
 
 func (c *HTTPClient) evaluate(ctx context.Context, payload request) (map[string]answer, error) {
@@ -206,10 +206,45 @@ func (c *HTTPClient) evaluate(ctx context.Context, payload request) (map[string]
 	if len(decoded.Answers) == 0 {
 		return nil, fmt.Errorf("system one response returned no answers")
 	}
-	for name, value := range decoded.Answers {
-		if !ValidConfidence(value.Confidence) {
-			return nil, fmt.Errorf("system one %s response confidence must be within [0, 1]", name)
+	for name, question := range payload.Questions {
+		value, present := decoded.Answers[name]
+		criteria, ok := question["criteria"].(map[string]string)
+		if !present || !ok || value.Type != "choice" {
+			return nil, fmt.Errorf("system one %s response missing valid choice", name)
+		}
+		if err := validateChoice(value, criteria); err != nil {
+			return nil, fmt.Errorf("system one %s response: %w", name, err)
 		}
 	}
 	return decoded.Answers, nil
+}
+
+func validateChoice(value answer, criteria map[string]string) error {
+	if _, ok := criteria[value.Choice]; !ok {
+		return fmt.Errorf("choice is not a submitted criterion")
+	}
+	if value.Confidence == nil || !ValidConfidence(*value.Confidence) {
+		return fmt.Errorf("confidence must be present and within [0, 1]")
+	}
+	if len(value.Prob) != len(criteria) {
+		return fmt.Errorf("probabilities must include exactly the submitted criteria")
+	}
+	total := 0.0
+	for option := range criteria {
+		probability := value.Prob[option]
+		if probability == nil || !ValidConfidence(*probability) {
+			return fmt.Errorf("probability for %q must be present and within [0, 1]", option)
+		}
+		total += *probability
+	}
+	// Allow floating-point rounding without accepting an unnormalized distribution.
+	if math.Abs(total-1) > 1e-6 {
+		return fmt.Errorf("probabilities must sum to 1")
+	}
+	for _, probability := range value.Prob {
+		if *probability > *value.Prob[value.Choice] {
+			return fmt.Errorf("choice must have the highest probability")
+		}
+	}
+	return nil
 }
