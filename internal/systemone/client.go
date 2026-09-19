@@ -230,15 +230,23 @@ func validateChoice(value answer, criteria map[string]string) error {
 		return fmt.Errorf("probabilities must include exactly the submitted criteria")
 	}
 	total := 0.0
+	twoDecimal := true
 	for option := range criteria {
 		probability := value.Prob[option]
 		if probability == nil || !ValidConfidence(*probability) {
 			return fmt.Errorf("probability for %q must be present and within [0, 1]", option)
 		}
 		total += *probability
+		if math.Abs(*probability*100-math.Round(*probability*100)) > 1e-9 {
+			twoDecimal = false
+		}
 	}
-	// Allow floating-point rounding without accepting an unnormalized distribution.
-	if math.Abs(total-1) > 1e-6 {
+	// Two-decimal distributions can lose up to half a hundredth per option.
+	tolerance := 1e-6
+	if twoDecimal {
+		tolerance += 0.005 * float64(len(criteria))
+	}
+	if math.Abs(total-1) > tolerance {
 		return fmt.Errorf("probabilities must sum to 1")
 	}
 	for _, probability := range value.Prob {

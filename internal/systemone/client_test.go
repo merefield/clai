@@ -242,6 +242,11 @@ func TestChoiceResponseValidation(t *testing.T) {
 			{"valid", "selected", "1", `{"selected":1,"other":0,"last":0}`, true},
 			{"tie", "selected", "0", `{"selected":0.5,"other":0.5,"last":0}`, true},
 			{"rounding", "selected", "0", `{"selected":0.3333333,"other":0.3333333,"last":0.3333333}`, true},
+			{"two decimal sum below one", "selected", "0", `{"selected":0.33,"other":0.33,"last":0.33}`, true},
+			{"two decimal sum above one", "selected", "0", `{"selected":0.34,"other":0.34,"last":0.33}`, true},
+			{"two decimal sum too low", "selected", "0", `{"selected":0.34,"other":0.32,"last":0.32}`, false},
+			{"two decimal sum too high", "selected", "0", `{"selected":0.34,"other":0.34,"last":0.34}`, false},
+			{"higher precision stays strict", "selected", "0", `{"selected":0.333,"other":0.333,"last":0.333}`, false},
 		} {
 			t.Run(kind+"/"+tc.name, func(t *testing.T) {
 				replacer := strings.NewReplacer("selected", "none", "other", "reversible_change", "last", "danger_zone")
