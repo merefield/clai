@@ -15,6 +15,7 @@ import (
 	"github.com/merefield/clai/internal/model"
 	"github.com/merefield/clai/internal/provider"
 	"github.com/merefield/clai/internal/runner"
+	"github.com/merefield/clai/internal/systemone"
 	"github.com/merefield/clai/internal/ui"
 	"github.com/merefield/clai/pkg/tool"
 )
@@ -24,6 +25,7 @@ type Application struct {
 	History     *history.Store
 	Tools       *tool.Registry
 	Client      provider.Client
+	SystemOne   systemone.Client
 	Runner      runner.Runner
 	UI          *ui.Console
 	ToolManager *mcptools.Manager
@@ -53,7 +55,14 @@ func New(_ context.Context, in io.Reader, out, errOut io.Writer) (*Application, 
 		return nil, fmt.Errorf("initialize external tools: %w", err)
 	}
 	console := ui.New(in, out, errOut, cfg.HighContrast)
-	return &Application{Config: cfg, History: historyStore, Tools: toolManager.Registry(), Client: provider.New(cfg, nil), Runner: runner.Bash{Stdout: out, Stderr: errOut}, UI: console, ToolManager: toolManager}, nil
+	var systemOne systemone.Client
+	if strings.TrimSpace(cfg.SystemOneKey) != "" && strings.TrimSpace(cfg.SystemOneModel) != "" {
+		systemOne, err = systemone.New(cfg.SystemOneKey, cfg.SystemOneAPI, cfg.SystemOneModel, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &Application{Config: cfg, History: historyStore, Tools: toolManager.Registry(), Client: provider.New(cfg, nil), SystemOne: systemOne, Runner: runner.Bash{Stdout: out, Stderr: errOut}, UI: console, ToolManager: toolManager}, nil
 }
 
 func (a *Application) Close() error {
@@ -216,6 +225,14 @@ func (a *Application) setup() error {
 		return err
 	}
 	a.Client = provider.New(a.Config, nil)
+	if strings.TrimSpace(a.Config.SystemOneKey) != "" && strings.TrimSpace(a.Config.SystemOneModel) != "" {
+		a.SystemOne, err = systemone.New(a.Config.SystemOneKey, a.Config.SystemOneAPI, a.Config.SystemOneModel, nil)
+		if err != nil {
+			return err
+		}
+	} else {
+		a.SystemOne = nil
+	}
 	fmt.Fprintln(a.UI.Out, "CLAI configuration updated.")
 	return nil
 }
@@ -237,12 +254,12 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 			return err
 		}
 	}
-	kind := requestedKind
-	if kind == "" {
-		kind = "execute"
-		if isQuestion(query) {
-			kind = "question"
-		}
+	kind, err := a.routeIntent(ctx, query, requestedKind)
+	if err != nil {
+		return err
+	}
+	if kind == "clear_history" {
+		return a.clearHistory()
 	}
 	a.History.AppendText("user", query)
 	previousResponseID := ""
@@ -288,6 +305,10 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		if HasPlaceholders(reply.Command) || HasPlaceholders(reply.Info) {
 			reply = model.Reply{Info: "CLAI returned unresolved placeholders. Rephrase the request or specify missing values.", Risk: model.RiskNone, Variables: []model.Variable{}}
 		}
+		forceConfirm, err := a.auditRisk(ctx, query, &reply)
+		if err != nil {
+			return err
+		}
 		if err := a.History.AppendReply(reply); err != nil {
 			return err
 		}
@@ -295,9 +316,82 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		if reply.Command == "" {
 			return nil
 		}
-		return a.confirmAndRun(ctx, query, reply)
+		return a.confirmAndRun(ctx, query, reply, forceConfirm)
 	}
 	return fmt.Errorf("tool-call limit exceeded")
+}
+
+func (a *Application) routeIntent(ctx context.Context, query, requestedKind string) (string, error) {
+	if requestedKind != "" {
+		return requestedKind, nil
+	}
+	if a.SystemOne != nil {
+		decision, err := a.SystemOne.RouteIntent(ctx, systemone.IntentRequest{UserRequest: query})
+		if err != nil {
+			return "", fmt.Errorf("route intent with system one: %w", err)
+		}
+		switch decision.Intent {
+		case systemone.IntentQuestion:
+			return "question", nil
+		case systemone.IntentClearHistory:
+			if !systemone.ValidConfidence(decision.Confidence) || decision.Confidence < 0.65 {
+				return "", fmt.Errorf("system one history-clear intent is uncertain; use the explicit clear command to clear history")
+			}
+			return "clear_history", nil
+		case systemone.IntentExecute:
+			return "execute", nil
+		default:
+			return "", fmt.Errorf("system one returned unknown intent %q", decision.Intent)
+		}
+	}
+	if isQuestion(query) {
+		return "question", nil
+	}
+	return "execute", nil
+}
+
+func (a *Application) auditRisk(ctx context.Context, query string, reply *model.Reply) (bool, error) {
+	if a.SystemOne == nil || reply.Command == "" {
+		return false, nil
+	}
+	decision, err := a.SystemOne.AuditRisk(ctx, systemone.RiskRequest{
+		UserRequest: query,
+		Command:     reply.Command,
+		Info:        reply.Info,
+		LLMRisk:     reply.Risk,
+	})
+	if err != nil {
+		return false, fmt.Errorf("audit risk with system one: %w", err)
+	}
+	auditedRisk := NormalizeRisk(systemOneRisk(decision.Risk), reply.Command)
+	if riskRank(auditedRisk) > riskRank(reply.Risk) {
+		reply.Risk = auditedRisk
+	}
+	return !systemone.ValidConfidence(decision.Confidence) || decision.Confidence < 0.65, nil
+}
+
+func systemOneRisk(value string) string {
+	switch value {
+	case "none":
+		return model.RiskNone
+	case "reversible_change":
+		return model.RiskReversible
+	case "danger_zone":
+		return model.RiskDanger
+	default:
+		return value
+	}
+}
+
+func riskRank(value string) int {
+	switch value {
+	case model.RiskDanger:
+		return 2
+	case model.RiskReversible:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (a *Application) reloadTools(ctx context.Context) error {
@@ -404,10 +498,10 @@ func (a *Application) resolveVariables(reply *model.Reply) error {
 	return nil
 }
 
-func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, reply model.Reply) error {
+func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, reply model.Reply, forceConfirm bool) error {
 	command := reply.Command
 	edited := false
-	if RequiresConfirmation(reply.Risk, a.Config.RiskAppetite) {
+	if forceConfirm || RequiresConfirmation(reply.Risk, a.Config.RiskAppetite) {
 		choice, err := a.UI.Choice("execute command? [y/e/N]: ")
 		if err != nil {
 			return err
@@ -427,7 +521,7 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 			a.UI.Cancel()
 			return nil
 		}
-		if reply.Risk == model.RiskDanger && a.Config.ConfirmDangerousCommands {
+		if (reply.Risk == model.RiskDanger || (forceConfirm && edited)) && a.Config.ConfirmDangerousCommands {
 			confirm, err := a.UI.Choice("danger zone command, are you sure? [y/N]: ")
 			if err != nil {
 				return err

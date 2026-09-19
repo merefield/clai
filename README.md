@@ -264,6 +264,8 @@ Approved commands run through `bash -o errexit -o pipefail -c`. Stdout and stder
 
 Risk is model-generated guidance, not a security boundary. Read every proposed or edited command before approving it.
 
+If `system_one_key`, `system_one_api`, and `system_one_model` are configured, CLAI uses that System One-compatible API for typed intent routing and command-risk auditing. The main LLM still generates commands and explanations, but System One decides whether a request is a command task, question, or history-clear request, and independently audits proposed command risk before `risk_appetite` can auto-run it. A higher System One risk label overrides the LLM risk label; low-confidence risk audits force a confirmation prompt.
+
 ## Providers
 
 CLAI selects its native adapter from the configured `api` URL:
@@ -310,6 +312,14 @@ json_mode=true
 reasoning=true
 ```
 
+Example System One configuration for TypeSafe Jev:
+
+```ini
+system_one_key=ts-...
+system_one_api=https://api.typesafe.ai/v1/systemone
+system_one_model=jev-latest
+```
+
 ## Configuration reference
 
 CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `key=value` format. The config path must be a regular file rather than a directory or symbolic link; CLAI enforces mode `0600` before reading it.
@@ -326,6 +336,9 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | `temp` | `0.1` | Sampling temperature. Invalid values fall back to `0.1`. |
 | `tokens` | `500` | Maximum requested output tokens. Invalid or non-positive values fall back to `500`. |
 | `reasoning` | empty | Optional reasoning-effort value; provider behavior is described above. |
+| `system_one_key` | empty | Optional System One-compatible API credential for typed intent routing and risk auditing. |
+| `system_one_api` | `https://api.typesafe.ai/v1/systemone` | System One-compatible HTTPS evaluation endpoint. Used only when key, API, and model are all present. Redirects must remain on the configured HTTPS origin (same host and port). |
+| `system_one_model` | `jev-latest` | System One model used for typed judgments. |
 | `use_tools` | `false` | Opt in to discovering tools, sending their definitions to compatible providers, and allowing model-requested tool calls. |
 | `share_command_results` | `false` | Send bounded command results for immediate model interpretation and retain them for later context. |
 | `result_lines` | `20` | Maximum recent stdout and stderr lines stored for each shared result. |

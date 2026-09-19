@@ -23,6 +23,9 @@ func TestLoadCreatesCompatibleDefaults(t *testing.T) {
 	if cfg.UseTools {
 		t.Fatal("tools must be disabled by default")
 	}
+	if cfg.SystemOneKey != "" || cfg.SystemOneAPI != "https://api.typesafe.ai/v1/systemone" || cfg.SystemOneModel != "jev-latest" {
+		t.Fatalf("unexpected system one defaults: %#v", cfg)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)

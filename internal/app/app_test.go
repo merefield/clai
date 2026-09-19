@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"github.com/merefield/clai/internal/mcptools"
 	"github.com/merefield/clai/internal/model"
 	"github.com/merefield/clai/internal/provider"
+	"github.com/merefield/clai/internal/systemone"
 	"github.com/merefield/clai/internal/ui"
 	"github.com/merefield/clai/pkg/tool"
 )
@@ -34,6 +37,23 @@ func (f *fakeClient) Complete(_ context.Context, request provider.Request) (prov
 }
 
 func (f *fakeClient) SupportsTools() bool { return f.tools }
+
+type fakeSystemOne struct {
+	intent         systemone.IntentDecision
+	intentRequests []systemone.IntentRequest
+	risk           systemone.RiskDecision
+	riskRequests   []systemone.RiskRequest
+}
+
+func (f *fakeSystemOne) RouteIntent(_ context.Context, request systemone.IntentRequest) (systemone.IntentDecision, error) {
+	f.intentRequests = append(f.intentRequests, request)
+	return f.intent, nil
+}
+
+func (f *fakeSystemOne) AuditRisk(_ context.Context, request systemone.RiskRequest) (systemone.RiskDecision, error) {
+	f.riskRequests = append(f.riskRequests, request)
+	return f.risk, nil
+}
 
 type fakeRunner struct {
 	results []model.CommandResult
@@ -241,6 +261,136 @@ func TestProcessQuestionDoesNotRunCommand(t *testing.T) {
 	}
 }
 
+func TestSystemOneRoutesQuestionWithoutQuestionMark(t *testing.T) {
+	var out bytes.Buffer
+	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"rm -rf /tmp/question-mode","info":"approximately 9.4248","risk":"danger zone","variables":[]}`, FinishReason: "stop"}}}
+	commandRunner := &fakeRunner{}
+	router := &fakeSystemOne{intent: systemone.IntentDecision{Intent: systemone.IntentQuestion, Confidence: 0.91}}
+	application := &Application{
+		Config:    &config.Config{Key: "test", Model: "test", API: "http://test", MaxHistoryTurns: 10},
+		History:   &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+		Tools:     testTools(t),
+		Client:    client,
+		SystemOne: router,
+		Runner:    commandRunner,
+		UI:        ui.New(strings.NewReader(""), &out, &out, false),
+	}
+	if err := application.process(context.Background(), "how much is 3 times pi", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(router.intentRequests) != 1 || router.intentRequests[0].UserRequest != "how much is 3 times pi" {
+		t.Fatalf("intent requests = %#v", router.intentRequests)
+	}
+	if len(commandRunner.calls) != 0 {
+		t.Fatalf("unexpected command: %#v", commandRunner.calls)
+	}
+	if !strings.Contains(out.String(), "approximately 9.4248") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestSystemOneClearHistoryRequiresConfidentIntent(t *testing.T) {
+	for _, confidence := range []float64{0, 0.64, 0.65, 1, -1, 2, math.NaN(), math.Inf(1)} {
+		t.Run(fmt.Sprint(confidence), func(t *testing.T) {
+			var out bytes.Buffer
+			store := &history.Store{Path: filepath.Join(t.TempDir(), "history.json")}
+			store.AppendText("user", "keep this history")
+			if err := store.Save(10); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(store.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			application := &Application{
+				Config: &config.Config{}, History: store, Tools: testTools(t),
+				SystemOne: &fakeSystemOne{intent: systemone.IntentDecision{Intent: systemone.IntentClearHistory, Confidence: confidence}},
+				UI:        ui.New(strings.NewReader(""), &out, &out, false),
+			}
+			err = application.process(context.Background(), "forget that", "")
+			allowed := confidence == 0.65 || confidence == 1
+			if allowed {
+				if err != nil || len(store.Messages) != 0 {
+					t.Fatalf("clear failed: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Fatal("uncertain intent accepted")
+				}
+				after, readErr := os.ReadFile(store.Path)
+				if readErr != nil || !bytes.Equal(before, after) || len(store.Messages) != 1 {
+					t.Fatalf("history changed on uncertain intent: %v", readErr)
+				}
+			}
+		})
+	}
+}
+
+func TestSystemOneRiskAuditUpgradesRiskAndPreventsAutoRun(t *testing.T) {
+	var out bytes.Buffer
+	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"rm -rf /tmp/example","info":"removes files","risk":"none","variables":[]}`, FinishReason: "stop"}}}
+	commandRunner := &fakeRunner{}
+	auditor := &fakeSystemOne{
+		intent: systemone.IntentDecision{Intent: systemone.IntentExecute, Confidence: 0.95},
+		risk:   systemone.RiskDecision{Risk: "danger_zone", Confidence: 0.96},
+	}
+	application := &Application{
+		Config:    &config.Config{Key: "test", Model: "test", API: "http://test", RiskAppetite: 2, ConfirmDangerousCommands: true, MaxHistoryTurns: 10},
+		History:   &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+		Tools:     testTools(t),
+		Client:    client,
+		SystemOne: auditor,
+		Runner:    commandRunner,
+		UI:        ui.New(strings.NewReader("n\n"), &out, &out, true),
+	}
+	if err := application.process(context.Background(), "remove example", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(auditor.riskRequests) != 1 || auditor.riskRequests[0].LLMRisk != model.RiskNone {
+		t.Fatalf("risk requests = %#v", auditor.riskRequests)
+	}
+	if len(commandRunner.calls) != 0 {
+		t.Fatalf("dangerous command auto-ran: %#v", commandRunner.calls)
+	}
+	if !strings.Contains(out.String(), "DANGER ZONE") || !strings.Contains(out.String(), "[cancel]") {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestSystemOneLowConfidenceRiskForcesPrompt(t *testing.T) {
+	for _, confidence := range []float64{0.42, -0.1, 2, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		for _, appetite := range []int{1, 2} {
+			t.Run(fmt.Sprintf("confidence=%v/appetite=%d", confidence, appetite), func(t *testing.T) {
+				var out bytes.Buffer
+				client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"printf ok","info":"prints ok","risk":"none","variables":[]}`, FinishReason: "stop"}}}
+				commandRunner := &fakeRunner{}
+				auditor := &fakeSystemOne{
+					intent: systemone.IntentDecision{Intent: systemone.IntentExecute, Confidence: 0.95},
+					risk:   systemone.RiskDecision{Risk: "none", Confidence: confidence},
+				}
+				application := &Application{
+					Config:    &config.Config{Key: "test", Model: "test", API: "http://test", RiskAppetite: appetite, MaxHistoryTurns: 10},
+					History:   &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+					Tools:     testTools(t),
+					Client:    client,
+					SystemOne: auditor,
+					Runner:    commandRunner,
+					UI:        ui.New(strings.NewReader("n\n"), &out, &out, true),
+				}
+				if err := application.process(context.Background(), "print ok", ""); err != nil {
+					t.Fatal(err)
+				}
+				if len(commandRunner.calls) != 0 {
+					t.Fatalf("low-confidence command auto-ran: %#v", commandRunner.calls)
+				}
+				if !strings.Contains(out.String(), "execute command?") || !strings.Contains(out.String(), "[cancel]") {
+					t.Fatalf("output = %q", out.String())
+				}
+			})
+		}
+	}
+}
+
 func TestEditedDangerousCommandStillRequiresDangerConfirmation(t *testing.T) {
 	var out bytes.Buffer
 	commandRunner := &fakeRunner{}
@@ -251,7 +401,7 @@ func TestEditedDangerousCommandStillRequiresDangerConfirmation(t *testing.T) {
 	}
 	reply := model.Reply{Command: "rm -rf /tmp/example", Info: "removes the example", Risk: model.RiskDanger}
 
-	if err := application.confirmAndRun(context.Background(), "remove it", reply); err != nil {
+	if err := application.confirmAndRun(context.Background(), "remove it", reply, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(commandRunner.calls) != 0 {
@@ -259,6 +409,33 @@ func TestEditedDangerousCommandStillRequiresDangerConfirmation(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "danger zone command, are you sure?") || !strings.Contains(out.String(), "[cancel]") {
 		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestEditedForcedConfirmationRequiresDangerConfirmation(t *testing.T) {
+	for _, confirm := range []string{"n", "y"} {
+		t.Run(confirm, func(t *testing.T) {
+			var out bytes.Buffer
+			commandRunner := &fakeRunner{}
+			application := &Application{
+				Config: &config.Config{RiskAppetite: 2, ConfirmDangerousCommands: true},
+				Runner: commandRunner,
+				UI:     ui.New(strings.NewReader("e\nrm -rf /tmp/example\n"+confirm+"\n"), &out, &out, true),
+			}
+			reply := model.Reply{Command: "printf ok", Risk: model.RiskNone}
+			if err := application.confirmAndRun(context.Background(), "print ok", reply, true); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "danger zone command, are you sure?") {
+				t.Fatalf("missing danger confirmation: %s", out.String())
+			}
+			if confirm == "n" && len(commandRunner.calls) != 0 {
+				t.Fatal("edited command ran after cancellation")
+			}
+			if confirm == "y" && (len(commandRunner.calls) != 1 || commandRunner.calls[0] != "rm -rf /tmp/example") {
+				t.Fatalf("runner calls = %v", commandRunner.calls)
+			}
+		})
 	}
 }
 
