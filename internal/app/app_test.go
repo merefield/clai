@@ -289,6 +289,43 @@ func TestSystemOneRoutesQuestionWithoutQuestionMark(t *testing.T) {
 	}
 }
 
+func TestSystemOneClearHistoryRequiresConfidentIntent(t *testing.T) {
+	for _, confidence := range []float64{0, 0.64, 0.65, 1, -1, 2, math.NaN(), math.Inf(1)} {
+		t.Run(fmt.Sprint(confidence), func(t *testing.T) {
+			var out bytes.Buffer
+			store := &history.Store{Path: filepath.Join(t.TempDir(), "history.json")}
+			store.AppendText("user", "keep this history")
+			if err := store.Save(10); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(store.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			application := &Application{
+				Config: &config.Config{}, History: store, Tools: testTools(t),
+				SystemOne: &fakeSystemOne{intent: systemone.IntentDecision{Intent: systemone.IntentClearHistory, Confidence: confidence}},
+				UI:        ui.New(strings.NewReader(""), &out, &out, false),
+			}
+			err = application.process(context.Background(), "forget that", "")
+			allowed := confidence == 0.65 || confidence == 1
+			if allowed {
+				if err != nil || len(store.Messages) != 0 {
+					t.Fatalf("clear failed: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Fatal("uncertain intent accepted")
+				}
+				after, readErr := os.ReadFile(store.Path)
+				if readErr != nil || !bytes.Equal(before, after) || len(store.Messages) != 1 {
+					t.Fatalf("history changed on uncertain intent: %v", readErr)
+				}
+			}
+		})
+	}
+}
+
 func TestSystemOneRiskAuditUpgradesRiskAndPreventsAutoRun(t *testing.T) {
 	var out bytes.Buffer
 	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"rm -rf /tmp/example","info":"removes files","risk":"none","variables":[]}`, FinishReason: "stop"}}}

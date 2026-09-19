@@ -334,6 +334,9 @@ func (a *Application) routeIntent(ctx context.Context, query, requestedKind stri
 		case systemone.IntentQuestion:
 			return "question", nil
 		case systemone.IntentClearHistory:
+			if !systemone.ValidConfidence(decision.Confidence) || decision.Confidence < 0.65 {
+				return "", fmt.Errorf("system one history-clear intent is uncertain; use the explicit clear command to clear history")
+			}
 			return "clear_history", nil
 		case systemone.IntentExecute:
 			return "execute", nil
