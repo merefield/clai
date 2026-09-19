@@ -358,7 +358,7 @@ func (a *Application) auditRisk(ctx context.Context, query string, reply *model.
 	if riskRank(auditedRisk) > riskRank(reply.Risk) {
 		reply.Risk = auditedRisk
 	}
-	return decision.Confidence < 0.65, nil
+	return !systemone.ValidConfidence(decision.Confidence) || decision.Confidence < 0.65, nil
 }
 
 func systemOneRisk(value string) string {

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -319,30 +321,36 @@ func TestSystemOneRiskAuditUpgradesRiskAndPreventsAutoRun(t *testing.T) {
 }
 
 func TestSystemOneLowConfidenceRiskForcesPrompt(t *testing.T) {
-	var out bytes.Buffer
-	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"printf ok","info":"prints ok","risk":"none","variables":[]}`, FinishReason: "stop"}}}
-	commandRunner := &fakeRunner{}
-	auditor := &fakeSystemOne{
-		intent: systemone.IntentDecision{Intent: systemone.IntentExecute, Confidence: 0.95},
-		risk:   systemone.RiskDecision{Risk: "none", Confidence: 0.42},
-	}
-	application := &Application{
-		Config:    &config.Config{Key: "test", Model: "test", API: "http://test", RiskAppetite: 1, MaxHistoryTurns: 10},
-		History:   &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
-		Tools:     testTools(t),
-		Client:    client,
-		SystemOne: auditor,
-		Runner:    commandRunner,
-		UI:        ui.New(strings.NewReader("n\n"), &out, &out, true),
-	}
-	if err := application.process(context.Background(), "print ok", ""); err != nil {
-		t.Fatal(err)
-	}
-	if len(commandRunner.calls) != 0 {
-		t.Fatalf("low-confidence command auto-ran: %#v", commandRunner.calls)
-	}
-	if !strings.Contains(out.String(), "execute command?") || !strings.Contains(out.String(), "[cancel]") {
-		t.Fatalf("output = %q", out.String())
+	for _, confidence := range []float64{0.42, -0.1, 2, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		for _, appetite := range []int{1, 2} {
+			t.Run(fmt.Sprintf("confidence=%v/appetite=%d", confidence, appetite), func(t *testing.T) {
+				var out bytes.Buffer
+				client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"printf ok","info":"prints ok","risk":"none","variables":[]}`, FinishReason: "stop"}}}
+				commandRunner := &fakeRunner{}
+				auditor := &fakeSystemOne{
+					intent: systemone.IntentDecision{Intent: systemone.IntentExecute, Confidence: 0.95},
+					risk:   systemone.RiskDecision{Risk: "none", Confidence: confidence},
+				}
+				application := &Application{
+					Config:    &config.Config{Key: "test", Model: "test", API: "http://test", RiskAppetite: appetite, MaxHistoryTurns: 10},
+					History:   &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+					Tools:     testTools(t),
+					Client:    client,
+					SystemOne: auditor,
+					Runner:    commandRunner,
+					UI:        ui.New(strings.NewReader("n\n"), &out, &out, true),
+				}
+				if err := application.process(context.Background(), "print ok", ""); err != nil {
+					t.Fatal(err)
+				}
+				if len(commandRunner.calls) != 0 {
+					t.Fatalf("low-confidence command auto-ran: %#v", commandRunner.calls)
+				}
+				if !strings.Contains(out.String(), "execute command?") || !strings.Contains(out.String(), "[cancel]") {
+					t.Fatalf("output = %q", out.String())
+				}
+			})
+		}
 	}
 }
 
