@@ -3,7 +3,9 @@ package systemone
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -77,4 +79,40 @@ func TestAuditRiskUsesChoiceQuestion(t *testing.T) {
 
 func jsonResponse(body string) *http.Response {
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}
+}
+
+func TestConfidenceValidation(t *testing.T) {
+	for _, value := range []float64{-1, 2, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if ValidConfidence(value) {
+			t.Errorf("accepted invalid confidence %v", value)
+		}
+	}
+	for _, value := range []float64{0, 0.65, 1} {
+		if !ValidConfidence(value) {
+			t.Errorf("rejected valid confidence %v", value)
+		}
+	}
+}
+
+func TestResponseConfidenceRange(t *testing.T) {
+	for _, kind := range []string{"intent", "risk"} {
+		for _, confidence := range []string{"-0.1", "2", "0", "1"} {
+			t.Run(kind+"/"+confidence, func(t *testing.T) {
+				httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					return jsonResponse(fmt.Sprintf(`{"answers":{"%s":{"type":"choice","choice":"none","confidence":%s}}}`, kind, confidence)), nil
+				})}
+				client := New("key", "https://example.test", "model", httpClient)
+				var err error
+				if kind == "intent" {
+					_, err = client.RouteIntent(context.Background(), IntentRequest{})
+				} else {
+					_, err = client.AuditRisk(context.Background(), RiskRequest{})
+				}
+				invalid := confidence == "-0.1" || confidence == "2"
+				if (err != nil) != invalid {
+					t.Fatalf("confidence %s: error = %v", confidence, err)
+				}
+			})
+		}
+	}
 }

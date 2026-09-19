@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -72,6 +73,10 @@ type answer struct {
 
 func Configured(key, api, model string) bool {
 	return strings.TrimSpace(key) != "" && strings.TrimSpace(api) != "" && strings.TrimSpace(model) != ""
+}
+
+func ValidConfidence(value float64) bool {
+	return !math.IsNaN(value) && value >= 0 && value <= 1
 }
 
 func New(key, api, model string, client *http.Client) *HTTPClient {
@@ -164,6 +169,11 @@ func (c *HTTPClient) evaluate(ctx context.Context, payload request) (map[string]
 	}
 	if len(decoded.Answers) == 0 {
 		return nil, fmt.Errorf("system one response returned no answers")
+	}
+	for name, value := range decoded.Answers {
+		if !ValidConfidence(value.Confidence) {
+			return nil, fmt.Errorf("system one %s response confidence must be within [0, 1]", name)
+		}
 	}
 	return decoded.Answers, nil
 }
