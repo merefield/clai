@@ -512,7 +512,7 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 			a.UI.Cancel()
 			return nil
 		}
-		if reply.Risk == model.RiskDanger && a.Config.ConfirmDangerousCommands {
+		if (reply.Risk == model.RiskDanger || (forceConfirm && edited)) && a.Config.ConfirmDangerousCommands {
 			confirm, err := a.UI.Choice("danger zone command, are you sure? [y/N]: ")
 			if err != nil {
 				return err

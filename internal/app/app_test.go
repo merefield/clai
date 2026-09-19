@@ -375,6 +375,33 @@ func TestEditedDangerousCommandStillRequiresDangerConfirmation(t *testing.T) {
 	}
 }
 
+func TestEditedForcedConfirmationRequiresDangerConfirmation(t *testing.T) {
+	for _, confirm := range []string{"n", "y"} {
+		t.Run(confirm, func(t *testing.T) {
+			var out bytes.Buffer
+			commandRunner := &fakeRunner{}
+			application := &Application{
+				Config: &config.Config{RiskAppetite: 2, ConfirmDangerousCommands: true},
+				Runner: commandRunner,
+				UI:     ui.New(strings.NewReader("e\nrm -rf /tmp/example\n"+confirm+"\n"), &out, &out, true),
+			}
+			reply := model.Reply{Command: "printf ok", Risk: model.RiskNone}
+			if err := application.confirmAndRun(context.Background(), "print ok", reply, true); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "danger zone command, are you sure?") {
+				t.Fatalf("missing danger confirmation: %s", out.String())
+			}
+			if confirm == "n" && len(commandRunner.calls) != 0 {
+				t.Fatal("edited command ran after cancellation")
+			}
+			if confirm == "y" && (len(commandRunner.calls) != 1 || commandRunner.calls[0] != "rm -rf /tmp/example") {
+				t.Fatalf("runner calls = %v", commandRunner.calls)
+			}
+		})
+	}
+}
+
 func TestShowHistorySanitizesStoredTerminalControls(t *testing.T) {
 	var out bytes.Buffer
 	application := &Application{
