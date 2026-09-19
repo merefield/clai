@@ -70,6 +70,47 @@ func TestRedirectRequiresHTTPS(t *testing.T) {
 	}
 }
 
+func TestRedirectRequiresConfiguredOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		location string
+		allowed  bool
+	}{
+		{"/next", true},
+		{"https://example.test/next", true},
+		{"https://EXAMPLE.test:443/next", true},
+		{"https://other.test/next", false},
+		{"https://sub.example.test/next", false},
+		{"https://example.test:8443/next", false},
+	} {
+		t.Run(tc.location, func(t *testing.T) {
+			calls := 0
+			policyCalls := 0
+			httpClient := &http.Client{
+				CheckRedirect: func(*http.Request, []*http.Request) error { policyCalls++; return nil },
+				Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					calls++
+					if calls == 1 {
+						return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": []string{tc.location}}, Body: io.NopCloser(strings.NewReader(""))}, nil
+					}
+					return jsonResponse(`{"answers":{"risk":{"type":"choice","choice":"none","confidence":1}}}`), nil
+				}),
+			}
+			client, err := New("secret", "https://example.test/start", "model", httpClient)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.AuditRisk(context.Background(), RiskRequest{})
+			if tc.allowed {
+				if err != nil || calls != 2 || policyCalls != 1 {
+					t.Fatalf("same-origin redirect: calls=%d policy=%d err=%v", calls, policyCalls, err)
+				}
+			} else if err == nil || calls != 1 || policyCalls != 0 {
+				t.Fatalf("cross-origin redirect was not blocked before sending: calls=%d policy=%d err=%v", calls, policyCalls, err)
+			}
+		})
+	}
+}
+
 func TestRouteIntentUsesChoiceQuestion(t *testing.T) {
 	var request map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

@@ -337,7 +337,7 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | `tokens` | `500` | Maximum requested output tokens. Invalid or non-positive values fall back to `500`. |
 | `reasoning` | empty | Optional reasoning-effort value; provider behavior is described above. |
 | `system_one_key` | empty | Optional System One-compatible API credential for typed intent routing and risk auditing. |
-| `system_one_api` | `https://api.typesafe.ai/v1/systemone` | System One-compatible HTTPS evaluation endpoint. Used only when key, API, and model are all present. Plaintext HTTP endpoints and redirects are rejected. |
+| `system_one_api` | `https://api.typesafe.ai/v1/systemone` | System One-compatible HTTPS evaluation endpoint. Used only when key, API, and model are all present. Redirects must remain on the configured HTTPS origin (same host and port). |
 | `system_one_model` | `jev-latest` | System One model used for typed judgments. |
 | `use_tools` | `false` | Opt in to discovering tools, sending their definitions to compatible providers, and allowing model-requested tool calls. |
 | `share_command_results` | `false` | Send bounded command results for immediate model interpretation and retain them for later context. |

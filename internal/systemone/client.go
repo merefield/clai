@@ -93,9 +93,13 @@ func New(key, api, model string, client *http.Client) (*HTTPClient, error) {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	secureClient := *client
+	origin, _ := url.Parse(api)
 	secureClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if !validEndpoint(req.URL.String()) {
 			return fmt.Errorf("system one redirect requires HTTPS")
+		}
+		if !strings.EqualFold(req.URL.Hostname(), origin.Hostname()) || httpsPort(req.URL) != httpsPort(origin) {
+			return fmt.Errorf("system one redirect must remain on the configured origin")
 		}
 		if client.CheckRedirect != nil {
 			return client.CheckRedirect(req, via)
@@ -106,6 +110,13 @@ func New(key, api, model string, client *http.Client) (*HTTPClient, error) {
 		return nil
 	}
 	return &HTTPClient{Key: key, API: api, Model: model, Client: &secureClient}, nil
+}
+
+func httpsPort(endpoint *url.URL) string {
+	if port := endpoint.Port(); port != "" {
+		return port
+	}
+	return "443"
 }
 
 func (c *HTTPClient) RouteIntent(ctx context.Context, input IntentRequest) (IntentDecision, error) {
