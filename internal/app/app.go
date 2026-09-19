@@ -56,8 +56,11 @@ func New(_ context.Context, in io.Reader, out, errOut io.Writer) (*Application, 
 	}
 	console := ui.New(in, out, errOut, cfg.HighContrast)
 	var systemOne systemone.Client
-	if systemone.Configured(cfg.SystemOneKey, cfg.SystemOneAPI, cfg.SystemOneModel) {
-		systemOne = systemone.New(cfg.SystemOneKey, cfg.SystemOneAPI, cfg.SystemOneModel, nil)
+	if strings.TrimSpace(cfg.SystemOneKey) != "" && strings.TrimSpace(cfg.SystemOneModel) != "" {
+		systemOne, err = systemone.New(cfg.SystemOneKey, cfg.SystemOneAPI, cfg.SystemOneModel, nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &Application{Config: cfg, History: historyStore, Tools: toolManager.Registry(), Client: provider.New(cfg, nil), SystemOne: systemOne, Runner: runner.Bash{Stdout: out, Stderr: errOut}, UI: console, ToolManager: toolManager}, nil
 }
@@ -222,8 +225,11 @@ func (a *Application) setup() error {
 		return err
 	}
 	a.Client = provider.New(a.Config, nil)
-	if systemone.Configured(a.Config.SystemOneKey, a.Config.SystemOneAPI, a.Config.SystemOneModel) {
-		a.SystemOne = systemone.New(a.Config.SystemOneKey, a.Config.SystemOneAPI, a.Config.SystemOneModel, nil)
+	if strings.TrimSpace(a.Config.SystemOneKey) != "" && strings.TrimSpace(a.Config.SystemOneModel) != "" {
+		a.SystemOne, err = systemone.New(a.Config.SystemOneKey, a.Config.SystemOneAPI, a.Config.SystemOneModel, nil)
+		if err != nil {
+			return err
+		}
 	} else {
 		a.SystemOne = nil
 	}

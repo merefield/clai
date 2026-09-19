@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -72,18 +73,39 @@ type answer struct {
 }
 
 func Configured(key, api, model string) bool {
-	return strings.TrimSpace(key) != "" && strings.TrimSpace(api) != "" && strings.TrimSpace(model) != ""
+	return strings.TrimSpace(key) != "" && validEndpoint(api) && strings.TrimSpace(model) != ""
+}
+
+func validEndpoint(api string) bool {
+	endpoint, err := url.Parse(api)
+	return err == nil && endpoint.Scheme == "https" && endpoint.Hostname() != "" && endpoint.User == nil && endpoint.Fragment == ""
 }
 
 func ValidConfidence(value float64) bool {
 	return !math.IsNaN(value) && value >= 0 && value <= 1
 }
 
-func New(key, api, model string, client *http.Client) *HTTPClient {
+func New(key, api, model string, client *http.Client) (*HTTPClient, error) {
+	if !validEndpoint(api) {
+		return nil, fmt.Errorf("system_one_api must be a valid HTTPS endpoint without user info or fragment")
+	}
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &HTTPClient{Key: key, API: api, Model: model, Client: client}
+	secureClient := *client
+	secureClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !validEndpoint(req.URL.String()) {
+			return fmt.Errorf("system one redirect requires HTTPS")
+		}
+		if client.CheckRedirect != nil {
+			return client.CheckRedirect(req, via)
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &HTTPClient{Key: key, API: api, Model: model, Client: &secureClient}, nil
 }
 
 func (c *HTTPClient) RouteIntent(ctx context.Context, input IntentRequest) (IntentDecision, error) {
@@ -141,6 +163,9 @@ func (c *HTTPClient) AuditRisk(ctx context.Context, input RiskRequest) (RiskDeci
 }
 
 func (c *HTTPClient) evaluate(ctx context.Context, payload request) (map[string]answer, error) {
+	if !validEndpoint(c.API) {
+		return nil, fmt.Errorf("system_one_api must be a valid HTTPS endpoint")
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("encode system one request: %w", err)

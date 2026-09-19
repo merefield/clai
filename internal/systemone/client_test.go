@@ -24,6 +24,52 @@ func TestConfiguredRequiresKeyAPIAndModel(t *testing.T) {
 	}
 }
 
+func TestRejectsInsecureEndpoints(t *testing.T) {
+	for _, endpoint := range []string{"http://example.test/v1/systemone", "http://localhost:8080", "", "example.test", "/v1/systemone", "https:///missing-host", "https://user:pass@example.test", "https://example.test/#fragment", "https://example.test:bad"} {
+		t.Run(endpoint, func(t *testing.T) {
+			if Configured("key", endpoint, "model") {
+				t.Fatal("insecure endpoint enabled")
+			}
+			if _, err := New("key", endpoint, "model", nil); err == nil {
+				t.Fatal("constructor accepted insecure endpoint")
+			}
+			client := &HTTPClient{Key: "key", API: endpoint}
+			if _, err := client.AuditRisk(context.Background(), RiskRequest{}); err == nil {
+				t.Fatal("request accepted insecure endpoint")
+			}
+		})
+	}
+}
+
+func TestRedirectRequiresHTTPS(t *testing.T) {
+	for _, scheme := range []string{"http", "https"} {
+		t.Run(scheme, func(t *testing.T) {
+			calls := 0
+			httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": []string{scheme + "://example.test/next"}}, Body: io.NopCloser(strings.NewReader(""))}, nil
+				}
+				return jsonResponse(`{"answers":{"risk":{"type":"choice","choice":"none","confidence":1}}}`), nil
+			})}
+			client, err := New("secret", "https://example.test/start", "model", httpClient)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.AuditRisk(context.Background(), RiskRequest{})
+			if scheme == "http" && (err == nil || calls != 1) {
+				t.Fatalf("plaintext redirect: calls=%d error=%v", calls, err)
+			}
+			if scheme == "https" && (err != nil || calls != 2) {
+				t.Fatalf("HTTPS redirect: calls=%d error=%v", calls, err)
+			}
+			if httpClient.CheckRedirect != nil {
+				t.Fatal("modified caller's HTTP client")
+			}
+		})
+	}
+}
+
 func TestRouteIntentUsesChoiceQuestion(t *testing.T) {
 	var request map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -36,7 +82,10 @@ func TestRouteIntentUsesChoiceQuestion(t *testing.T) {
 		body := `{"answers":{"intent":{"type":"choice","choice":"question","confidence":0.88,"probabilities":{"question":0.88,"execute":0.11,"clear_history":0.01}}}}`
 		return jsonResponse(body), nil
 	})}
-	client := New("system-key", "https://system-one.example/v1/systemone", "jev-test", httpClient)
+	client, err := New("system-key", "https://system-one.example/v1/systemone", "jev-test", httpClient)
+	if err != nil {
+		t.Fatal(err)
+	}
 	decision, err := client.RouteIntent(context.Background(), IntentRequest{UserRequest: "how much is 3*pi"})
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +112,10 @@ func TestAuditRiskUsesChoiceQuestion(t *testing.T) {
 		body := `{"answers":{"risk":{"type":"choice","choice":"danger_zone","confidence":0.93,"probabilities":{"danger_zone":0.93,"reversible_change":0.06,"none":0.01}}}}`
 		return jsonResponse(body), nil
 	})}
-	client := New("system-key", "https://system-one.example/v1/systemone", "jev-test", httpClient)
+	client, err := New("system-key", "https://system-one.example/v1/systemone", "jev-test", httpClient)
+	if err != nil {
+		t.Fatal(err)
+	}
 	decision, err := client.AuditRisk(context.Background(), RiskRequest{UserRequest: "remove it", Command: "rm -rf tmp", LLMRisk: "none"})
 	if err != nil {
 		t.Fatal(err)
@@ -101,8 +153,10 @@ func TestResponseConfidenceRange(t *testing.T) {
 				httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return jsonResponse(fmt.Sprintf(`{"answers":{"%s":{"type":"choice","choice":"none","confidence":%s}}}`, kind, confidence)), nil
 				})}
-				client := New("key", "https://example.test", "model", httpClient)
-				var err error
+				client, err := New("key", "https://example.test", "model", httpClient)
+				if err != nil {
+					t.Fatal(err)
+				}
 				if kind == "intent" {
 					_, err = client.RouteIntent(context.Background(), IntentRequest{})
 				} else {
