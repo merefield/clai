@@ -243,7 +243,7 @@ func TestProcessQuestionDoesNotRunCommand(t *testing.T) {
 		Runner:  commandRunner,
 		UI:      ui.New(strings.NewReader(""), &out, &out, false),
 	}
-	if err := application.process(context.Background(), "how much is 3 times pi?", ""); err != nil {
+	if err := application.process(context.Background(), "how much is 3 times pi?", "question"); err != nil {
 		t.Fatal(err)
 	}
 	if len(commandRunner.calls) != 0 {
@@ -258,6 +258,69 @@ func TestProcessQuestionDoesNotRunCommand(t *testing.T) {
 	}
 	if reply.Command != "" || reply.Risk != model.RiskNone || len(reply.Variables) != 0 {
 		t.Fatalf("question reply was not normalized: %#v", reply)
+	}
+}
+
+func TestLiveStateQuestionsRunAndInterpretRegardlessOfPunctuation(t *testing.T) {
+	for _, routed := range []bool{false, true} {
+		for _, query := range []string{"what is the time", "what is the time?"} {
+			for _, appetite := range []int{0, 1} {
+				t.Run(fmt.Sprintf("systemone=%v/%s/appetite=%d", routed, query, appetite), func(t *testing.T) {
+					var out bytes.Buffer
+					client := &fakeClient{responses: []provider.Response{
+						{Text: `{"cmd":"date","info":"shows the current system time","risk":"none","variables":[]}`},
+						{Text: `{"cmd":"","info":"The current system time is 10:52:15 BST.","risk":"none","variables":[]}`},
+					}}
+					runner := &fakeRunner{results: []model.CommandResult{{Command: "date", Stdout: "Sun 20 Sep 10:52:15 BST 2026\n"}}}
+					application := &Application{
+						Config:  &config.Config{RiskAppetite: appetite, ShareCommandResults: true, ResultLines: 20, MaxHistoryTurns: 10},
+						History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+						Tools:   testTools(t), Client: client, Runner: runner,
+						UI: ui.New(strings.NewReader("y\n"), &out, &out, false),
+					}
+					if routed {
+						application.SystemOne = &fakeSystemOne{
+							intent: systemone.IntentDecision{Intent: systemone.IntentExecute, Confidence: 0.95},
+							risk:   systemone.RiskDecision{Risk: "none", Confidence: 0.95},
+						}
+					}
+					if err := application.process(context.Background(), query, ""); err != nil {
+						t.Fatal(err)
+					}
+					if len(runner.calls) != 1 || runner.calls[0] != "date" {
+						t.Fatalf("commands: %v", runner.calls)
+					}
+					if len(client.requests) != 2 || !strings.Contains(out.String(), "The current system time is 10:52:15 BST.") {
+						t.Fatalf("result not interpreted: %s", out.String())
+					}
+					if strings.Contains(out.String(), "execute command?") != (appetite == 0) {
+						t.Fatalf("confirmation policy changed: %s", out.String())
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestGeneralQuestionCanAnswerWithoutExecuting(t *testing.T) {
+	for _, query := range []string{"how do I list all files", "how do I list all files?"} {
+		t.Run(query, func(t *testing.T) {
+			var out bytes.Buffer
+			client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"","info":"Use ls -a to list all files.","risk":"none","variables":[]}`}}}
+			runner := &fakeRunner{}
+			application := &Application{
+				Config:  &config.Config{RiskAppetite: 1, MaxHistoryTurns: 10},
+				History: &history.Store{Path: filepath.Join(t.TempDir(), "history.json")},
+				Tools:   testTools(t), Client: client, Runner: runner,
+				UI: ui.New(strings.NewReader(""), &out, &out, false),
+			}
+			if err := application.process(context.Background(), query, ""); err != nil {
+				t.Fatal(err)
+			}
+			if len(runner.calls) != 0 || !strings.Contains(out.String(), "Use ls -a") {
+				t.Fatalf("unexpected result: %s", out.String())
+			}
+		})
 	}
 }
 

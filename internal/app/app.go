@@ -344,9 +344,6 @@ func (a *Application) routeIntent(ctx context.Context, query, requestedKind stri
 			return "", fmt.Errorf("system one returned unknown intent %q", decision.Intent)
 		}
 	}
-	if isQuestion(query) {
-		return "question", nil
-	}
 	return "execute", nil
 }
 
