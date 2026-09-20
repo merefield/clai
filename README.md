@@ -177,6 +177,7 @@ clai "how do I show hidden files?"
 | --- | --- |
 | `clai setup` | Run the configuration wizard. |
 | `clai --setup` | Compatibility alias for `setup`. |
+| `clai --question <question>` | Answer-only mode using `question_query`, with or without System One; proposed shell commands are not executed. |
 | `clai --show-history` | Render persisted conversation history. |
 | `clai --show-history --verbose` | Include full stored command stdout and stderr. |
 | `clai --clear-history` | Remove persisted conversation history. |
@@ -266,6 +267,8 @@ Risk is model-generated guidance, not a security boundary. Read every proposed o
 
 If `system_one_key`, `system_one_api`, and `system_one_model` are configured, CLAI uses that System One-compatible API for typed intent routing and command-risk auditing. The main LLM still generates commands and explanations, but System One decides whether a request is a command task, question, or history-clear request, and independently audits proposed command risk before `risk_appetite` can auto-run it. A higher System One risk label overrides the LLM risk label; low-confidence risk audits force a confirmation prompt.
 
+Requests are interpreted by meaning rather than question marks. Questions needing live data, such as `what is the time?` or `how much disk space is free?`, should produce a command to obtain the answer and follow the usual risk and confirmation rules. General knowledge and how-to questions can be answered directly without execution. With `share_command_results=true`, CLAI also interprets the resulting command output. These decisions use System One when configured, or the main LLM otherwise.
+
 ## Providers
 
 CLAI selects its native adapter from the configured `api` URL:
@@ -345,7 +348,7 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | `confirm_dangerous_commands` | `true` | Require a second confirmation for danger-zone commands. |
 | `risk_appetite` | `0` | Automatic execution policy from `0` through `2`; invalid values fall back to `0`. |
 | `exec_query` | empty | Replace the built-in command-generation guidance when set. |
-| `question_query` | empty | Replace the built-in question-mode guidance when set. |
+| `question_query` | empty | Replace answer-only guidance for `clai --question <question>` or requests routed as questions by System One. Ordinary requests without System One use `exec_query`, regardless of punctuation. |
 | `error_query` | empty | Replace the built-in error-recovery guidance when set. |
 
 Re-run `clai setup` to change the credential, endpoint, model, or risk appetite. Edit the file directly for the remaining settings.

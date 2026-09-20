@@ -126,10 +126,10 @@ func (c *HTTPClient) RouteIntent(ctx context.Context, input IntentRequest) (Inte
 		Questions: map[string]question{
 			"intent": {
 				"type":         "choice",
-				"instructions": "Which CLAI workflow should handle this user request?",
+				"instructions": "Which CLAI workflow should handle this user request? Decide from the information or action needed, not punctuation. Questions needing live system or external state require execution to obtain the answer.",
 				"criteria": map[string]string{
-					IntentExecute:      "The user wants CLAI to propose a shell command or perform a terminal task.",
-					IntentQuestion:     "The user asks for an explanation or answer and no shell command should be proposed.",
+					IntentExecute:      "The user wants a terminal task performed or an answer requiring current system or external state, such as the current time, free disk space, running processes, or git status. This includes requests phrased as questions.",
+					IntentQuestion:     "The user wants general knowledge, an explanation, or how-to instructions that can be answered without inspecting live system or external state. No shell command needs to run.",
 					IntentClearHistory: "The user wants to clear, reset, forget, or flush CLAI conversation history.",
 				},
 			},
