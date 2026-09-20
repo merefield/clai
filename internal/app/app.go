@@ -78,6 +78,14 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 	if handled, err := a.handleBuiltIn(ctx, args); handled {
 		return err
 	}
+	requestedKind := ""
+	if len(args) > 0 && args[0] == "--question" {
+		requestedKind = "question"
+		args = args[1:]
+		if strings.TrimSpace(strings.Join(args, " ")) == "" {
+			return fmt.Errorf("usage: clai --question <question>")
+		}
+	}
 	if a.Config.Key == "" {
 		if err := a.setup(); err != nil {
 			return err
@@ -85,10 +93,10 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 	}
 	query := strings.TrimSpace(strings.Join(args, " "))
 	if query != "" {
-		if isClearRequest(query) {
+		if requestedKind == "" && isClearRequest(query) {
 			return a.clearHistory()
 		}
-		return a.process(ctx, query, "")
+		return a.process(ctx, query, requestedKind)
 	}
 	if err := a.ensureToolsLoaded(ctx); err != nil {
 		return err

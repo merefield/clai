@@ -177,6 +177,7 @@ clai "how do I show hidden files?"
 | --- | --- |
 | `clai setup` | Run the configuration wizard. |
 | `clai --setup` | Compatibility alias for `setup`. |
+| `clai --question <question>` | Answer-only mode using `question_query`, with or without System One; proposed shell commands are not executed. |
 | `clai --show-history` | Render persisted conversation history. |
 | `clai --show-history --verbose` | Include full stored command stdout and stderr. |
 | `clai --clear-history` | Remove persisted conversation history. |
@@ -347,7 +348,7 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | `confirm_dangerous_commands` | `true` | Require a second confirmation for danger-zone commands. |
 | `risk_appetite` | `0` | Automatic execution policy from `0` through `2`; invalid values fall back to `0`. |
 | `exec_query` | empty | Replace the built-in command-generation guidance when set. |
-| `question_query` | empty | Replace the built-in question-mode guidance when set. |
+| `question_query` | empty | Replace answer-only guidance for `clai --question <question>` or requests routed as questions by System One. Ordinary requests without System One use `exec_query`, regardless of punctuation. |
 | `error_query` | empty | Replace the built-in error-recovery guidance when set. |
 
 Re-run `clai setup` to change the credential, endpoint, model, or risk appetite. Edit the file directly for the remaining settings.
