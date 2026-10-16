@@ -310,3 +310,58 @@ func TestHTTPErrorEscapesTerminalControls(t *testing.T) {
 		})
 	}
 }
+
+func TestStrictResponseJSON(t *testing.T) {
+	for _, kind := range []string{"risk", "intent"} {
+		choice, other, last := "none", "reversible_change", "danger_zone"
+		if kind == "intent" {
+			choice, other, last = "execute", "question", "clear_history"
+		}
+		validAnswer := fmt.Sprintf(`{"type":"choice","choice":%q,"confidence":1,"probabilities":{%q:1,%q:0,%q:0}}`, choice, choice, other, last)
+		validBody := fmt.Sprintf(`{"answers":{%q:%s}}`, kind, validAnswer)
+		for _, tc := range []struct {
+			name, body string
+			valid      bool
+		}{
+			{"valid", validBody, true},
+			{"metadata", strings.TrimSuffix(validBody, "}") + `,"model":"jev-latest","usage":{"input_tokens":10},"note":"caf\u00e9"}`, true},
+			{"duplicate answers", strings.TrimSuffix(validBody, "}") + fmt.Sprintf(`,"answers":{%q:%s}}`, kind, validAnswer), false},
+			{"duplicate decision", fmt.Sprintf(`{"answers":{%q:%s,%q:%s}}`, kind, validAnswer, kind, validAnswer), false},
+			{"duplicate choice", strings.Replace(validBody, `"choice":`, `"choice":"unknown","choice":`, 1), false},
+			{"duplicate confidence", strings.Replace(validBody, `"confidence":1`, `"confidence":0,"confidence":1`, 1), false},
+			{"duplicate probability", strings.Replace(validBody, fmt.Sprintf(`%q:1`, choice), fmt.Sprintf(`%q:0,%q:1`, choice, choice), 1), false},
+			{"escaped duplicate name", strings.Replace(validBody, `"confidence":1`, `"confidenc\u0065":0,"confidence":1`, 1), false},
+			{"invalid UTF8 metadata", strings.TrimSuffix(validBody, "}") + ",\"note\":\"\xff\"}", false},
+			{"invalid UTF8 name", strings.TrimSuffix(validBody, "}") + ",\"\xff\":0}", false},
+			{"trailing JSON", validBody + `{}`, false},
+		} {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				client, err := New("key", "https://example.test", "model", &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return jsonResponse(tc.body), nil
+				})})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if kind == "risk" {
+					decision, callErr := client.AuditRisk(context.Background(), RiskRequest{})
+					err = callErr
+					if !tc.valid && decision != (RiskDecision{}) {
+						t.Fatal("malformed response returned a risk decision")
+					}
+				} else {
+					decision, callErr := client.RouteIntent(context.Background(), IntentRequest{})
+					err = callErr
+					if !tc.valid && decision != (IntentDecision{}) {
+						t.Fatal("malformed response returned an intent decision")
+					}
+				}
+				if tc.valid && err != nil {
+					t.Fatal(err)
+				}
+				if !tc.valid && (err == nil || !strings.Contains(err.Error(), "parse system one response:")) {
+					t.Fatalf("expected JSON parsing error, got %v", err)
+				}
+			})
+		}
+	}
+}

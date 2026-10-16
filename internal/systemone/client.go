@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
 	"math"
@@ -200,7 +201,8 @@ func (c *HTTPClient) evaluate(ctx context.Context, payload request) (map[string]
 		return nil, fmt.Errorf("system one request failed (HTTP %d): %q", resp.StatusCode, strings.TrimSpace(string(responseBody)))
 	}
 	var decoded response
-	if err := json.Unmarshal(responseBody, &decoded); err != nil {
+	// Reject duplicate names and invalid UTF-8 before trusting a safety decision.
+	if err := jsonv2.Unmarshal(responseBody, &decoded); err != nil {
 		return nil, fmt.Errorf("parse system one response: %w", err)
 	}
 	if len(decoded.Answers) == 0 {

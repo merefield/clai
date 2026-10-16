@@ -2,7 +2,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/merefield/clai/ci.yml?branch=main&label=CI&logo=github&style=flat-square)](https://github.com/merefield/clai/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/merefield/clai?display_name=tag&sort=semver&style=flat-square&cacheSeconds=300)](https://github.com/merefield/clai/releases/latest)
-[![Go 1.26.6](https://img.shields.io/badge/Go-1.26.6-00ADD8?logo=go&logoColor=white&style=flat-square)](go.mod)
+[![Go 1.27.2](https://img.shields.io/badge/Go-1.27.2-00ADD8?logo=go&logoColor=white&style=flat-square)](go.mod)
 [![License](https://img.shields.io/github/license/merefield/clai?style=flat-square&cacheSeconds=300)](LICENSE.txt)
 
 CLAI is an AI-powered terminal assistant that turns natural-language requests into shell commands you can inspect, edit, approve, or reject before they run.
@@ -45,7 +45,7 @@ To run a compiled CLAI binary:
 
 The Go binary implements HTTP, JSON, and tool handling itself. It does not require `curl` or `jq`.
 
-Building from source requires the Go toolchain declared by [`go.mod`](go.mod): Go 1.26.6 for this branch.
+Building from source requires the Go toolchain declared by [`go.mod`](go.mod): Go 1.27.2 for this branch.
 
 ## Quickstart
 
@@ -587,7 +587,7 @@ The application depends on interfaces for the provider client and command runner
 
 ## Development
 
-Install Go 1.26.6 and Bats:
+Install Go 1.27.2 and Bats:
 
 ```bash
 sudo apt update
