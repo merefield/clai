@@ -34,6 +34,7 @@ func prepareTerminal(cmd *exec.Cmd, input *os.File) (func() error, error) {
 	// The child sets its foreground group before exec, avoiding a race where
 	// its first terminal read could receive SIGTTIN.
 	cmd.SysProcAttr.Foreground = true
+	// Foreground uses a parent fd before stdin remapping, unlike Setctty.
 	cmd.SysProcAttr.Ctty = fd
 	return func() error {
 		// Reclaiming the terminal from a background group can raise SIGTTOU.

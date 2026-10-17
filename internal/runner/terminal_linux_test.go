@@ -22,16 +22,38 @@ func TestTerminalHelper(t *testing.T) {
 	if mode == "" {
 		return
 	}
-	console := ui.New(os.Stdin, os.Stdout, os.Stderr, false)
+	input := os.Stdin
+	if mode == "reply-high-fd" {
+		var err error
+		input, err = os.OpenFile("/dev/tty", os.O_RDWR, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer input.Close()
+		if input.Fd() == 0 {
+			t.Fatal("expected nonzero parent descriptor")
+		}
+		null, err := os.Open(os.DevNull)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := unix.Dup2(int(null.Fd()), 0); err != nil {
+			t.Fatal(err)
+		}
+		null.Close()
+		mode = "reply"
+	}
+	fd := int(input.Fd())
+	console := ui.New(input, os.Stdout, os.Stderr, false)
 	choice, err := console.Choice("CONFIRM:")
 	if err != nil || choice != "y" {
 		t.Fatalf("confirmation %q: %v", choice, err)
 	}
-	before, err := term.GetState(0)
+	before, err := term.GetState(fd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := Bash{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}
+	runner := Bash{Stdin: input, Stdout: os.Stdout, Stderr: os.Stderr}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	command := `printf 'CHILD_READY\n'; IFS= read -r answer; printf 'ANSWER:%s\n' "$answer"; stty -echo`
@@ -56,11 +78,11 @@ func TestTerminalHelper(t *testing.T) {
 	if (mode == "reply" || mode == "eof") && result.ExitCode != 0 {
 		t.Fatalf("command failed: %#v", result)
 	}
-	group, err := unix.IoctlGetInt(0, unix.TIOCGPGRP)
+	group, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
 	if err != nil || group != syscall.Getpgrp() {
 		t.Fatalf("foreground not restored: %d %v", group, err)
 	}
-	after, err := term.GetState(0)
+	after, err := term.GetState(fd)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("terminal state not restored: %v", err)
 	}
@@ -72,7 +94,7 @@ func TestTerminalHelper(t *testing.T) {
 }
 
 func TestTerminalHandoff(t *testing.T) {
-	for _, mode := range []string{"reply", "cancel", "interrupt", "eof", "start-failure"} {
+	for _, mode := range []string{"reply", "reply-high-fd", "cancel", "interrupt", "eof", "start-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			fd, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
 			if err != nil {
@@ -104,7 +126,7 @@ func TestTerminalHandoff(t *testing.T) {
 			slave.Close()
 			// Send both lines together to catch prompt read-ahead stealing input.
 			input := "y\n"
-			if mode == "reply" {
+			if mode == "reply" || mode == "reply-high-fd" {
 				input += "yes\n"
 			}
 			if _, err := master.WriteString(input); err != nil {
@@ -143,7 +165,7 @@ func TestTerminalHandoff(t *testing.T) {
 			if err != nil || !strings.Contains(output, "HANDOFF_OK") {
 				t.Fatalf("helper: %v\n%s", err, output)
 			}
-			if mode == "reply" && !strings.Contains(output, "ANSWER:yes") {
+			if (mode == "reply" || mode == "reply-high-fd") && !strings.Contains(output, "ANSWER:yes") {
 				t.Fatalf("lost child input: %s", output)
 			}
 		})
