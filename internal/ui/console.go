@@ -40,7 +40,18 @@ func New(in io.Reader, out, errOut io.Writer, highContrast bool) *Console {
 	if f, ok := in.(*os.File); ok {
 		interactive = term.IsTerminal(int(f.Fd()))
 	}
-	return &Console{In: in, Out: out, Err: errOut, reader: bufio.NewReader(in), interactive: interactive, highContrast: highContrast}
+	return &Console{In: in, Out: out, Err: errOut, reader: bufio.NewReader(promptReader{in}), interactive: interactive, highContrast: highContrast}
+}
+
+// Child commands inherit the same input file. Do not buffer past a prompt's
+// newline, including when confirmations and command input arrive together.
+type promptReader struct{ io.Reader }
+
+func (r promptReader) Read(p []byte) (int, error) {
+	if len(p) > 1 {
+		p = p[:1]
+	}
+	return r.Reader.Read(p)
 }
 
 func (c *Console) Interactive() bool { return c.interactive }

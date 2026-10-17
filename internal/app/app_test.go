@@ -261,6 +261,42 @@ func TestProcessQuestionDoesNotRunCommand(t *testing.T) {
 	}
 }
 
+func TestApplicationPassesInputThroughBothConfirmations(t *testing.T) {
+	t.Setenv("CLAI_CONFIG", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("CLAI_HISTORY", filepath.Join(t.TempDir(), "history"))
+	t.Setenv("CLAI_TOOLS_DIR", t.TempDir())
+	input, err := os.CreateTemp(t.TempDir(), "input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	if _, err := input.WriteString("y\ny\nyes\nnext\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := input.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	application, err := New(context.Background(), input, &out, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close()
+	application.Config.ConfirmDangerousCommands = true
+	application.Config.ShareCommandResults = false
+	reply := model.Reply{Command: `printf 'Child prompt: '; IFS= read -r answer; printf 'Child answer: %s\n' "$answer"`, Risk: model.RiskDanger}
+	if err := application.confirmAndRun(context.Background(), "test prompt", reply, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "danger zone command, are you sure?") || !strings.Contains(out.String(), "Child answer: yes") {
+		t.Fatalf("input handoff failed: %s", out.String())
+	}
+	answer, err := application.UI.Prompt("next request")
+	if err != nil || answer != "next" {
+		t.Fatalf("subsequent input lost: %q %v", answer, err)
+	}
+}
+
 func TestExplicitQuestionUsesConfiguredGuidance(t *testing.T) {
 	for _, systemOne := range []bool{false, true} {
 		for _, query := range []string{"how do I list files", "clear history"} {

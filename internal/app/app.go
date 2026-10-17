@@ -62,7 +62,8 @@ func New(_ context.Context, in io.Reader, out, errOut io.Writer) (*Application, 
 			return nil, err
 		}
 	}
-	return &Application{Config: cfg, History: historyStore, Tools: toolManager.Registry(), Client: provider.New(cfg, nil), SystemOne: systemOne, Runner: runner.Bash{Stdout: out, Stderr: errOut}, UI: console, ToolManager: toolManager}, nil
+	inputFile, _ := in.(*os.File)
+	return &Application{Config: cfg, History: historyStore, Tools: toolManager.Registry(), Client: provider.New(cfg, nil), SystemOne: systemOne, Runner: runner.Bash{Stdin: inputFile, Stdout: out, Stderr: errOut}, UI: console, ToolManager: toolManager}, nil
 }
 
 func (a *Application) Close() error {

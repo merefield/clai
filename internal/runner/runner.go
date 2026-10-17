@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"unicode/utf8"
@@ -27,6 +28,9 @@ type Runner interface {
 }
 
 type Bash struct {
+	// A file is inherited directly, avoiding a copying goroutine that could
+	// consume later CLAI input after the child has exited.
+	Stdin  *os.File
 	Stdout io.Writer
 	Stderr io.Writer
 }
@@ -36,14 +40,25 @@ func (r Bash) Run(ctx context.Context, command string, edited bool) model.Comman
 	stderr := newTailWriter(MaxCapturedStreamBytes)
 	cmd := exec.CommandContext(ctx, "bash", "-o", "errexit", "-o", "pipefail", "-c", command)
 	configureCommand(cmd)
+	if r.Stdin != nil {
+		cmd.Stdin = r.Stdin
+	}
 	cmd.Stdout = io.MultiWriter(writerOrDiscard(r.Stdout), stdout)
 	cmd.Stderr = io.MultiWriter(writerOrDiscard(r.Stderr), stderr)
-	err := cmd.Run()
+	restore, err := prepareTerminal(cmd, r.Stdin)
+	if err != nil {
+		return model.CommandResult{Command: command, ExitCode: 1, Stderr: err.Error(), Edited: edited}
+	}
+	err = cmd.Run()
 	// A successful shell can leave a background descendant holding its output
 	// pipes open. WaitDelay closes those pipes and reports ErrWaitDelay; the
 	// command itself still succeeded in that case.
 	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() {
 		err = nil
+	}
+	if restoreErr := restore(); restoreErr != nil {
+		err = errors.Join(err, restoreErr)
+		_, _ = stderr.Write([]byte(restoreErr.Error()))
 	}
 	exitCode := 0
 	if err != nil {
