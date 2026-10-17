@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/merefield/clai/internal/ui"
 )
 
 func TestBashCapturesAndStreamsOutput(t *testing.T) {
@@ -19,6 +21,43 @@ func TestBashCapturesAndStreamsOutput(t *testing.T) {
 	}
 	if stdout.String() != "out" || stderr.String() != "err" {
 		t.Fatalf("streamed stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestBashSharesRedirectedInputWithoutPromptReadAhead(t *testing.T) {
+	input, err := os.CreateTemp(t.TempDir(), "input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	if _, err := input.WriteString("y\ny\nyes\nnext\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := input.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	console := ui.New(input, &output, &output, false)
+	for i := 0; i < 2; i++ {
+		choice, err := console.Choice("confirm?")
+		if err != nil || choice != "y" {
+			t.Fatalf("confirmation %q: %v", choice, err)
+		}
+	}
+	result := (Bash{Stdin: input}).Run(context.Background(), `IFS= read -r answer; printf '%s' "$answer"`, false)
+	if result.ExitCode != 0 || result.Stdout != "yes" {
+		t.Fatalf("child input lost: %#v", result)
+	}
+	answer, err := console.Prompt("next request")
+	if err != nil || answer != "next" {
+		t.Fatalf("parent input lost: %q %v", answer, err)
+	}
+}
+
+func TestBashWithoutInputReceivesEOF(t *testing.T) {
+	result := (Bash{}).Run(context.Background(), `if IFS= read -r answer; then exit 2; else printf eof; fi`, false)
+	if result.ExitCode != 0 || result.Stdout != "eof" {
+		t.Fatalf("result: %#v", result)
 	}
 }
 

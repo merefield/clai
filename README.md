@@ -263,6 +263,8 @@ Danger-zone commands always receive the normal confirmation. When `confirm_dange
 
 Approved commands run through `bash -o errexit -o pipefail -c`. Stdout and stderr stream to the terminal without truncation, while CLAI retains only the most recent 256 KiB of each stream. Cancellation terminates the command's process group, and detached descendants cannot keep CLAI blocked on inherited output pipes. After a failed command in an interactive terminal, CLAI can send the command and its stderr back to the provider to request an explanation and possible repair.
 
+Approved commands inherit terminal input, so prompts from tools such as `apt-get` can be answered normally after CLAI's own confirmations. On Unix, CLAI hands foreground terminal ownership to the command and restores it and the terminal settings afterward, including on cancellation. Redirected file input is also passed through; when no input file is available, commands receive EOF. Output still streams and is captured as described above; this is not a full pseudo-terminal wrapper for screen-oriented applications.
+
 Risk is model-generated guidance, not a security boundary. Read every proposed or edited command before approving it.
 
 If `system_one_key`, `system_one_api`, and `system_one_model` are configured, CLAI uses that System One-compatible API for typed intent routing and command-risk auditing. The main LLM still generates commands and explanations, but System One decides whether a request is a command task, question, or history-clear request, and independently audits proposed command risk before `risk_appetite` can auto-run it. A higher System One risk label overrides the LLM risk label; low-confidence risk audits force a confirmation prompt.
