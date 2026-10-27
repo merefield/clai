@@ -110,6 +110,7 @@ try {
         Fail "could not install into ${BinDir}: $($_.Exception.Message); set CLAI_BIN_DIR to a writable directory"
     }
     Write-Host "Installed clai to $target ($versionOutput)."
+    Write-Host "Run: clai setup (configure a provider and an optional command alias for voice input)."
     if (@($env:PATH -split ';') -notcontains $BinDir) { Write-Host "Add $BinDir to PATH before invoking clai." }
 } finally {
     if (Test-Path -LiteralPath $temporaryDirectory) { Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force }

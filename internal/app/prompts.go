@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/merefield/clai/internal/model"
+	"github.com/merefield/clai/internal/shellintegration"
 )
 
 //go:embed VERSION
@@ -46,26 +47,14 @@ func systemPrompt(configPath, statePath, toolCapability string) string {
 }
 
 func ShellInit(shell string) (string, error) {
-	switch shell {
-	case "bash":
-		return `_clai_noglob() {
-  local _clai_status _clai_restore_glob=1
-  case "${_CLAI_SHELL_FLAGS:-}" in *f*) _clai_restore_glob=0 ;; esac
-  if command clai "$@"; then
-    _clai_status=0
-  else
-    _clai_status=$?
-  fi
-  if [ "$_clai_restore_glob" -eq 1 ]; then set +f; fi
-  unset _CLAI_SHELL_FLAGS
-  return "$_clai_status"
-}
-alias clai='_CLAI_SHELL_FLAGS=$-; set -f; _clai_noglob'`, nil
-	case "zsh":
-		return `alias clai='noglob clai'`, nil
-	default:
-		return "", fmt.Errorf("unsupported shell %q; expected bash or zsh", shell)
+	if shell == "pwsh" || shell == "powershell" {
+		executable, err := os.Executable()
+		if err != nil {
+			return "", err
+		}
+		return shellintegration.Init(shell, "clai", executable)
 	}
+	return shellintegration.Init(shell, "clai", "clai")
 }
 
 func queryGuidance(kind, configured string) string {

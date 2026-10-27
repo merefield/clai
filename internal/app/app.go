@@ -88,7 +88,7 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		}
 	}
 	if a.Config.Key == "" {
-		if err := a.setup(); err != nil {
+		if err := a.setup(ctx); err != nil {
 			return err
 		}
 	}
@@ -173,7 +173,7 @@ func (a *Application) handleBuiltIn(ctx context.Context, args []string) (bool, e
 	}
 	if len(args) >= 1 && args[0] == "shell-init" {
 		if len(args) != 2 {
-			return true, fmt.Errorf("usage: clai shell-init bash|zsh")
+			return true, fmt.Errorf("usage: clai shell-init bash|zsh|pwsh|powershell")
 		}
 		initialization, err := ShellInit(args[1])
 		if err != nil {
@@ -183,7 +183,7 @@ func (a *Application) handleBuiltIn(ctx context.Context, args []string) (bool, e
 		return true, nil
 	}
 	if len(args) == 1 && (args[0] == "setup" || args[0] == "--setup") {
-		return true, a.setup()
+		return true, a.setup(ctx)
 	}
 	if len(args) == 1 && args[0] == "--clear-history" {
 		return true, a.clearHistory()
@@ -221,7 +221,7 @@ func (a *Application) handleBuiltIn(ctx context.Context, args []string) (bool, e
 	return false, nil
 }
 
-func (a *Application) setup() error {
+func (a *Application) setup(ctx context.Context) error {
 	key, endpoint, selectedModel, risk, err := a.UI.Setup(a.Config.Key, a.Config.API, a.Config.Model, a.Config.RiskAppetite)
 	if err != nil {
 		return err
@@ -243,6 +243,7 @@ func (a *Application) setup() error {
 		a.SystemOne = nil
 	}
 	fmt.Fprintln(a.UI.Out, "CLAI configuration updated.")
+	a.setupCommandAlias(ctx)
 	return nil
 }
 
