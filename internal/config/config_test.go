@@ -23,6 +23,9 @@ func TestLoadCreatesCompatibleDefaults(t *testing.T) {
 	if cfg.UseTools {
 		t.Fatal("tools must be disabled by default")
 	}
+	if !cfg.AgentsEnabled || cfg.AgentsMaxBytes != 32768 || cfg.AgentsFileMaxBytes != 16384 || !cfg.SkillsEnabled || !cfg.SkillsAutoActivate || cfg.SkillsMaxActive != 2 || cfg.SkillsMaxIndexChars != 8000 || cfg.SkillsFileMaxBytes != 24576 || cfg.SkillsReferenceMaxBytes != 16384 || cfg.SkillsQuiet {
+		t.Fatalf("unexpected local context defaults: %+v", cfg)
+	}
 	if cfg.SystemOneKey != "" || cfg.SystemOneAPI != "https://api.typesafe.ai/v1/systemone" || cfg.SystemOneModel != "jev-latest" {
 		t.Fatalf("unexpected system one defaults: %#v", cfg)
 	}
@@ -39,6 +42,36 @@ func TestLoadCreatesCompatibleDefaults(t *testing.T) {
 	}
 	if !strings.Contains(string(contents), "use_tools=false\n") {
 		t.Fatalf("shipped config does not disable tools: %q", contents)
+	}
+}
+
+func TestLocalContextSettingsAreOptionalAndBounded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.cfg")
+	if err := os.WriteFile(path, []byte("key=test\nuse_tools=false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AgentsEnabled || !cfg.SkillsEnabled || cfg.UseTools {
+		t.Fatal("old configuration needs a migration or enables external tools")
+	}
+	for _, key := range []string{"agents_max_bytes", "agents_file_max_bytes", "skills_max_index_chars", "skills_max_active", "skills_file_max_bytes", "skills_reference_max_bytes"} {
+		cfg.Set(key, "999999999")
+	}
+	if cfg.AgentsMaxBytes != 4<<20 || cfg.AgentsFileMaxBytes != 1<<20 || cfg.SkillsMaxIndexChars != 65536 || cfg.SkillsMaxActive != 8 || cfg.SkillsFileMaxBytes != 1<<20 || cfg.SkillsReferenceMaxBytes != 16384 {
+		t.Fatal("hard context limits were not applied")
+	}
+	cfg.Set("agents_enabled", "false")
+	cfg.Set("skills_enabled", "false")
+	cfg.Set("skills_max_active", "0")
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := Load(path)
+	if err != nil || reloaded.AgentsEnabled || reloaded.SkillsEnabled || reloaded.SkillsMaxActive != 0 {
+		t.Fatalf("local context settings did not persist: %+v, %v", reloaded, err)
 	}
 }
 

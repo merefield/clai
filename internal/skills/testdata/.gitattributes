@@ -1,0 +1,2 @@
+# Preserve the Windows fixture's bytes on every checkout, including CI.
+windows-skill/SKILL.md -text whitespace=cr-at-eol
