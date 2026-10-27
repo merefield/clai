@@ -33,6 +33,16 @@ risk_appetite=0
 exec_query=
 question_query=
 error_query=
+agents_enabled=true
+agents_max_bytes=32768
+agents_file_max_bytes=16384
+skills_enabled=true
+skills_auto_activate=true
+skills_max_index_chars=8000
+skills_max_active=2
+skills_file_max_bytes=24576
+skills_reference_max_bytes=16384
+skills_quiet=false
 `
 
 type Config struct {
@@ -58,6 +68,16 @@ type Config struct {
 	ExecQuery                string
 	QuestionQuery            string
 	ErrorQuery               string
+	AgentsEnabled            bool
+	AgentsMaxBytes           int
+	AgentsFileMaxBytes       int
+	SkillsEnabled            bool
+	SkillsAutoActivate       bool
+	SkillsMaxIndexChars      int
+	SkillsMaxActive          int
+	SkillsFileMaxBytes       int
+	SkillsReferenceMaxBytes  int
+	SkillsQuiet              bool
 	values                   map[string]string
 	order                    []string
 }
@@ -153,6 +173,16 @@ func (c *Config) refresh() {
 	c.ExecQuery = c.values["exec_query"]
 	c.QuestionQuery = c.values["question_query"]
 	c.ErrorQuery = c.values["error_query"]
+	c.AgentsEnabled = boolValue(c.values["agents_enabled"], true)
+	c.AgentsMaxBytes = min(4<<20, intValue(c.values["agents_max_bytes"], 32768, 1))
+	c.AgentsFileMaxBytes = min(1<<20, intValue(c.values["agents_file_max_bytes"], 16384, 1))
+	c.SkillsEnabled = boolValue(c.values["skills_enabled"], true)
+	c.SkillsAutoActivate = boolValue(c.values["skills_auto_activate"], true)
+	c.SkillsMaxIndexChars = min(65536, intValue(c.values["skills_max_index_chars"], 8000, 1))
+	c.SkillsMaxActive = min(8, intValue(c.values["skills_max_active"], 2, 0))
+	c.SkillsFileMaxBytes = min(1<<20, intValue(c.values["skills_file_max_bytes"], 24576, 1))
+	c.SkillsReferenceMaxBytes = min(16384, intValue(c.values["skills_reference_max_bytes"], 16384, 1))
+	c.SkillsQuiet = boolValue(c.values["skills_quiet"], false)
 }
 
 func (c *Config) Set(key, value string) {
@@ -182,7 +212,13 @@ func (c *Config) Save() error {
 }
 
 func defaultKeys() []string {
-	return []string{"key", "hi_contrast", "expose_current_dir", "max_history_turns", "api", "model", "json_mode", "temp", "tokens", "reasoning", "system_one_key", "system_one_api", "system_one_model", "use_tools", "share_command_results", "result_lines", "confirm_dangerous_commands", "risk_appetite", "exec_query", "question_query", "error_query"}
+	keys := []string{}
+	for _, line := range strings.Split(defaultText, "\n") {
+		if key, _, ok := strings.Cut(line, "="); ok {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {

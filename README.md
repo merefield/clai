@@ -2,7 +2,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/merefield/clai/ci.yml?branch=main&label=CI&logo=github&style=flat-square)](https://github.com/merefield/clai/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/merefield/clai?display_name=tag&sort=semver&style=flat-square&cacheSeconds=300)](https://github.com/merefield/clai/releases/latest)
-[![Go 1.27.2](https://img.shields.io/badge/Go-1.27.2-00ADD8?logo=go&logoColor=white&style=flat-square)](go.mod)
+[![Go 1.27.3](https://img.shields.io/badge/Go-1.27.3-00ADD8?logo=go&logoColor=white&style=flat-square)](go.mod)
 [![License](https://img.shields.io/github/license/merefield/clai?style=flat-square&cacheSeconds=300)](LICENSE.txt)
 
 CLAI is an AI-powered terminal assistant that turns natural-language requests into shell commands you can inspect, edit, approve, or reject before they run.
@@ -34,6 +34,7 @@ The primary implementation is now Go. It keeps the existing `clai <request...>` 
 - Hot-loaded MCP tool servers exposed through provider function calling
 - A standalone Go Wikipedia server that doubles as a copyable plugin tutorial
 - Shell integration for unquoted `*` and `?` in Bash and zsh
+- Layered `AGENTS.md` guidance and portable Agent Skills with local selection and on-demand documentation
 
 ## Requirements
 
@@ -45,7 +46,7 @@ To run a compiled CLAI binary:
 
 The Go binary implements HTTP, JSON, and tool handling itself. It does not require `curl` or `jq`.
 
-Building from source requires the Go toolchain declared by [`go.mod`](go.mod): Go 1.27.2 for this branch.
+Building from source requires the Go toolchain declared by [`go.mod`](go.mod): Go 1.27.3 for this branch.
 
 ## Quickstart
 
@@ -378,6 +379,70 @@ system_one_api=https://api.typesafe.ai/v1/systemone
 system_one_model=jev-latest
 ```
 
+## AGENTS.md guidance
+
+CLAI discovers [AGENTS.md](https://agents.md/) instructions locally on every request:
+
+1. `<os.UserConfigDir()>/clai/AGENTS.md` for global preferences (`~/.config/clai/AGENTS.md` on typical Linux systems).
+2. The nearest Git project root, recognized by either a `.git` directory or a worktree `.git` file.
+3. Each directory from that root down to the invocation's current directory.
+
+Without a Git root, only the current directory supplies project guidance. Siblings, descendants and ancestors above the root are not searched. In each applicable directory, the first non-empty valid `AGENTS.override.md` or `AGENTS.md` is used, in that order. Closer project documents take precedence within the guidance layer; skills supplement those instructions. The user's request remains the task, and CLAI's built-in JSON contract, tool restrictions and approval rules retain priority.
+
+Inspect the chain without a provider key:
+
+```bash
+clai context show
+clai context show --verbose
+```
+
+Default inspection shows paths, scopes, byte counts and diagnostics. `--verbose` displays file contents. UTF-8 files exceeding a per-file or aggregate budget are omitted with a warning. Existing documents are refreshed on the next request, including in interactive sessions.
+
+## Agent Skills
+
+CLAI reads the published [Agent Skills format](https://agentskills.io/specification). Skills live in directories containing YAML-frontmatter `SKILL.md` files:
+
+```text
+~/.agents/skills/<name>/SKILL.md
+<project-root>/.agents/skills/<name>/SKILL.md
+<applicable-nested-directory>/.agents/skills/<name>/SKILL.md
+```
+
+The nearest valid project skill wins when names overlap, followed by project-root and user skills. Files in unrelated repositories are not searched. No CLAI-specific installation or copy is needed for skills already in these locations; `~/.codex` and `~/.claude` are not fallback roots.
+
+Discovery reads only YAML metadata. Names must match their directory, use 1–64 lowercase ASCII letters/digits with single intervening hyphens, and descriptions must contain 1–1024 characters. Standard optional fields are accepted; unknown optional fields are ignored. `allowed-tools` is metadata and grants no permissions. Only selected skills' Markdown bodies enter the request. The metadata index is bounded separately and shortens descriptions before omitting entries.
+
+Selection uses local name/description matching, without embeddings or an extra model call. Casual topic mentions do not suffice; tied matches produce a diagnostic directing you to explicit selection. Up to two skills activate automatically by default. Explicit selection takes precedence and can name up to eight skills:
+
+```bash
+clai skills list
+clai skills list --all
+clai skills show openai-cli
+clai skills show openai-cli --body
+clai skills validate examples/skills/openai-cli
+clai skills reload
+clai --skill openai-cli list my available OpenAI models
+clai --question --skill openai-cli explain how to list models
+```
+
+All inspection commands work without a provider key. `list --all` includes invalid and shadowed sources. `validate` checks UTF-8 text and frontmatter within a 1 MiB file limit. `reload` rebuilds discovery; normal requests also rescan, so file changes do not require restarting CLAI. Interactive equivalents include `/skills list`, `/skills use openai-cli`, `/skills off` and `/context show`. Selections and deactivation are session-local. Activation prints `skill: <name>` with its selection reason; set `skills_quiet=true` to suppress routine notices.
+
+### On-demand references and boundaries
+
+With a tool-capable provider, an active skill with eligible documentation exposes `clai_read_skill_reference({"skill":"name","path":"references/guide.md"})`. This read-only internal tool works with `use_tools=false`; it does not enable external MCP tools. Providers without tool calling still receive the selected skill's main instructions and display a notice when references are unavailable.
+
+Eligible references are `.md`, `.txt`, `.rst` and `.adoc` files at the skill root (except `SKILL.md`) or within `references/`. Scripts, assets, hidden files and arbitrary filesystem paths are excluded. Only paths listed at activation can be read. Absolute/drive/UNC paths, traversal, escaping symlinks and non-regular files are rejected. Active skill directories are pinned for the request; repeated reference reads use request-local cached text. Oversized files are rejected with a diagnostic, never executed.
+
+Discovery is limited to 512 candidates, with at most 512 entries per skill-root listing. Reference listings allow 32 paths, four nested levels and 256 examined entries; a reference subdirectory with over 128 entries is omitted. Each request permits eight reference calls. YAML frontmatter is capped at 8 KiB. Relative symlinks are accepted only within the applicable allowed root (global configuration directory, home directory for user skills, project root for project files, active skill directory for references); absolute symlinks are unsupported even when their apparent target is inside that root. These are deliberate compatibility limits.
+
+Applicable guidance, the bounded skill metadata index, activated instructions and requested references are sent to the configured response provider. They are untrusted content and cannot change CLAI configuration, execute scripts, grant tool permissions, or bypass command review. They are not supplied separately to System One routing or auditing. Expanded instruction documents are not stored in history, and reference results are redacted before history is saved; model answers and user messages retain normal history behavior. Only use local instructions you are willing to share with that provider.
+
+### OpenAI CLI example
+
+[examples/skills/openai-cli](examples/skills/openai-cli) is a portable, optional example. Copy that entire directory into a discovered `.agents/skills` directory to try it; it is not installed automatically. Its basic model-list command is verified against the [official CLI reference](https://developers.openai.com/api/reference/cli/resources/models/methods/list), and its bundled reference links to version-aware documentation without fixed model IDs or credentials.
+
+With that skill installed, `clai list the OpenAI API models I have access to` activates `openai-cli` and can propose `openai models list` through the normal approval flow. `clai --skill openai-cli ...` forces selection. `clai list the files in this directory` does not activate it.
+
 ## Configuration reference
 
 CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `key=value` format. The config path must be a regular file rather than a directory or symbolic link; CLAI enforces mode `0600` before reading it.
@@ -397,7 +462,7 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | `system_one_key` | empty | Optional System One-compatible API credential for typed intent routing and risk auditing. |
 | `system_one_api` | `https://api.typesafe.ai/v1/systemone` | System One-compatible HTTPS evaluation endpoint. Used only when key, API, and model are all present. Redirects must remain on the configured HTTPS origin (same host and port). |
 | `system_one_model` | `jev-latest` | System One model used for typed judgments. |
-| `use_tools` | `false` | Opt in to discovering tools, sending their definitions to compatible providers, and allowing model-requested tool calls. |
+| `use_tools` | `false` | Enable external MCP discovery and invocation; the restricted internal skill reference reader is independent. |
 | `share_command_results` | `false` | Send bounded command results for immediate model interpretation and retain them for later context. |
 | `result_lines` | `20` | Maximum recent stdout and stderr lines stored for each shared result. |
 | `confirm_dangerous_commands` | `true` | Require a second confirmation for danger-zone commands. |
@@ -405,6 +470,16 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | `exec_query` | empty | Replace the built-in command-generation guidance when set. |
 | `question_query` | empty | Replace answer-only guidance for `clai --question <question>` or requests routed as questions by System One. Ordinary requests without System One use `exec_query`, regardless of punctuation. |
 | `error_query` | empty | Replace the built-in error-recovery guidance when set. |
+| `agents_enabled` | `true` | Discover applicable AGENTS guidance. |
+| `agents_max_bytes` | `32768` | Aggregate guidance bytes; capped at 4 MiB. |
+| `agents_file_max_bytes` | `16384` | Per-file guidance bytes; capped at 1 MiB. |
+| `skills_enabled` | `true` | Discover and activate local Agent Skills. |
+| `skills_auto_activate` | `true` | Allow deterministic local relevance matching. |
+| `skills_max_index_chars` | `8000` | Serialized metadata index characters; capped at 65,536. |
+| `skills_max_active` | `2` | Automatically selected skills, from 0 through 8. Explicit selections can still activate up to eight. |
+| `skills_file_max_bytes` | `24576` | Per-selected-SKILL.md bytes, including frontmatter; capped at 1 MiB. |
+| `skills_reference_max_bytes` | `16384` | Per-reference text bytes, capped at 16 KiB. Tool results also retain the registry's 32 KiB serialized-result limit. |
+| `skills_quiet` | `false` | Suppress routine skill activation/reference notices. Warnings remain visible. |
 
 Re-run `clai setup` to change the credential, endpoint, model, or risk appetite. Edit the file directly for the remaining settings.
 
@@ -461,7 +536,7 @@ External tools are disabled by default. Opt in by editing `~/.config/clai.cfg`:
 use_tools=true
 ```
 
-When `use_tools=false`, ordinary and interactive requests do not scan manifests, load cached definitions, start tool servers, expose tool schemas to the provider, or execute a requested tool. The explicit `clai tools list|reload` and interactive `/tools list|reload` management commands remain available for inspecting and developing installed tools, but those tools are not exposed to normal requests until enabled.
+When `use_tools=false`, ordinary and interactive requests do not scan MCP manifests, load cached MCP definitions, start tool servers, expose external tool schemas, or execute external tools. The explicit `clai tools list|reload` and interactive `/tools list|reload` management commands remain available for inspecting and developing installed tools, but those tools are not exposed to normal requests until enabled. The separate, read-only [skill reference reader](#agent-skills) can operate with external tools disabled.
 
 CLAI scans `${XDG_CONFIG_HOME:-$HOME/.config}/clai/tools.d/*.json`. Set `CLAI_TOOLS_DIR` to override that location. Tool definitions are cached in a private `.tool-cache` file in that directory, so an unchanged server does not start merely to advertise its tools. The server process starts lazily only if the model actually calls one of its tools, then remains available for the rest of that CLAI process.
 
@@ -642,7 +717,7 @@ The application depends on interfaces for the provider client and command runner
 
 ## Development
 
-Install Go 1.27.2 and Bats:
+Install Go 1.27.3 and Bats:
 
 ```bash
 sudo apt update

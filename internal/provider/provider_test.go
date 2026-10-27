@@ -111,8 +111,8 @@ func TestResponsesPayloadUsesPreviousResponseIDForToolContinuation(t *testing.T)
 	if payload["previous_response_id"] != "resp_previous" {
 		t.Fatalf("previous response id = %#v", payload["previous_response_id"])
 	}
-	if _, exists := payload["instructions"]; exists {
-		t.Fatalf("continuation should not resend instructions: %#v", payload)
+	if payload["instructions"] != "follow policy" {
+		t.Fatalf("continuation must retain core instructions: %#v", payload)
 	}
 	input := payload["input"].([]map[string]any)
 	if len(input) != 1 || input[0]["type"] != "function_call_output" || input[0]["call_id"] != "call_latest" || input[0]["output"] != "latest" {
