@@ -2,6 +2,8 @@ package ui
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -9,6 +11,19 @@ import (
 
 	"github.com/merefield/clai/internal/model"
 )
+
+func TestPromptDistinguishesAnAnswerFromEOF(t *testing.T) {
+	for _, input := range []string{"answer\n", "answer"} {
+		var output bytes.Buffer
+		console := New(strings.NewReader(input), &output, &output, true)
+		if value, err := console.Prompt("request: "); err != nil || value != "answer" {
+			t.Fatalf("final answer lost for %q: %q, %v", input, value, err)
+		}
+		if value, err := console.Prompt("next: "); !errors.Is(err, io.EOF) || value != "" {
+			t.Fatalf("empty EOF hidden: %q, %v", value, err)
+		}
+	}
+}
 
 func TestMultilineExplanationKeepsSectionMargin(t *testing.T) {
 	var output bytes.Buffer

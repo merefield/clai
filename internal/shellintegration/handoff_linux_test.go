@@ -63,15 +63,39 @@ func runHandoffShell(t *testing.T, shell, script, temporary string) string {
 
 func TestInteractiveShellHandoffQueuesTextWithoutExecuting(t *testing.T) {
 	for _, shell := range []string{"bash", "zsh"} {
-		for _, status := range []int{0, 7} {
-			t.Run(fmt.Sprintf("%s/status-%d", shell, status), func(t *testing.T) {
+		for _, test := range []struct {
+			name, file         string
+			status, wantStatus int
+			queued             bool
+		}{
+			{"ordinary-success", "data", 0, 0, false},
+			{"failure", "data", 7, 7, false},
+			{"explicit-handoff", "data", HandoffExitCode, 0, true},
+			{"missing-file", "missing", HandoffExitCode, 1, false},
+			{"empty-file", "empty", HandoffExitCode, 1, false},
+			{"symlink", "symlink", HandoffExitCode, 1, false},
+		} {
+			t.Run(shell+"/"+test.name, func(t *testing.T) {
 				requireShell(t, shell)
 				directory := t.TempDir()
 				marker := filepath.Join(directory, "must-not-execute")
 				pending := "touch " + Quote(marker) + ` && printf '%s' 'literal $HOME \backslash'`
 				fake := filepath.Join(directory, "clai")
 				// A command that would create a file if the wrapper evaluated it.
-				program := "#!/bin/sh\nprintf '%s' " + Quote(pending) + " > \"$CLAI_HANDOFF_FILE\"\nexit " + fmt.Sprint(status) + "\n"
+				program := "#!/bin/sh\n"
+				switch test.file {
+				case "data":
+					program += "printf '%s' " + Quote(pending) + " > \"$CLAI_HANDOFF_FILE\"\n"
+				case "empty":
+					program += ": > \"$CLAI_HANDOFF_FILE\"\n"
+				case "symlink":
+					target := filepath.Join(directory, "source")
+					if err := os.WriteFile(target, []byte(pending), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					program += "ln -s " + Quote(target) + " \"$CLAI_HANDOFF_FILE\"\n"
+				}
+				program += "exit " + fmt.Sprint(test.status) + "\n"
 				if err := os.WriteFile(fake, []byte(program), 0o700); err != nil {
 					t.Fatal(err)
 				}
@@ -87,14 +111,18 @@ func TestInteractiveShellHandoffQueuesTextWithoutExecuting(t *testing.T) {
 				// The handed-off text is never evaluated by this test or wrapper.
 				script := initialization + "\neval 'computer request'\nprintf 'CLAI_STATUS=%s\\n' \"$?\"\n" + inspect + "\nprintf 'SHELL_RETURNED\\n'\n"
 				output := runHandoffShell(t, shell, script, directory)
-				if strings.Contains(output, pending) != (status == 0) || !strings.Contains(output, "SHELL_RETURNED") || !strings.Contains(output, fmt.Sprintf("CLAI_STATUS=%d", status)) {
+				if strings.Contains(output, pending) != test.queued || !strings.Contains(output, "SHELL_RETURNED") || !strings.Contains(output, fmt.Sprintf("CLAI_STATUS=%d", test.wantStatus)) {
 					t.Fatalf("queued text changed or shell did not return: %q", output)
 				}
 				if _, err := os.Stat(marker); !os.IsNotExist(err) {
 					t.Fatalf("pending command was executed: %v", err)
 				}
 				entries, err := os.ReadDir(directory)
-				if err != nil || len(entries) != 1 || entries[0].Name() != "clai" {
+				wantFiles := 1
+				if test.file == "symlink" {
+					wantFiles++
+				}
+				if err != nil || len(entries) != wantFiles || entries[0].Name() != "clai" {
 					t.Fatalf("temporary handoff files not cleaned up: %v, %v", entries, err)
 				}
 			})

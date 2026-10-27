@@ -133,6 +133,9 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 			continue
 		}
 		if err := a.process(ctx, query, ""); err != nil {
+			if errors.Is(err, ErrShellHandoff) {
+				return err
+			}
 			a.UI.Error(err.Error())
 		}
 		if a.exitToShell {
@@ -517,6 +520,10 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 	}
 	if forceConfirm || RequiresConfirmation(reply.Risk, a.Config.RiskAppetite) {
 		choice, err := a.UI.Choice("execute command? [y/e/t/N] (t: return to shell): ")
+		if errors.Is(err, io.EOF) {
+			a.UI.Cancel()
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -525,6 +532,10 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 			return a.handoffCommand(command)
 		case "e":
 			value, err := a.UI.Prompt("edit command [" + command + "]: ")
+			if errors.Is(err, io.EOF) {
+				a.UI.Cancel()
+				return nil
+			}
 			if err != nil {
 				return err
 			}
@@ -539,6 +550,10 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 		}
 		if (reply.Risk == model.RiskDanger || (forceConfirm && edited)) && a.Config.ConfirmDangerousCommands {
 			confirm, err := a.UI.Choice("danger zone command, are you sure? [y/N]: ")
+			if errors.Is(err, io.EOF) {
+				a.UI.Cancel()
+				return nil
+			}
 			if err != nil {
 				return err
 			}
@@ -583,6 +598,9 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 	}
 	if a.UI.Interactive() {
 		choice, err := a.UI.Choice("examine error? [y/N]: ")
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

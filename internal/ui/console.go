@@ -137,7 +137,12 @@ func (c *Console) Prompt(label string) (string, error) {
 	if err != nil && err != io.EOF {
 		return "", err
 	}
-	return strings.TrimSpace(line), nil
+	// A final unterminated answer is still usable, but an empty EOF must
+	// reach callers so they can leave a prompt/session instead of looping.
+	if err == io.EOF && line != "" {
+		err = nil
+	}
+	return strings.TrimSpace(line), err
 }
 
 func (c *Console) Secret(label string) (string, error) {

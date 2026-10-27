@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/merefield/clai/internal/history"
 	"github.com/merefield/clai/internal/model"
 	"github.com/merefield/clai/internal/provider"
+	"github.com/merefield/clai/internal/runner"
 	"github.com/merefield/clai/internal/shellintegration"
 	"github.com/merefield/clai/internal/ui"
 )
@@ -34,7 +37,7 @@ func handoffFixture(t *testing.T, input string) (*Application, *fakeRunner, *byt
 func TestKnownInteractiveCommandNeverAutoRuns(t *testing.T) {
 	app, runner, output, path := handoffFixture(t, "t\n")
 	app.Config.RiskAppetite = 2
-	if err := app.confirmAndRun(context.Background(), "attach", model.Reply{Command: "tmux attach", Risk: model.RiskNone}, false); err != nil {
+	if err := app.confirmAndRun(context.Background(), "attach", model.Reply{Command: "tmux attach", Risk: model.RiskNone}, false); !errors.Is(err, ErrShellHandoff) {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -52,7 +55,7 @@ func TestManualHandoffAndEditedInteractiveCommand(t *testing.T) {
 		{"e\nvim README.md\nt\n", "cat README.md", "vim README.md"},
 	} {
 		app, runner, _, path := handoffFixture(t, test.input)
-		if err := app.confirmAndRun(context.Background(), "request", model.Reply{Command: test.command, Risk: model.RiskNone}, false); err != nil {
+		if err := app.confirmAndRun(context.Background(), "request", model.Reply{Command: test.command, Risk: model.RiskNone}, false); !errors.Is(err, ErrShellHandoff) {
 			t.Fatal(err)
 		}
 		data, err := os.ReadFile(path)
@@ -68,7 +71,7 @@ func TestTerminalErrorOffersHandoffWithoutRetryOrInterpretation(t *testing.T) {
 	app.Config.ShareCommandResults = true
 	app.Config.ResultLines = 20
 	runner.results = []model.CommandResult{{Command: "custom-tool", ExitCode: 1, Stderr: "open terminal failed: not a terminal"}}
-	if err := app.confirmAndRun(context.Background(), "request", model.Reply{Command: "custom-tool", Risk: model.RiskNone}, false); err != nil {
+	if err := app.confirmAndRun(context.Background(), "request", model.Reply{Command: "custom-tool", Risk: model.RiskNone}, false); !errors.Is(err, ErrShellHandoff) {
 		t.Fatal(err)
 	}
 	if len(runner.calls) != 1 || !app.exitToShell || len(app.Client.(*fakeClient).requests) != 0 || !strings.Contains(output.String(), "partially completed") || strings.Contains(output.String(), "examine error?") {
@@ -96,7 +99,7 @@ func TestHandoffCancellationAndMissingIntegration(t *testing.T) {
 func TestInteractiveSessionExitsAfterHandoff(t *testing.T) {
 	app, runner, _, path := handoffFixture(t, "attach my session\nt\nthis must not reach a provider\n")
 	app.Client = &fakeClient{responses: []provider.Response{{Text: `{"cmd":"tmux attach","info":"attach session","risk":"none","variables":[]}`, FinishReason: "stop"}}}
-	if err := app.Run(context.Background(), nil); err != nil {
+	if err := app.Run(context.Background(), nil); !errors.Is(err, ErrShellHandoff) {
 		t.Fatal(err)
 	}
 	if len(app.Client.(*fakeClient).requests) != 1 || len(runner.calls) != 0 {
@@ -104,5 +107,64 @@ func TestInteractiveSessionExitsAfterHandoff(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHandoffEOFDisplaysCommandWithoutQueuing(t *testing.T) {
+	app, runner, output, path := handoffFixture(t, "")
+	if err := app.offerTerminal("tmux attach -t work", true); err != nil {
+		t.Fatal(err)
+	}
+	if !app.exitToShell || len(runner.calls) != 0 || !strings.Contains(output.String(), "\ntmux attach -t work\n") {
+		t.Fatalf("EOF lost the copy fallback: %s", output)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("EOF prepared a handoff without selection")
+	}
+}
+
+func TestHandoffChoiceWithoutTrailingNewline(t *testing.T) {
+	app, _, _, path := handoffFixture(t, "t")
+	if err := app.offerTerminal("tmux attach", false); !errors.Is(err, ErrShellHandoff) {
+		t.Fatalf("explicit choice at EOF was ignored: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExistingHandoffFileNeverSignalsSuccess(t *testing.T) {
+	app, runner, output, path := handoffFixture(t, "t\n")
+	if err := os.WriteFile(path, []byte("stale command"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.offerTerminal("tmux attach", false); err != nil {
+		t.Fatalf("failed exclusive write must use copy fallback, not a handoff status: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "stale command" || len(runner.calls) != 0 || !app.exitToShell || !strings.Contains(output.String(), "\ntmux attach\n") {
+		t.Fatalf("stale file was overwritten or consumed: %q, %v; %s", data, err, output)
+	}
+}
+
+func TestOrdinaryCommandCannotForgeHandoffWithFileAndExitCode(t *testing.T) {
+	app, _, _, path := handoffFixture(t, "")
+	app.Config.RiskAppetite = 2
+	app.Runner = runner.Bash{}
+	command := "printf stale > " + shellintegration.Quote(filepath.ToSlash(path)) + "; exit 85"
+	reply, err := json.Marshal(model.Reply{Command: command, Info: "write a test file", Risk: model.RiskReversible, Variables: []model.Variable{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Client = &fakeClient{responses: []provider.Response{{Text: string(reply), FinishReason: "stop"}}}
+	if err := app.Run(context.Background(), []string{"ordinary", "request"}); err != nil || app.exitToShell {
+		t.Fatalf("ordinary child forged the parent handoff status: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "stale" {
+		t.Fatalf("test command did not plant its file: %q, %v", data, err)
+	}
+	if err := app.handoffCommand("tmux attach"); err != nil {
+		t.Fatalf("existing file unexpectedly signaled a handoff: %v", err)
 	}
 }

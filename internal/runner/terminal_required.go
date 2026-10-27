@@ -69,7 +69,7 @@ prefixes:
 		case "attach", "attach-session", "a", "at", "switch-client", "choose-tree", "choose-client":
 			return true
 		case "new", "new-session":
-			return !hasArgument(args, "-d") && !hasArgument(args, "-Ad")
+			return tmuxNewNeedsTerminal(args[1:])
 		}
 	case "screen":
 		for _, argument := range args {
@@ -91,6 +91,34 @@ prefixes:
 		return !hasArgument(args, "-h")
 	}
 	return false
+}
+
+// tmux new-session permits bundled short flags. Options taking a value consume
+// the remainder of that word (or the next word), so a 'd' in a session name or
+// format must not be mistaken for the detached flag. Stop at the shell command.
+func tmuxNewNeedsTerminal(args []string) bool {
+	detached := false
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument == "--" || argument == "-" || !strings.HasPrefix(argument, "-") {
+			break
+		}
+		for position := 1; position < len(argument); position++ {
+			flag := rune(argument[position])
+			if flag == 'd' {
+				detached = true
+			} else if strings.ContainsRune("cefFnstxy", flag) {
+				if position == len(argument)-1 {
+					index++
+				}
+				break
+			} else if !strings.ContainsRune("ADEPX", flag) {
+				// Unrecognized syntax uses runtime error detection instead.
+				return false
+			}
+		}
+	}
+	return !detached
 }
 
 func hasArgument(args []string, value string) bool {

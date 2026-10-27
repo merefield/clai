@@ -9,6 +9,7 @@ import (
 func TestTerminalCommand(t *testing.T) {
 	for _, command := range []string{
 		"tmux", "tmux attach", "tmux attach-session -t work", "tmux -L demo attach", "tmux new-session -s work", "tmux attach -d",
+		"tmux new -A -D -s work", "tmux new -s -d", "tmux new -Asdemo", "tmux new -nwindowd", "tmux new -- sleep -d",
 		"screen", "screen -r work", "vim README.md", "sudo vim file", "sudo -u root vi file", "command /usr/bin/vi file", "exec nano file", "nvim file", "emacs file", "less file", "more file", "top", "htop", "btop", "watch date",
 	} {
 		if !TerminalCommand(command) {
@@ -17,6 +18,7 @@ func TestTerminalCommand(t *testing.T) {
 	}
 	for _, command := range []string{
 		"", "echo tmux attach", "printf 'vim file'", "tmux ls", "tmux list-sessions", "tmux -V", "tmux new-session -d -s work", "tmux new -Ad -s work", "screen -ls", "screen -dmS work", "screen -S work -X quit", "top -b -n 1", "top -bn1", "vim --version", "nvim --headless file", "vim -es file", "emacs --batch file", "less --help", "ls -la", "echo ready && tmux attach", "custom-tool --interactive",
+		"tmux new -dA -s work", "tmux new -dswork", "tmux new-session -dAswork", "tmux new -sdemo -d", "tmux new -d -s work sleep 5",
 	} {
 		if TerminalCommand(command) {
 			t.Errorf("ordinary or unknown invocation diverted: %s", command)

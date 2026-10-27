@@ -336,7 +336,7 @@ Other command → run once → terminal error → offer shell handoff
                                   N: cancel handoff
 ```
 
-Before execution, a conservative local check recognizes simple interactive invocations of tmux, screen, vi/vim/nvim, nano, emacs, less/more, top/htop/btop and watch. Clear batch or inspection forms such as `tmux list-sessions`, `tmux new-session -d`, `screen -ls`, `top -b` and `nvim --headless` continue through normal execution. Recognized interactive commands receive a handoff prompt even when `risk_appetite` would normally allow automatic execution.
+Before execution, a conservative local check recognizes simple interactive invocations of tmux, screen, vi/vim/nvim, nano, emacs, less/more, top/htop/btop and watch. Clear batch or inspection forms such as `tmux list-sessions`, `tmux new-session -d` (including bundled flags such as `-dA`), `screen -ls`, `top -b` and `nvim --headless` continue through normal execution. Recognized interactive commands receive a handoff prompt even when `risk_appetite` would normally allow automatic execution.
 
 For other commands, CLAI checks failed stdout/stderr for specific terminal diagnostics such as `not a terminal`, `not a tty`, and `Inappropriate ioctl for device`. It then offers the same handoff instead of asking the model to repair the error. The command is never retried automatically: earlier steps of a compound command may already have completed, so review the whole command before running it again. Detection is best-effort; unfamiliar syntax, localized diagnostics, and programs that hang or exit successfully without a usable screen may not be detected. You can choose `t` at any ordinary command confirmation to request a handoff yourself; use `risk_appetite=0` to see that confirmation for every command.
 
@@ -347,6 +347,8 @@ Selecting `t` returns control to your shell, including from a CLAI interactive s
 | zsh with current integration | The command appears in the next editable prompt. Review it, then press Enter to run it. |
 | Bash with current integration | Press Up to retrieve the command from shell history, review it, then press Enter. Bash does not automatically prefill its next prompt. |
 | PowerShell, other shells, or no integration | CLAI displays a copyable command and exits. Run it directly in Bash, which is CLAI's command language. |
+
+If the handoff prompt reaches EOF without an answer, CLAI also displays the copyable command and exits; it does not queue a command without a selection.
 
 To enable or refresh the integration, evaluate the output of the updated executable in your current shell and save the same line in your shell profile:
 
@@ -362,7 +364,7 @@ eval "$(clai shell-init zsh)"
 
 An alias installed by `clai setup` also receives the current integration when you rerun setup and reload its profile. Older saved integration blocks must be refreshed after upgrading. Handoff preparation requires an interactive shell with terminal input/output; redirected output uses the copyable fallback.
 
-The integrated handoff uses a private temporary directory for each invocation, creates the command file without overwriting existing files, and removes it after reading. Only successful CLAI exits queue a command. Handed-off commands run through `bash -o errexit -o pipefail -c '…'` to preserve CLAI's Bash semantics in zsh; the wrapper never evaluates the returned text. Multiline commands, control characters and commands exceeding 64 KiB use the copyable fallback. Shell history follows your shell's usual persistence settings. Execution after you press Enter happens outside CLAI's approval, output capture and result-sharing flow.
+The integrated handoff uses a private temporary directory for each invocation, creates the command file without overwriting existing files, and removes it afterward. Wrappers consume the file only when CLAI explicitly signals a successfully prepared handoff for the current invocation. Files from ordinary runs, cancellations and failed writes are ignored, and the private handoff path is not passed to executed commands or MCP servers. Handed-off commands run through `bash -o errexit -o pipefail -c '…'` to preserve CLAI's Bash semantics in zsh; the wrapper never evaluates the returned text. Multiline commands, control characters and commands exceeding 64 KiB use the copyable fallback. Shell history follows your shell's usual persistence settings. Execution after you press Enter happens outside CLAI's approval, output capture and result-sharing flow.
 
 ### Intent routing and risk auditing
 

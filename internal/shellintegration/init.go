@@ -44,14 +44,21 @@ func Init(shell, name, executable string) (string, error) {
   if [ "$_clai_restore_glob" -eq 1 ]; then set +f; fi
   unset _CLAI_SHELL_FLAGS
   if [ -n "$_clai_handoff_dir" ]; then
-    if [ "$_clai_status" -eq 0 ] && [ -f "$_clai_handoff_dir/command" ] && [ ! -L "$_clai_handoff_dir/command" ]; then
-      IFS= read -r _clai_pending < "$_clai_handoff_dir/command" || :
-      if [ -n "$_clai_pending" ]; then
-        if history -s -- "$_clai_pending"; then
-          printf '\nCLAI: press Up to review the command, then Enter to run it.\n'
-        else
-          printf '\nCLAI: copy this command for review:\n%%s\n' "$_clai_pending"
+    if [ "$_clai_status" -eq %d ]; then
+      _clai_status=1
+      if [ -f "$_clai_handoff_dir/command" ] && [ ! -L "$_clai_handoff_dir/command" ]; then
+        IFS= read -r _clai_pending < "$_clai_handoff_dir/command" || :
+        if [ -n "$_clai_pending" ]; then
+          if history -s -- "$_clai_pending"; then
+            printf '\nCLAI: press Up to review the command, then Enter to run it.\n'
+          else
+            printf '\nCLAI: copy this command for review:\n%%s\n' "$_clai_pending"
+          fi
+          _clai_status=0
         fi
+      fi
+      if [ "$_clai_status" -ne 0 ]; then
+        printf '\nCLAI: no valid handoff command was returned; copy the proposed command manually.\n' >&2
       fi
     fi
     command rm -f -- "$_clai_handoff_dir/command" || :
@@ -59,7 +66,7 @@ func Init(shell, name, executable string) (string, error) {
   fi
   return "$_clai_status"
 }
-alias %s=%s`, helper, Quote(executable), name, Quote("_CLAI_SHELL_FLAGS=$-; set -f; "+helper)), nil
+alias %s=%s`, helper, Quote(executable), HandoffExitCode, name, Quote("_CLAI_SHELL_FLAGS=$-; set -f; "+helper)), nil
 	case "zsh":
 		helper := "_clai_terminal"
 		if name != "clai" {
@@ -76,11 +83,18 @@ alias %s=%s`, helper, Quote(executable), name, Quote("_CLAI_SHELL_FLAGS=$-; set 
     _clai_status=$?
   fi
   if [[ -n "$_clai_handoff_dir" ]]; then
-    if [[ $_clai_status -eq 0 && -f "$_clai_handoff_dir/command" && ! -L "$_clai_handoff_dir/command" ]]; then
-      IFS= read -r _clai_pending < "$_clai_handoff_dir/command" || :
-      if [[ -n "$_clai_pending" ]]; then
-        print -rz -- "$_clai_pending"
-        print -r -- 'CLAI: review the command at your next prompt; Enter runs it.'
+    if [[ $_clai_status -eq %d ]]; then
+      _clai_status=1
+      if [[ -f "$_clai_handoff_dir/command" && ! -L "$_clai_handoff_dir/command" ]]; then
+        IFS= read -r _clai_pending < "$_clai_handoff_dir/command" || :
+        if [[ -n "$_clai_pending" ]]; then
+          print -rz -- "$_clai_pending"
+          print -r -- 'CLAI: review the command at your next prompt; Enter runs it.'
+          _clai_status=0
+        fi
+      fi
+      if [[ $_clai_status -ne 0 ]]; then
+        print -ru2 -- 'CLAI: no valid handoff command was returned; copy the proposed command manually.'
       fi
     fi
     command rm -f -- "$_clai_handoff_dir/command" || :
@@ -88,7 +102,7 @@ alias %s=%s`, helper, Quote(executable), name, Quote("_CLAI_SHELL_FLAGS=$-; set 
   fi
   return "$_clai_status"
 }
-alias %s=%s`, helper, Quote(executable), name, Quote("noglob "+helper)), nil
+alias %s=%s`, helper, Quote(executable), HandoffExitCode, name, Quote("noglob "+helper)), nil
 	case "pwsh", "powershell":
 		return fmt.Sprintf("Set-Alias -Name %s -Value %s -Scope Global", PowerShellQuote(name), PowerShellQuote(executable)), nil
 	default:

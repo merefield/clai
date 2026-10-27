@@ -12,6 +12,24 @@ import (
 const HandoffFileEnv = "CLAI_HANDOFF_FILE"
 const MaxHandoffBytes = 64 * 1024
 
+// HandoffExitCode is reserved for a selected, successfully written handoff.
+// Ordinary command exit codes never propagate to the executable's exit status.
+// Parent wrappers consume the file only with this status, then return success.
+const HandoffExitCode = 85
+
+// WithoutHandoffEnvironment keeps the private parent/CLAI transport out of
+// executed commands and tool servers, including explicit MCP environment lists.
+func WithoutHandoffEnvironment(environment []string) []string {
+	filtered := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		if !strings.EqualFold(name, HandoffFileEnv) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
 // WriteHandoff creates a new file in the wrapper's private per-invocation
 // directory. Existing files (including symlinks) are never opened or replaced.
 // The wrapper treats its contents as data, never as shell initialization code.
