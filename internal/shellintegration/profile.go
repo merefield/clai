@@ -107,6 +107,9 @@ func (p Profile) CheckConflict(ctx context.Context, name string) error {
 	if name == "clai" {
 		return fmt.Errorf("clai is already the primary command; choose another name")
 	}
+	if p.isPowerShell() && powerShellKeyword(name) {
+		return fmt.Errorf("%q is a PowerShell keyword; choose another name", name)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	shell := p.command
@@ -120,8 +123,7 @@ func (p Profile) CheckConflict(ctx context.Context, name string) error {
 	args := []string{flags, `if command -v "$1" >/dev/null 2>&1; then exit 10; fi`, "clai-alias-check", name}
 	if p.isPowerShell() {
 		// A native alias accepts every argument exactly as a direct invocation.
-		// Reserved words are still unsuitable command names in PowerShell.
-		script := p.powerShellStartup() + fmt.Sprintf("if ((Get-Command -Name %s -ErrorAction SilentlyContinue) -or ([System.Management.Automation.PSParser]::Tokenize(%s, [ref]$null) | Where-Object { $_.Type -eq 'Keyword' })) { exit 10 }", PowerShellQuote(name), PowerShellQuote(name))
+		script := p.powerShellStartup() + fmt.Sprintf("if (Get-Command -Name %s -ErrorAction SilentlyContinue) { exit 10 }", PowerShellQuote(name))
 		args = powerShellArgs(script)
 	}
 	command := exec.CommandContext(ctx, shell, args...)

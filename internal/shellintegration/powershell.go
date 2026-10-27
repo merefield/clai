@@ -8,10 +8,22 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf16"
 )
+
+func powerShellKeyword(name string) bool {
+	// Tokenizing a standalone command misses contextual keywords such as else.
+	// https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_reserved_words
+	const words = `assembly base begin break catch class clean command configuration
+continue data define do dynamicparam else elseif end enum exit filter finally for
+foreach from function hidden if in inlinescript interface module namespace parallel
+param private process public return sequence static switch throw trap try type
+until using var while workflow`
+	return slices.Contains(strings.Fields(words), name)
+}
 
 func (p Profile) isPowerShell() bool {
 	return p.Shell == "pwsh" || p.Shell == "powershell"

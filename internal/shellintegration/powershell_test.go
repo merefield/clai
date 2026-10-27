@@ -87,7 +87,7 @@ func TestPowerShellChecksConflictsAndPreservesExistingCommands(t *testing.T) {
 					t.Fatalf("definition %q: error = %v", definition, err)
 				}
 			}
-			for _, name := range []string{"cd", "get-item", "if", "clai"} {
+			for _, name := range []string{"cd", "get-item", "if", "else", "switch", "function", "class", "clai"} {
 				if err := profile.CheckConflict(context.Background(), name); err == nil {
 					t.Errorf("accepted existing command or keyword %q", name)
 				}
