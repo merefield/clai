@@ -1,6 +1,7 @@
 package shellintegration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,9 +27,11 @@ func runPowerShell(t *testing.T, shell, script string, env ...string) string {
 	t.Helper()
 	command := exec.Command(shell, powerShellArgs(script)...)
 	command.Env = append(os.Environ(), env...)
-	output, err := command.CombinedOutput()
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("PowerShell failed: %v: %s", err, output)
+		t.Fatalf("PowerShell failed: %v: %s: %s", err, output, stderr.String())
 	}
 	return strings.ReplaceAll(string(output), "\r\n", "\n")
 }
