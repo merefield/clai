@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,12 +11,16 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/merefield/clai/internal/app"
+	"github.com/merefield/clai/internal/shellintegration"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := newRootCommand(ctx).ExecuteContext(ctx); err != nil {
+		if errors.Is(err, app.ErrShellHandoff) {
+			os.Exit(shellintegration.HandoffExitCode)
+		}
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(1)
 	}

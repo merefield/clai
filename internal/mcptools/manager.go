@@ -22,6 +22,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/merefield/clai/internal/shellintegration"
 	"github.com/merefield/clai/pkg/tool"
 )
 
@@ -621,7 +622,7 @@ func restrictedEnvironment(names []string) []string {
 			environment = append(environment, name+"="+value)
 		}
 	}
-	return environment
+	return shellintegration.WithoutHandoffEnvironment(environment)
 }
 
 func schemaObject(value any) (map[string]any, error) {

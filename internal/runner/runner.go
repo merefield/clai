@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/merefield/clai/internal/model"
+	"github.com/merefield/clai/internal/shellintegration"
 )
 
 const (
@@ -39,6 +40,7 @@ func (r Bash) Run(ctx context.Context, command string, edited bool) model.Comman
 	stdout := newTailWriter(MaxCapturedStreamBytes)
 	stderr := newTailWriter(MaxCapturedStreamBytes)
 	cmd := exec.CommandContext(ctx, "bash", "-o", "errexit", "-o", "pipefail", "-c", command)
+	cmd.Env = shellintegration.WithoutHandoffEnvironment(os.Environ())
 	configureCommand(cmd)
 	if r.Stdin != nil {
 		cmd.Stdin = r.Stdin

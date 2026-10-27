@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/merefield/clai/internal/shellintegration"
 	"github.com/merefield/clai/internal/ui"
 )
 
@@ -58,6 +59,16 @@ func TestBashWithoutInputReceivesEOF(t *testing.T) {
 	result := (Bash{}).Run(context.Background(), `if IFS= read -r answer; then exit 2; else printf eof; fi`, false)
 	if result.ExitCode != 0 || result.Stdout != "eof" {
 		t.Fatalf("result: %#v", result)
+	}
+}
+
+func TestBashDoesNotInheritPrivateHandoffPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private-command")
+	t.Setenv(shellintegration.HandoffFileEnv, path)
+	t.Setenv("CLAI_TEST_NORMAL_ENV", "preserved")
+	result := (Bash{}).Run(context.Background(), `printf '%s:%s' "${CLAI_HANDOFF_FILE-unset}" "$CLAI_TEST_NORMAL_ENV"`, false)
+	if result.ExitCode != 0 || result.Stdout != "unset:preserved" || os.Getenv(shellintegration.HandoffFileEnv) != path {
+		t.Fatalf("private transport leaked or parent environment changed: %+v", result)
 	}
 }
 
