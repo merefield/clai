@@ -195,9 +195,6 @@ func (c *HTTPClient) responsesPayload(input Request) map[string]any {
 }
 
 func responsesInput(messages []model.Message, continuation bool) (string, []map[string]any) {
-	if continuation {
-		return "", responsesContinuationInput(messages)
-	}
 	var instructions []string
 	items := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
@@ -216,6 +213,11 @@ func responsesInput(messages []model.Message, continuation bool) (string, []map[
 				items = append(items, map[string]any{"role": message.Role, "content": message.ContentText()})
 			}
 		}
+	}
+	if continuation {
+		// previous_response_id retains conversation items, but not top-level
+		// instructions. Resend core policy without duplicating context items.
+		items = responsesContinuationInput(messages)
 	}
 	return strings.Join(instructions, "\n\n"), items
 }

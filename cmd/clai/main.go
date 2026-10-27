@@ -30,7 +30,7 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 	return &cobra.Command{
 		Use:                "clai [request...]",
 		Short:              "AI-powered terminal assistant",
-		Long:               "AI-powered terminal assistant. Use clai --question <question> for an explicit answer-only request using question_query guidance.",
+		Long:               "AI-powered terminal assistant. Use clai --question <question> for answer-only requests; --skill NAME selects a local Agent Skill. Inspect context with clai context show or clai skills --help without an API key.",
 		Version:            app.CurrentVersion(),
 		DisableFlagParsing: true,
 		SilenceErrors:      true,

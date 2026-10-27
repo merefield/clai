@@ -15,22 +15,26 @@ import (
 	"github.com/merefield/clai/internal/model"
 	"github.com/merefield/clai/internal/provider"
 	"github.com/merefield/clai/internal/runner"
+	"github.com/merefield/clai/internal/skills"
 	"github.com/merefield/clai/internal/systemone"
 	"github.com/merefield/clai/internal/ui"
 	"github.com/merefield/clai/pkg/tool"
 )
 
 type Application struct {
-	Config      *config.Config
-	History     *history.Store
-	Tools       *tool.Registry
-	Client      provider.Client
-	SystemOne   systemone.Client
-	Runner      runner.Runner
-	UI          *ui.Console
-	ToolManager *mcptools.Manager
-	toolsLoaded bool
-	exitToShell bool
+	Config         *config.Config
+	History        *history.Store
+	Tools          *tool.Registry
+	Client         provider.Client
+	SystemOne      systemone.Client
+	Runner         runner.Runner
+	UI             *ui.Console
+	ToolManager    *mcptools.Manager
+	toolsLoaded    bool
+	requestContext *requestContext
+	selectedSkills []string
+	skillsOff      bool
+	exitToShell    bool
 }
 
 func New(_ context.Context, in io.Reader, out, errOut io.Writer) (*Application, error) {
@@ -80,13 +84,27 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 	if handled, err := a.handleBuiltIn(ctx, args); handled {
 		return err
 	}
-	requestedKind := ""
-	if len(args) > 0 && args[0] == "--question" {
-		requestedKind = "question"
-		args = args[1:]
-		if strings.TrimSpace(strings.Join(args, " ")) == "" {
-			return fmt.Errorf("usage: clai --question <question>")
+	args, selected, requestedKind, err := parseRequestOptions(args)
+	if err != nil {
+		return err
+	}
+	if len(selected) > 0 {
+		if !a.Config.SkillsEnabled {
+			return fmt.Errorf("skills are disabled by skills_enabled=false")
 		}
+		a.selectedSkills = selected
+		_, catalog, err := a.discoverContext()
+		if err != nil {
+			return err
+		}
+		for _, name := range selected {
+			if _, err := catalog.Find(name); err != nil {
+				return err
+			}
+		}
+	}
+	if requestedKind != "" && strings.TrimSpace(strings.Join(args, " ")) == "" {
+		return fmt.Errorf("usage: clai --question <question>")
 	}
 	if a.Config.Key == "" {
 		if err := a.setup(ctx); err != nil {
@@ -117,7 +135,7 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		if query == "" {
 			continue
 		}
-		if strings.HasPrefix(query, "/tools") {
+		if strings.HasPrefix(query, "/tools") || strings.HasPrefix(query, "/skills") || strings.HasPrefix(query, "/context") {
 			arguments := strings.Fields(strings.TrimPrefix(query, "/"))
 			if handled, err := a.handleBuiltIn(ctx, arguments); handled {
 				if err != nil {
@@ -145,6 +163,9 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 }
 
 func (a *Application) handleBuiltIn(ctx context.Context, args []string) (bool, error) {
+	if len(args) > 0 && (args[0] == "skills" || args[0] == "context") {
+		return true, a.handleContextCommand(args)
+	}
 	if len(args) >= 1 && args[0] == "tools" {
 		if len(args) != 2 || (args[1] != "list" && args[1] != "reload") {
 			return true, fmt.Errorf("usage: clai tools list|reload")
@@ -278,6 +299,17 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 	if kind == "clear_history" {
 		return a.clearHistory()
 	}
+	snapshot, err := a.resolveContext(query)
+	if err != nil {
+		return err
+	}
+	previousContext := a.requestContext
+	a.requestContext = snapshot
+	defer func() {
+		a.redactReferences(snapshot)
+		snapshot.Close()
+		a.requestContext = previousContext
+	}()
 	a.History.AppendText("user", query)
 	previousResponseID := ""
 	for round := 0; round < 9; round++ {
@@ -300,6 +332,9 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 					output = "tool error: " + toolErr.Error()
 				}
 				a.History.AppendToolResult(call.ID, output)
+				if call.Function.Name == skills.ReferenceToolName {
+					snapshot.redact = append(snapshot.redact, len(a.History.Messages)-1)
+				}
 			}
 			continue
 		}
@@ -451,7 +486,14 @@ func (a *Application) messages(kind string) []model.Message {
 		capability = "External CLAI tools are unavailable during command-result interpretation."
 	}
 	system := systemPrompt(a.Config.Path, a.History.Path, capability) + " " + queryGuidance(kind, configuredQuery(a.Config, kind))
+	local := a.requestContext.message(kind)
+	if local != "" {
+		system += " " + localContextPolicy
+	}
 	messages := templateMessages(kind, system)
+	if local != "" {
+		messages = append(messages, model.TextMessage("user", local))
+	}
 	if a.Config.ExposeCurrentDir {
 		if cwd, err := os.Getwd(); err == nil {
 			messages = append(messages, model.TextMessage("system", "User is working from directory \""+cwd+"\"."))
@@ -475,13 +517,28 @@ func configuredQuery(cfg *config.Config, kind string) string {
 }
 
 func (a *Application) toolDefinitions() []model.ToolDefinition {
-	if !a.Config.UseTools || !a.Client.SupportsTools() {
+	if !a.Client.SupportsTools() {
 		return nil
 	}
-	return a.Tools.Definitions()
+	definitions := []model.ToolDefinition{}
+	if a.requestContext != nil {
+		definitions = append(definitions, a.requestContext.internal.Definitions()...)
+	}
+	if a.Config.UseTools {
+		for _, definition := range a.Tools.Definitions() {
+			function, _ := definition["function"].(map[string]any)
+			if function["name"] != skills.ReferenceToolName {
+				definitions = append(definitions, definition)
+			}
+		}
+	}
+	return definitions
 }
 
 func (a *Application) runTool(ctx context.Context, call model.ToolCall) (string, error) {
+	if call.Function.Name == skills.ReferenceToolName {
+		return a.runInternalTool(ctx, call)
+	}
 	if !a.Config.UseTools {
 		return "", fmt.Errorf("external tools are disabled by use_tools=false")
 	}

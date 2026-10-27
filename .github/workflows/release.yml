@@ -90,7 +90,7 @@ jobs:
           fi
       - uses: actions/setup-go@v7
         with:
-          go-version: 1.27.2
+          go-version: 1.27.3
           cache: true
       - name: Setup Bats
         if: runner.os == 'Linux'
@@ -143,7 +143,7 @@ jobs:
           }
       - uses: actions/setup-go@v7
         with:
-          go-version: 1.27.2
+          go-version: 1.27.3
           cache: true
       - name: Build and publish GitHub release
         uses: goreleaser/goreleaser-action@v7
