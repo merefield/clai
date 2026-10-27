@@ -198,6 +198,7 @@ else
 fi
 
 printf 'Installed %s to %s (%s).\n' "$binary_name" "$target" "$version_output"
+printf 'Run: %s setup (configure a provider and an optional command alias for voice input).\n' "$binary_name"
 case ":${PATH}:" in
   *:"$bin_dir":*) ;;
   *) printf 'Add %s to PATH before invoking %s.\n' "$bin_dir" "$binary_name" ;;

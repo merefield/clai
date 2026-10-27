@@ -19,6 +19,7 @@ else
 fi
 
 echo "Installed ${binary_name} to ${target}"
+echo "Run: ${binary_name} setup (configure a provider and an optional command alias for voice input)"
 echo "Run: ${binary_name} how much is 3 times pi"
 
 legacy_payload=${CLAI_LEGACY_INSTALL_DIR:-/usr/local/lib/clai}/clai.sh
