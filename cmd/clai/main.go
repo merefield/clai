@@ -41,7 +41,7 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 			}
 			if len(args) >= 1 && args[0] == "shell-init" {
 				if len(args) != 2 {
-					return fmt.Errorf("usage: clai shell-init bash|zsh")
+					return fmt.Errorf("usage: clai shell-init bash|zsh|pwsh|powershell")
 				}
 				initialization, err := app.ShellInit(args[1])
 				if err != nil {

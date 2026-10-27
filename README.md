@@ -90,7 +90,7 @@ clai setup
 clai list files by size
 ```
 
-Setup also offers an optional command name for voice input, such as `computer`. Press Enter to skip it. On Bash and zsh, setup checks for existing commands, aliases, functions, and shell keywords, then asks before saving shell integration to your profile. See [Calling CLAI by another name](#calling-clai-by-another-name).
+Setup also offers an optional command name for voice input, such as `computer`. Press Enter to skip it. On Bash, zsh, and PowerShell, setup checks for existing commands, aliases, functions, and shell keywords, then asks before saving shell integration to your profile. See [Calling CLAI by another name](#calling-clai-by-another-name).
 
 ## Install from source
 
@@ -187,6 +187,7 @@ clai "how do I show hidden files?"
 | `clai --toggle-results-sharing` | Enable or disable command-result sharing and interpretation. |
 | `clai shell-init bash` | Print Bash integration for literal glob characters. |
 | `clai shell-init zsh` | Print zsh integration for literal glob characters. |
+| `clai shell-init pwsh` | Print PowerShell integration (`powershell` is also accepted). |
 | `clai --version` | Print the CLAI version. |
 | `clai --help` | Print command help. |
 
@@ -232,9 +233,17 @@ The integration affects only the `clai` invocation and restores Bash globbing af
 
 Run `clai setup` and enter `computer` (or another lowercase command name) at the optional command-alias prompt. A familiar word can be easier to dictate than `clai`; test your choice with your voice recognizer, including whether it adds capitalization or punctuation.
 
-Setup checks for conflicts in a fresh interactive shell and asks before updating your shell profile. For Bash it uses `~/.bashrc` on Linux and the first existing login profile (`~/.bash_profile`, `~/.bash_login`, or `~/.profile`) on macOS, creating `~/.bash_profile` if needed. For zsh it uses `${ZDOTDIR:-$HOME}/.zshrc`, including `ZDOTDIR` set in `.zshenv`. It saves one managed block with the same literal-glob handling as `clai`. The block also checks for conflicts when the profile loads. Automatic profile setup is available on Linux and macOS; other shells and Windows are left unchanged.
+Setup checks for conflicts in a fresh shell and asks before updating your shell profile:
 
-Start a new shell or run the `source` command printed by setup, then use the new name:
+- **Bash:** `~/.bashrc` on Linux, or the first existing login profile (`~/.bash_profile`, `~/.bash_login`, or `~/.profile`) on macOS, creating `~/.bash_profile` if needed.
+- **zsh:** `${ZDOTDIR:-$HOME}/.zshrc`, including `ZDOTDIR` set in `.zshenv`.
+- **PowerShell 7 or Windows PowerShell 5.1:** the shell's reported `$PROFILE.CurrentUserAllHosts`, so redirected Documents folders and the separate PowerShell editions use the correct location. Setup saves a native alias directly to the executable, preserving PowerShell's normal argument handling and native exit status. Existing UTF-8/UTF-16 profile encodings and line endings are retained; UTF-8 profiles receive a byte-order mark for Windows PowerShell compatibility. Your execution policy must permit loading the profile; setup does not change it.
+
+It saves one managed block and checks for conflicts when the profile loads. Bash/zsh integration preserves unquoted `*` and `?` arguments. PowerShell retains native command parsing: Windows passes those characters literally; on macOS/Linux, quote wildcard characters as you would when calling `clai` directly (for example, `computer how much is 3 '*' pi`).
+
+Setup detects a PowerShell parent process on Windows, macOS, and Linux; otherwise it uses the login shell (or an available PowerShell edition on Windows). Set `CLAI_SHELL` to `bash`, `zsh`, `pwsh`, `powershell`, or the shell executable's path to select it explicitly. Other shells are left unchanged.
+
+Start a new shell or run the activation command printed by setup (`source 'profile-path'` in Bash/zsh, `. 'profile-path'` in PowerShell), then use the new name:
 
 ```bash
 computer show the ten largest files

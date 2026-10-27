@@ -171,14 +171,16 @@ func TestConflictChecksIncludeShellDefinitionsAndIgnoreManagedAlias(t *testing.T
 
 func TestDetectProfile(t *testing.T) {
 	if runtime.GOOS == "windows" {
+		t.Setenv("CLAI_SHELL", "fish")
 		if _, err := DetectProfile(context.Background()); err == nil {
-			t.Fatal("automatic profile setup should be unavailable on Windows")
+			t.Fatal("automatic profile setup should reject unsupported Windows shells")
 		}
 		return
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SHELL", "/bin/bash")
+	t.Setenv("CLAI_SHELL", "/bin/bash")
 	file := ".bashrc"
 	if runtime.GOOS == "darwin" {
 		file = ".bash_profile"
@@ -187,6 +189,7 @@ func TestDetectProfile(t *testing.T) {
 		t.Fatalf("Bash profile = %+v, %v", profile, err)
 	}
 	t.Setenv("SHELL", "/bin/fish")
+	t.Setenv("CLAI_SHELL", "/bin/fish")
 	if _, err := DetectProfile(context.Background()); err == nil {
 		t.Fatal("automatic profile setup should be unavailable for fish")
 	}
@@ -202,7 +205,11 @@ func TestDetectZshProfileIncludesZshenv(t *testing.T) {
 	directory := filepath.Join(home, "custom zsh")
 	t.Setenv("HOME", home)
 	t.Setenv("SHELL", shell)
+	t.Setenv("CLAI_SHELL", shell)
 	t.Setenv("ZDOTDIR", "")
+	if err := os.Unsetenv("ZDOTDIR"); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(home, ".zshenv"), []byte("ZDOTDIR="+Quote(directory)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

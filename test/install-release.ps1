@@ -54,7 +54,7 @@ server.serve_forever()
 '@
     $serverProcess = Start-Process -FilePath $python.Source -ArgumentList @($serverScript, $serverRoot, $portFile) -PassThru
     $port = ""
-    for ($attempt = 0; $attempt -lt 50; $attempt++) {
+    for ($attempt = 0; $attempt -lt 300; $attempt++) {
         if ($serverProcess.HasExited) { throw "fixture HTTP server exited before reporting its port" }
         if (Test-Path -LiteralPath $portFile) {
             $port = ([string](Get-Content -LiteralPath $portFile -Raw)).Trim()

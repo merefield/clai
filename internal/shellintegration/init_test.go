@@ -12,7 +12,7 @@ import (
 
 func requireShell(t *testing.T, shell string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" && (shell == "bash" || shell == "zsh") {
 		t.Skip("automatic shell profile integration is Unix-only")
 	}
 	if _, err := exec.LookPath(shell); err != nil {
@@ -38,6 +38,10 @@ func TestAliasPassesLiteralArgumentsAndQuotesExecutable(t *testing.T) {
 				args = []string{"--noprofile", "--norc", "-O", "expand_aliases", "-c"}
 			}
 			script := initialization + "\ncomputer show * ? 'two words' --question\n"
+			if shell == "zsh" {
+				// zsh parses a whole -c script before running alias definitions.
+				script = initialization + "\neval " + Quote("computer show * ? 'two words' --question")
+			}
 			command := exec.Command(shell, append(args, script)...)
 			command.Dir = directory
 			output, err := command.CombinedOutput()

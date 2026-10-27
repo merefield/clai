@@ -43,11 +43,17 @@ func Init(shell, name, executable string) (string, error) {
 alias %s=%s`, helper, Quote(executable), name, Quote("_CLAI_SHELL_FLAGS=$-; set -f; "+helper)), nil
 	case "zsh":
 		return fmt.Sprintf("alias %s=%s", name, Quote("noglob "+Quote(executable))), nil
+	case "pwsh", "powershell":
+		return fmt.Sprintf("Set-Alias -Name %s -Value %s -Scope Global", PowerShellQuote(name), PowerShellQuote(executable)), nil
 	default:
-		return "", fmt.Errorf("unsupported shell %q; expected bash or zsh", shell)
+		return "", fmt.Errorf("unsupported shell %q; expected bash, zsh, pwsh or powershell", shell)
 	}
 }
 
 func Quote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func PowerShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

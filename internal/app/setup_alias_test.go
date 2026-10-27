@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/merefield/clai/internal/config"
+	"github.com/merefield/clai/internal/shellintegration"
 	"github.com/merefield/clai/internal/ui"
 )
 
@@ -38,6 +39,7 @@ func TestSetupOffersOptionalCommandAlias(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("SHELL", "/bin/bash")
+			t.Setenv("CLAI_SHELL", "/bin/bash")
 			cfg, err := config.Load(filepath.Join(home, "clai.cfg"))
 			if err != nil {
 				t.Fatal(err)
@@ -66,6 +68,38 @@ func TestSetupOffersOptionalCommandAlias(t *testing.T) {
 	}
 }
 
+func TestPowerShellSetupKeepsReplacesAndRemovesAlias(t *testing.T) {
+	shell := "pwsh"
+	if _, err := exec.LookPath(shell); err != nil {
+		t.Skip("PowerShell is not installed")
+	}
+	profile := shellintegration.Profile{Shell: shell, Path: filepath.Join(t.TempDir(), "profile.ps1")}
+	for _, input := range []string{"computer\nn\n", "computer\ny\n", "\n", "assistant\ny\n", "-\ny\n"} {
+		var output bytes.Buffer
+		application := &Application{UI: ui.New(strings.NewReader(input), &output, &output, true)}
+		application.configureCommandAlias(context.Background(), profile)
+		if input == "computer\nn\n" {
+			if _, err := os.Stat(profile.Path); !os.IsNotExist(err) {
+				t.Fatalf("declining setup changed the profile: %v", err)
+			}
+			continue
+		}
+		name, err := profile.CurrentName()
+		want := "computer"
+		if input == "assistant\ny\n" {
+			want = "assistant"
+		} else if input == "-\ny\n" {
+			want = ""
+		}
+		if err != nil || name != want {
+			t.Fatalf("input %q: name %q, error %v, output %q", input, name, err, output.String())
+		}
+		if input == "computer\ny\n" && !strings.Contains(output.String(), "run: . '") {
+			t.Fatalf("PowerShell activation instructions are missing: %s", output.String())
+		}
+	}
+}
+
 func TestSetupKeepsReplacesAndRemovesManagedAlias(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("automatic shell profile setup is Unix-only")
@@ -76,6 +110,7 @@ func TestSetupKeepsReplacesAndRemovesManagedAlias(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SHELL", "/bin/bash")
+	t.Setenv("CLAI_SHELL", "/bin/bash")
 	var output bytes.Buffer
 	for _, input := range []string{"computer\ny\n", "\n", "computer\ny\n", "assistant\ny\n", "-\ny\n"} {
 		application := &Application{UI: ui.New(strings.NewReader(input), &output, &output, true)}

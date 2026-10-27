@@ -47,6 +47,13 @@ func systemPrompt(configPath, statePath, toolCapability string) string {
 }
 
 func ShellInit(shell string) (string, error) {
+	if shell == "pwsh" || shell == "powershell" {
+		executable, err := os.Executable()
+		if err != nil {
+			return "", err
+		}
+		return shellintegration.Init(shell, "clai", executable)
+	}
 	return shellintegration.Init(shell, "clai", "clai")
 }
 

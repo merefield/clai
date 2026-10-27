@@ -14,6 +14,10 @@ func (a *Application) setupCommandAlias(ctx context.Context) {
 		a.UI.Info("Command alias setup skipped: " + err.Error())
 		return
 	}
+	a.configureCommandAlias(ctx, profile)
+}
+
+func (a *Application) configureCommandAlias(ctx context.Context, profile shellintegration.Profile) {
 	current, err := profile.CurrentName()
 	if err != nil {
 		a.UI.Error("Command alias setup skipped: " + err.Error())
@@ -50,7 +54,7 @@ func (a *Application) setupCommandAlias(ctx context.Context) {
 				a.UI.Error("Command alias setup skipped: " + err.Error())
 				return
 			}
-			a.UI.Info(fmt.Sprintf("Add %s as a command for CLAI in %s, with literal * and ? handling.", name, profile.Path))
+			a.UI.Info(fmt.Sprintf("Add %s as another command for CLAI in %s.", name, profile.Path))
 		}
 		choice, err := a.UI.Choice("Save this shell profile change? [y/N]: ")
 		if err != nil || choice != "y" {
@@ -64,7 +68,7 @@ func (a *Application) setupCommandAlias(ctx context.Context) {
 		if current != "" {
 			a.UI.Info("Start a new shell to clear the previous alias and load the updated profile.")
 		} else {
-			a.UI.Info("Start a new shell or run: source " + shellintegration.Quote(profile.Path))
+			a.UI.Info("Start a new shell or run: " + profile.ActivationCommand())
 		}
 		if name == "" {
 			a.UI.Info("The clai command is still available.")

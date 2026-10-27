@@ -24,17 +24,41 @@ type Profile struct {
 	Path    string
 	login   bool
 	command string
+	startup []string
 }
 
 func DetectProfile(ctx context.Context) (Profile, error) {
+	shell := os.Getenv("CLAI_SHELL")
+	if shell == "" {
+		// SHELL describes the login shell, even when CLAI is launched from
+		// PowerShell on macOS/Linux. Prefer a PowerShell parent when present.
+		parent := parentExecutable(ctx)
+		name := strings.TrimSuffix(strings.ToLower(filepath.Base(parent)), ".exe")
+		if name == "pwsh" || name == "powershell" {
+			shell = parent
+		} else {
+			shell = os.Getenv("SHELL")
+		}
+		if shell == "" && runtime.GOOS == "windows" {
+			if path, err := exec.LookPath("pwsh"); err == nil {
+				shell = path
+			} else {
+				shell = "powershell"
+			}
+		}
+	}
+	name := strings.TrimSuffix(strings.ToLower(filepath.Base(shell)), ".exe")
+	if name == "pwsh" || name == "powershell" {
+		return detectPowerShellProfile(ctx, shell)
+	}
 	if runtime.GOOS == "windows" {
-		return Profile{}, fmt.Errorf("automatic command alias setup supports Bash and zsh on Linux and macOS")
+		return Profile{}, fmt.Errorf("automatic command alias setup on Windows supports PowerShell; run setup in PowerShell or set CLAI_SHELL=pwsh")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return Profile{}, err
 	}
-	profile := Profile{Shell: filepath.Base(os.Getenv("SHELL")), command: os.Getenv("SHELL")}
+	profile := Profile{Shell: name, command: shell}
 	switch profile.Shell {
 	case "bash":
 		profile.Path = filepath.Join(home, ".bashrc")
@@ -69,7 +93,7 @@ func DetectProfile(ctx context.Context) (Profile, error) {
 		profile.Path = filepath.Join(parts[len(parts)-2], ".zshrc")
 		return profile, nil
 	default:
-		return Profile{}, fmt.Errorf("automatic command alias setup supports Bash and zsh; SHELL is %q", os.Getenv("SHELL"))
+		return Profile{}, fmt.Errorf("automatic command alias setup supports Bash, zsh and PowerShell; shell is %q", shell)
 	}
 }
 
@@ -83,7 +107,7 @@ func (p Profile) CheckConflict(ctx context.Context, name string) error {
 	if name == "clai" {
 		return fmt.Errorf("clai is already the primary command; choose another name")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	shell := p.command
 	if shell == "" {
@@ -93,7 +117,14 @@ func (p Profile) CheckConflict(ctx context.Context, name string) error {
 	if p.login {
 		flags = "-lic"
 	}
-	command := exec.CommandContext(ctx, shell, flags, `if command -v "$1" >/dev/null 2>&1; then exit 10; fi`, "clai-alias-check", name)
+	args := []string{flags, `if command -v "$1" >/dev/null 2>&1; then exit 10; fi`, "clai-alias-check", name}
+	if p.isPowerShell() {
+		// A native alias accepts every argument exactly as a direct invocation.
+		// Reserved words are still unsuitable command names in PowerShell.
+		script := p.powerShellStartup() + fmt.Sprintf("if ((Get-Command -Name %s -ErrorAction SilentlyContinue) -or ([System.Management.Automation.PSParser]::Tokenize(%s, [ref]$null) | Where-Object { $_.Type -eq 'Keyword' })) { exit 10 }", PowerShellQuote(name), PowerShellQuote(name))
+		args = powerShellArgs(script)
+	}
+	command := exec.CommandContext(ctx, shell, args...)
 	command.Env = append(os.Environ(), probeEnv+"=1")
 	command.Stdout, command.Stderr = io.Discard, io.Discard
 	command.WaitDelay = time.Second
@@ -116,12 +147,16 @@ func (p Profile) CurrentName() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	start, end, err := blockRange(string(data))
+	content, _, err := decodeText(data)
+	if err != nil {
+		return "", err
+	}
+	start, end, err := blockRange(content)
 	if err != nil || start == end {
 		return "", err
 	}
-	for _, line := range strings.Split(string(data[start:end]), "\n") {
-		if name, ok := strings.CutPrefix(line, "# Command: "); ok {
+	for _, line := range strings.Split(content[start:end], "\n") {
+		if name, ok := strings.CutPrefix(strings.TrimSuffix(line, "\r"), "# Command: "); ok {
 			return name, ValidateName(name)
 		}
 	}
@@ -137,23 +172,39 @@ func (p Profile) Save(name, executable string) error {
 		if err != nil {
 			return err
 		}
-		block = fmt.Sprintf("%s\n# Command: %s\nif [ \"${%s:-}\" != 1 ] && ! command -v %s >/dev/null 2>&1; then\n%s\nfi\n%s\n", blockStart, name, probeEnv, Quote(name), initialization, blockEnd)
+		guard := fmt.Sprintf("if [ \"${%s:-}\" != 1 ] && ! command -v %s >/dev/null 2>&1; then\n%s\nfi", probeEnv, Quote(name), initialization)
+		if p.isPowerShell() {
+			guard = fmt.Sprintf("if ($env:%s -ne '1' -and -not (Get-Command -Name %s -ErrorAction SilentlyContinue)) {\n%s\n}", probeEnv, PowerShellQuote(name), initialization)
+		}
+		block = fmt.Sprintf("%s\n# Command: %s\n%s\n%s\n", blockStart, name, guard, blockEnd)
 	}
 	data, path, mode, err := p.read()
 	if err != nil {
 		return err
 	}
-	content := string(data)
+	content, encoding, err := decodeText(data)
+	if err != nil {
+		return err
+	}
+	newline := "\n"
+	if strings.Contains(content, "\r\n") || (p.isPowerShell() && content == "" && runtime.GOOS == "windows") {
+		newline = "\r\n"
+		block = strings.ReplaceAll(block, "\n", newline)
+	}
+	if p.isPowerShell() && encoding == utf8Text {
+		// A BOM makes non-ASCII executable paths work in Windows PowerShell 5.1.
+		encoding = utf8BOM
+	}
 	start, end, err := blockRange(content)
 	if err != nil {
 		return err
 	}
 	if start == end && block != "" && content != "" && !strings.HasSuffix(content, "\n") {
-		content += "\n"
+		content += newline
 		start, end = len(content), len(content)
 	}
 	updated := content[:start] + block + content[end:]
-	if updated == string(data) {
+	if updated == content {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -168,7 +219,7 @@ func (p Profile) Save(name, executable string) error {
 		file.Close()
 		return err
 	}
-	if _, err := file.WriteString(updated); err != nil {
+	if _, err := file.Write(encoding.encode(updated)); err != nil {
 		file.Close()
 		return err
 	}
@@ -205,12 +256,19 @@ func blockRange(content string) (int, int, error) {
 		return len(content), len(content), nil
 	}
 	end := strings.Index(content, blockEnd)
+	startLineEnd := start + len(blockStart)
+	if start >= 0 && startLineEnd < len(content) && content[startLineEnd] == '\r' {
+		startLineEnd++
+	}
 	if start < 0 || end < start || strings.Count(content, blockStart) != 1 || strings.Count(content, blockEnd) != 1 ||
 		(start > 0 && content[start-1] != '\n') || (end > 0 && content[end-1] != '\n') ||
-		(start+len(blockStart) < len(content) && content[start+len(blockStart)] != '\n') {
+		(startLineEnd < len(content) && content[startLineEnd] != '\n') {
 		return 0, 0, fmt.Errorf("shell profile has an incomplete or duplicate CLAI command alias block; repair it before running setup again")
 	}
 	end += len(blockEnd)
+	if end < len(content) && content[end] == '\r' {
+		end++
+	}
 	if end < len(content) {
 		if content[end] != '\n' {
 			return 0, 0, fmt.Errorf("unexpected text after CLAI command alias block marker")
