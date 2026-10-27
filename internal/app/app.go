@@ -30,6 +30,7 @@ type Application struct {
 	UI          *ui.Console
 	ToolManager *mcptools.Manager
 	toolsLoaded bool
+	exitToShell bool
 }
 
 func New(_ context.Context, in io.Reader, out, errOut io.Writer) (*Application, error) {
@@ -133,6 +134,9 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		}
 		if err := a.process(ctx, query, ""); err != nil {
 			a.UI.Error(err.Error())
+		}
+		if a.exitToShell {
+			return nil
 		}
 	}
 }
@@ -508,12 +512,17 @@ func (a *Application) resolveVariables(reply *model.Reply) error {
 func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, reply model.Reply, forceConfirm bool) error {
 	command := reply.Command
 	edited := false
+	if runner.TerminalCommand(command) {
+		return a.offerTerminal(command, false)
+	}
 	if forceConfirm || RequiresConfirmation(reply.Risk, a.Config.RiskAppetite) {
-		choice, err := a.UI.Choice("execute command? [y/e/N]: ")
+		choice, err := a.UI.Choice("execute command? [y/e/t/N] (t: return to shell): ")
 		if err != nil {
 			return err
 		}
 		switch choice {
+		case "t":
+			return a.handoffCommand(command)
 		case "e":
 			value, err := a.UI.Prompt("edit command [" + command + "]: ")
 			if err != nil {
@@ -539,8 +548,12 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 			}
 		}
 	}
+	if runner.TerminalCommand(command) {
+		return a.offerTerminal(command, false)
+	}
 	a.UI.BlankLine()
 	result := a.Runner.Run(ctx, command, edited)
+	terminalFailure := runner.TerminalFailure(result)
 	if result.ExitCode == 0 {
 		a.UI.OK("[ok]")
 	} else {
@@ -553,9 +566,14 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 		if err := a.History.AppendCommandResult(stored); err != nil {
 			return err
 		}
-		if err := a.interpretCommandResult(ctx, originalQuery, stored); err != nil {
-			return fmt.Errorf("interpret command result: %w", err)
+		if !terminalFailure {
+			if err := a.interpretCommandResult(ctx, originalQuery, stored); err != nil {
+				return fmt.Errorf("interpret command result: %w", err)
+			}
 		}
+	}
+	if terminalFailure {
+		return a.offerTerminal(command, true)
 	}
 	if result.ExitCode == 0 {
 		return nil
