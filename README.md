@@ -226,6 +226,33 @@ clai how much is 3 * pi
 
 The integration affects only the `clai` invocation and restores Bash globbing afterwards.
 
+### Calling CLAI by another name
+
+Use a shell alias to call CLAI with a different command name. For example, add the following to `~/.bashrc` to use `ask`:
+
+```bash
+eval "$(clai shell-init bash)"
+alias ask='clai'
+```
+
+For zsh, add this to `~/.zshrc` instead:
+
+```zsh
+eval "$(clai shell-init zsh)"
+alias ask='clai'
+```
+
+If shell initialization is already configured, add only the alias after it. This order preserves CLAI's handling of unquoted `*` and `?` through the alias.
+
+Start a new shell or reload your profile with `source ~/.bashrc` (Bash) or `source ~/.zshrc` (zsh), then pass requests as usual:
+
+```bash
+ask show the ten largest files
+ask how much is 3 * pi
+```
+
+The alias forwards the same command-line arguments to CLAI. Both command names use the same configuration and history.
+
 ## Command safety workflow
 
 The provider returns a structured response containing:
