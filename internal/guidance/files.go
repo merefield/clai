@@ -86,21 +86,9 @@ func Open(root, path string) (*os.File, string, error) {
 		return nil, "", err
 	}
 	defer directory.Close()
-	info, err := directory.Stat(relative)
+	file, err := OpenAt(directory, relative)
 	if err != nil {
 		return nil, "", err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, "", fmt.Errorf("expected a regular file")
-	}
-	file, err := directory.Open(relative)
-	if err != nil {
-		return nil, "", err
-	}
-	info, err = file.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		file.Close()
-		return nil, "", fmt.Errorf("expected a regular file")
 	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
@@ -147,28 +135,38 @@ func OpenDirectory(boundary, path string) (*os.Root, error) {
 	return root.OpenRoot(relative)
 }
 
-// ReadAt uses a pinned directory handle for a logical request. Replacing the
-// skill directory with a symlink after activation cannot redirect this read.
-func ReadAt(root *os.Root, path string, maximum int) (string, int, error) {
+// OpenAt checks and opens a regular file relative to a pinned directory handle.
+func OpenAt(root *os.Root, path string) (*os.File, error) {
 	if root == nil || !filepath.IsLocal(path) {
-		return "", 0, fmt.Errorf("unavailable or invalid documentation root")
+		return nil, fmt.Errorf("unavailable or invalid documentation root")
 	}
 	info, err := root.Stat(path)
 	if err != nil {
-		return "", 0, err
+		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return "", 0, fmt.Errorf("expected a regular file")
+		return nil, fmt.Errorf("expected a regular file")
 	}
 	file, err := root.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err = file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		file.Close()
+		return nil, fmt.Errorf("expected a regular file")
+	}
+	return file, nil
+}
+
+// ReadAt uses a pinned directory handle for a logical request. Replacing the
+// skill directory with a symlink after activation cannot redirect this read.
+func ReadAt(root *os.Root, path string, maximum int) (string, int, error) {
+	file, err := OpenAt(root, path)
 	if err != nil {
 		return "", 0, err
 	}
 	defer file.Close()
-	info, err = file.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		return "", 0, fmt.Errorf("expected a regular file")
-	}
 	return readText(file, maximum)
 }
 

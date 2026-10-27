@@ -12,7 +12,11 @@ import (
 	"github.com/merefield/clai/internal/guidance"
 )
 
-const MaxCandidates = 512
+const (
+	MaxCandidates           = 512
+	MaxDiscoveryDepth       = 6
+	MaxDiscoveryDirectories = 2000
+)
 
 type Options struct {
 	Enabled, Auto      bool
@@ -23,6 +27,7 @@ type Skill struct {
 	Metadata
 	Path, Directory, Scope string
 	boundary               string
+	collection             string
 }
 
 type Entry struct {
@@ -40,7 +45,6 @@ func Discover(locations guidance.Locations, enabled bool) Catalog {
 	if !enabled {
 		return catalog
 	}
-	type source struct{ path, boundary, scope string }
 	sources := []source{{filepath.Join(locations.Home, ".agents", "skills"), locations.Home, "user"}}
 	for index, directory := range locations.Chain {
 		scope := "project"
@@ -50,54 +54,136 @@ func Discover(locations guidance.Locations, enabled bool) Catalog {
 		sources = append(sources, source{filepath.Join(directory, ".agents", "skills"), locations.Project, scope})
 	}
 	winners := map[string]Skill{}
-	winningEntry := map[string]int{}
-	count := 0
-	for _, source := range sources {
-		entries, err := guidance.EntriesWithin(source.boundary, source.path, MaxCandidates)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				catalog.Warnings = append(catalog.Warnings, fmt.Sprintf("%s: %v", guidance.Display(source.path), err))
-			}
-			continue
+	budget := discoveryBudget{}
+	// Scan higher precedence first, so lower-priority user collections cannot
+	// exhaust the global budget before project overrides have been examined.
+	for index := len(sources) - 1; index >= 0; index-- {
+		if budget.candidates >= MaxCandidates || budget.directories >= MaxDiscoveryDirectories {
+			catalog.Warnings = append(catalog.Warnings, "skill discovery budget reached; remaining lower-priority roots were not inspected")
+			break
 		}
-		for _, directory := range entries {
-			if !directory.IsDir() && directory.Type()&os.ModeSymlink == 0 {
-				continue
-			}
-			count++
-			if count > MaxCandidates {
-				catalog.Warnings = append(catalog.Warnings, "skill discovery reached its 512-candidate limit; remaining entries omitted")
-				break
-			}
-			path := filepath.Join(source.path, directory.Name(), "SKILL.md")
-			entry := Entry{Path: guidance.Display(path), Scope: source.scope, Status: "invalid"}
-			file, canonical, err := guidance.Open(source.boundary, path)
-			metadata := Metadata{}
-			if err == nil {
-				metadata, err = frontmatter(file, filepath.Dir(path))
-				file.Close()
-			}
-			if err != nil {
-				entry.Detail = err.Error()
-				catalog.Entries = append(catalog.Entries, entry)
-				catalog.Warnings = append(catalog.Warnings, fmt.Sprintf("%s: %v", entry.Path, err))
-				continue
-			}
-			entry.Name, entry.Status = metadata.Name, "available"
-			if previous, exists := winningEntry[metadata.Name]; exists {
-				catalog.Entries[previous].Status = "shadowed"
-				catalog.Entries[previous].Detail = "overridden by " + entry.Path
-			}
-			winningEntry[metadata.Name] = len(catalog.Entries)
-			catalog.Entries = append(catalog.Entries, entry)
-			winners[metadata.Name] = Skill{Metadata: metadata, Path: path, Directory: filepath.Dir(canonical), Scope: source.scope, boundary: source.boundary}
-		}
+		scanSource(sources[index], &budget, &catalog, winners)
 	}
 	for _, skill := range winners {
 		catalog.Skills = append(catalog.Skills, skill)
 	}
 	sort.Slice(catalog.Skills, func(i, j int) bool { return catalog.Skills[i].Name < catalog.Skills[j].Name })
 	return catalog
+}
+
+type source struct{ path, boundary, scope string }
+type discoveryBudget struct{ directories, candidates int }
+
+func scanSource(source source, budget *discoveryBudget, catalog *Catalog, winners map[string]Skill) {
+	root, err := guidance.OpenDirectory(source.boundary, source.path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			catalog.Warnings = append(catalog.Warnings, fmt.Sprintf("%s: %v", guidance.Display(source.path), err))
+		}
+		return
+	}
+	defer root.Close()
+	type directory struct {
+		path  string
+		depth int
+	}
+	queue := []directory{{".", 0}}
+	budget.directories++
+	seen := []os.FileInfo{}
+	directoryWarning := false
+	for len(queue) > 0 {
+		if budget.candidates >= MaxCandidates {
+			catalog.Warnings = append(catalog.Warnings, "skill discovery reached its 512-candidate limit; remaining entries omitted")
+			return
+		}
+		current := queue[0]
+		queue = queue[1:]
+		info, err := root.Stat(current.path)
+		if err != nil {
+			catalog.Warnings = append(catalog.Warnings, fmt.Sprintf("%s: %v", guidance.Display(filepath.Join(source.path, current.path)), err))
+			continue
+		}
+		if !info.IsDir() {
+			continue
+		}
+		duplicate := false
+		for _, previous := range seen {
+			if os.SameFile(previous, info) {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			catalog.Warnings = append(catalog.Warnings, "duplicate or cyclic skill directory ignored: "+guidance.Display(filepath.Join(source.path, current.path)))
+			continue
+		}
+		seen = append(seen, info)
+		entries, err := guidance.EntriesAt(root, current.path, MaxCandidates)
+		if err != nil {
+			catalog.Warnings = append(catalog.Warnings, fmt.Sprintf("%s: %v", guidance.Display(filepath.Join(source.path, current.path)), err))
+			continue
+		}
+		bundle := false
+		if current.depth > 0 {
+			for _, entry := range entries {
+				if entry.Name() == "SKILL.md" {
+					bundle = true
+					break
+				}
+			}
+		}
+		if bundle {
+			budget.candidates++
+			relative := filepath.Join(current.path, "SKILL.md")
+			path := filepath.Join(source.path, relative)
+			entry := Entry{Path: guidance.Display(path), Scope: source.scope, Status: "invalid"}
+			metadata := Metadata{}
+			file, err := guidance.OpenAt(root, relative)
+			if err == nil {
+				metadata, err = frontmatter(file, filepath.Dir(path))
+				file.Close()
+			}
+			if err != nil {
+				entry.Detail = err.Error()
+				catalog.Warnings = append(catalog.Warnings, fmt.Sprintf("%s: %v", entry.Path, err))
+			} else {
+				entry.Name = metadata.Name
+				if previous, exists := winners[metadata.Name]; exists {
+					entry.Status = "shadowed"
+					entry.Detail = "overridden by " + guidance.Display(previous.Path)
+				} else {
+					entry.Status = "available"
+					winners[metadata.Name] = Skill{Metadata: metadata, Path: path, Directory: filepath.Dir(path), Scope: source.scope, boundary: source.boundary, collection: source.path}
+				}
+			}
+			catalog.Entries = append(catalog.Entries, entry)
+			// A bundle's scripts, references and assets are resources, not
+			// additional skill collections, even if they contain SKILL.md.
+			continue
+		}
+		depthWarning := false
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" || (!entry.IsDir() && entry.Type()&os.ModeSymlink == 0) {
+				continue
+			}
+			if current.depth >= MaxDiscoveryDepth {
+				if !depthWarning {
+					catalog.Warnings = append(catalog.Warnings, "skill discovery depth limit reached at "+guidance.Display(filepath.Join(source.path, current.path)))
+					depthWarning = true
+				}
+				continue
+			}
+			if budget.directories >= MaxDiscoveryDirectories {
+				if !directoryWarning {
+					catalog.Warnings = append(catalog.Warnings, "skill discovery reached its 2000-directory limit; remaining folders omitted")
+					directoryWarning = true
+				}
+				continue
+			}
+			budget.directories++
+			queue = append(queue, directory{filepath.Join(current.path, entry.Name()), current.depth + 1})
+		}
+	}
 }
 
 func Validate(path string) (Metadata, error) {

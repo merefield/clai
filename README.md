@@ -379,6 +379,78 @@ system_one_api=https://api.typesafe.ai/v1/systemone
 system_one_model=jev-latest
 ```
 
+## Local context quickstart
+
+This walkthrough uses the portable OpenAI CLI example. Install a CLAI build containing this feature first; `clai skills --help` should display the local context commands. Provider setup is only needed when making a model request, not for inspecting guidance or skills.
+
+1. **Add project preferences.** Create `AGENTS.md` at your repository root, for example:
+
+   ```markdown
+   # Project guidance
+   Prefer concise explanations and show commands before running them.
+   Use the project's documented development and test commands.
+   ```
+
+   Add more specific guidance in a nested directory when needed. Invoke CLAI from that directory to apply its instructions. Use `clai context show` to check the chain before making a request.
+
+2. **Choose a skill scope.** Use `~/.agents/skills/` for skills shared across projects, or `<project>/.agents/skills/` for a project's skills. A nested project's `.agents/skills/` applies only when invoking CLAI from that directory or below it. Existing skills in these locations are discovered automatically.
+
+3. **Install a whole skill folder.** For a first installation of the bundled example, run from a CLAI source checkout with no existing `openai-cli` destination folder:
+
+   Bash/zsh:
+
+   ```bash
+   mkdir -p "$HOME/.agents/skills"
+   cp -R examples/skills/openai-cli "$HOME/.agents/skills/"
+   ```
+
+   PowerShell:
+
+   ```powershell
+   $skillRoot = Join-Path $HOME '.agents/skills'
+   New-Item -ItemType Directory -Path $skillRoot -Force | Out-Null
+   Copy-Item -LiteralPath ./examples/skills/openai-cli -Destination $skillRoot -Recurse
+   ```
+
+   Copy the whole folder, including `references/`, rather than just `SKILL.md`. To keep the skill project-local, use the project's `.agents/skills/` as the destination instead. No CLAI-specific package installation is needed.
+
+4. **Inspect before using it.** These commands do not call a provider:
+
+   ```bash
+   clai skills list
+   clai skills show openai-cli
+   clai skills show openai-cli --body
+   clai skills list --all
+   clai context show
+   ```
+
+   `show` prints the selected source path. Use `clai skills validate <that-path>` to check an installed skill, or `clai skills validate examples/skills/openai-cli` to check the bundled source. `list --all` explains invalid or shadowed copies. `--body` and `context show --verbose` deliberately display document contents.
+
+5. **Make a request.** After `clai setup` if needed, try either local automatic matching or explicit selection:
+
+   ```bash
+   clai list the OpenAI API models I have access to
+   clai --skill openai-cli list my available OpenAI models
+   clai --question --skill openai-cli explain how to list models
+   ```
+
+   An activation line such as `skill: openai-cli (local relevance match)` identifies the skill in use. CLAI can then propose `openai models list` through its normal review flow. The separate `openai` executable and its credentials must already be configured to execute that command. A request such as `clai list the files in this directory` does not activate this skill.
+
+6. **Use or change skills interactively.** Start `clai`, then enter:
+
+   ```text
+   /skills list
+   /skills use openai-cli
+   list my available OpenAI models
+   /skills off
+   /context show
+   exit
+   ```
+
+   Explicit selections last for that session. `/skills off` clears them and disables automatic activation for the rest of the session, until `/skills use` selects a skill again. Edit files and make another request to pick up changes; `/skills reload` also performs a fresh scan. Set `skills_auto_activate=false` for explicit-only selection, `skills_enabled=false` to disable skills, or `agents_enabled=false` to disable AGENTS guidance.
+
+If a skill is missing, inspect `clai skills list --all`, its filename/frontmatter, the current working directory and the search limits below. If a skill is listed but not selected automatically, improve its description or use `--skill`. If references are unavailable, the main instructions still work; check the provider's tool-calling support and the documentation path rules. External MCP does not need to be enabled for skill references.
+
 ## AGENTS.md guidance
 
 CLAI discovers [AGENTS.md](https://agents.md/) instructions locally on every request:
@@ -408,7 +480,21 @@ CLAI reads the published [Agent Skills format](https://agentskills.io/specificat
 <applicable-nested-directory>/.agents/skills/<name>/SKILL.md
 ```
 
-The nearest valid project skill wins when names overlap, followed by project-root and user skills. Files in unrelated repositories are not searched. No CLAI-specific installation or copy is needed for skills already in these locations; `~/.codex` and `~/.claude` are not fallback roots.
+Collections may also use grouping folders:
+
+```text
+.agents/skills/
+├── openai-cli/                     # direct skill
+│   ├── SKILL.md
+│   └── references/commands.md     # read only on demand
+└── api-tools/                      # organizational group, no SKILL.md
+    └── model-inspection/           # grouped skill
+        └── SKILL.md                # name: model-inspection
+```
+
+Discovery walks each collection breadth-first with sorted directory names. It skips hidden folders and `node_modules`, and stops descending once a directory contains `SKILL.md`, so a bundle's examples, scripts and references cannot become accidental skills. Grouping folders do not change a skill's name: select the leaf skill as `--skill model-inspection`.
+
+The nearest valid project skill wins when names overlap, followed by project-root and user skills. Within one collection, the first valid copy in breadth-first, name-sorted traversal wins: direct children are considered before grouped copies. `skills list --all` shows shadowed paths. Higher-priority roots are scanned first so user collections cannot exhaust the discovery budget before project overrides. Files in unrelated repositories are not searched. No CLAI-specific installation or copy is needed for skills already in these locations; `~/.codex` and `~/.claude` are not fallback roots.
 
 Discovery reads only YAML metadata. Names must match their directory, use 1–64 lowercase ASCII letters/digits with single intervening hyphens, and descriptions must contain 1–1024 characters. Standard optional fields are accepted; unknown optional fields are ignored. `allowed-tools` is metadata and grants no permissions. Only selected skills' Markdown bodies enter the request. The metadata index is bounded separately and shortens descriptions before omitting entries.
 
@@ -433,7 +519,7 @@ With a tool-capable provider, an active skill with eligible documentation expose
 
 Eligible references are `.md`, `.txt`, `.rst` and `.adoc` files at the skill root (except `SKILL.md`) or within `references/`. Scripts, assets, hidden files and arbitrary filesystem paths are excluded. Only paths listed at activation can be read. Absolute/drive/UNC paths, traversal, escaping symlinks and non-regular files are rejected. Active skill directories are pinned for the request; repeated reference reads use request-local cached text. Oversized files are rejected with a diagnostic, never executed.
 
-Discovery is limited to 512 candidates, with at most 512 entries per skill-root listing. Reference listings allow 32 paths, four nested levels and 256 examined entries; a reference subdirectory with over 128 entries is omitted. Each request permits eight reference calls. YAML frontmatter is capped at 8 KiB. Relative symlinks are accepted only within the applicable allowed root (global configuration directory, home directory for user skills, project root for project files, active skill directory for references); absolute symlinks are unsupported even when their apparent target is inside that root. These are deliberate compatibility limits.
+Discovery is limited to six directory levels below each collection root, 2,000 scheduled directories and 512 candidate skills, with at most 512 entries in each scanned directory. Cycles and duplicate directory aliases are skipped; limit and traversal diagnostics are visible. Reference listings allow 32 paths, four nested levels and 256 examined entries; a reference subdirectory with over 128 entries is omitted. Each request permits eight reference calls. YAML frontmatter is capped at 8 KiB. Relative symlinks are accepted only within the applicable allowed root: global configuration directory for AGENTS, project root for project AGENTS, the selected skills collection for skill discovery, or the active skill directory for references. Collection roots must themselves resolve within the home/project scope. Absolute symlinks are unsupported even when their apparent target is inside a permitted root. These are deliberate compatibility limits.
 
 Applicable guidance, the bounded skill metadata index, activated instructions and requested references are sent to the configured response provider. They are untrusted content and cannot change CLAI configuration, execute scripts, grant tool permissions, or bypass command review. They are not supplied separately to System One routing or auditing. Expanded instruction documents are not stored in history, and reference results are redacted before history is saved; model answers and user messages retain normal history behavior. Only use local instructions you are willing to share with that provider.
 

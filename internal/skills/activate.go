@@ -150,7 +150,17 @@ func contains(values []string, value string) bool {
 }
 
 func (s Skill) Load(maximum int) (Active, error) {
-	root, err := guidance.OpenDirectory(s.boundary, filepath.Dir(s.Path))
+	collection, err := guidance.OpenDirectory(s.boundary, s.collection)
+	if err != nil {
+		return Active{}, err
+	}
+	relative, err := filepath.Rel(s.collection, filepath.Dir(s.Path))
+	if err != nil || !filepath.IsLocal(relative) {
+		collection.Close()
+		return Active{}, fmt.Errorf("skill is outside its collection")
+	}
+	root, err := collection.OpenRoot(relative)
+	collection.Close()
 	if err != nil {
 		return Active{}, err
 	}
