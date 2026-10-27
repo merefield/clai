@@ -31,6 +31,8 @@ type Metadata struct {
 // Only read through the closing frontmatter delimiter during discovery. No
 // skill bodies or reference contents are collected for the metadata index.
 func frontmatter(reader io.Reader, directory string) (Metadata, error) {
+	// Scanner's default ScanLines strips both LF and CRLF line endings, so
+	// the delimiter comparisons below also accept Windows-authored files.
 	scanner := bufio.NewScanner(io.LimitReader(reader, MaxFrontmatterBytes+1))
 	scanner.Buffer(make([]byte, 512), MaxFrontmatterBytes+1)
 	if !scanner.Scan() || strings.TrimPrefix(scanner.Text(), "\ufeff") != "---" {
