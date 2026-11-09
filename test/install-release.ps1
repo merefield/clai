@@ -22,8 +22,17 @@ function Invoke-Installer {
     param([string]$Destination, [string]$RequestedVersion)
     $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installer, "-BinDir", $Destination)
     if ($RequestedVersion) { $arguments += @("-Version", $RequestedVersion) }
-    $output = & (Get-Process -Id $PID).Path @arguments 2>&1
-    return @{ Status = $LASTEXITCODE; Output = ($output | Out-String).Trim() }
+    # Windows PowerShell 5.1 treats redirected native stderr as an error record.
+    # Expected installer failures must remain observable rather than terminating this test.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & (Get-Process -Id $PID).Path @arguments 2>&1
+        $status = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    return @{ Status = $status; Output = ($output | Out-String).Trim() }
 }
 
 try {

@@ -6,3 +6,6 @@ dev/
 /.cache/
 /.gocache/
 *.out
+
+/tools/duplication/node_modules/
+/tools/duplication/reports/
