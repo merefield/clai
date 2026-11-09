@@ -90,7 +90,7 @@ jobs:
           fi
       - uses: actions/setup-go@v7
         with:
-          go-version: 1.27.3
+          go-version-file: go.mod
           cache: true
       - name: Setup Bats
         if: runner.os == 'Linux'
@@ -114,9 +114,13 @@ jobs:
       - name: Test Unix release installer
         if: runner.os == 'Linux'
         run: bats test
-      - name: Test Windows release installer
+      - name: Test Windows release installer (PowerShell 7)
         if: runner.os == 'Windows'
         shell: pwsh
+        run: ./test/install-release.ps1
+      - name: Test Windows release installer (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
         run: ./test/install-release.ps1
 
   release:
@@ -143,7 +147,7 @@ jobs:
           }
       - uses: actions/setup-go@v7
         with:
-          go-version: 1.27.3
+          go-version-file: go.mod
           cache: true
       - name: Build and publish GitHub release
         uses: goreleaser/goreleaser-action@v7
