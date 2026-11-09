@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   duplication:
     name: Duplication ratchet
@@ -68,7 +72,7 @@ jobs:
 
   duplication-baseline:
     name: Update duplication baseline
-    needs: [duplication, test]
+    needs: [duplication, test, release-config]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -123,6 +127,19 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
+  release-config:
+    name: Validate GoReleaser configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate GoReleaser configuration
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
   test:
     name: Go ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -136,7 +153,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: 1.27.3
+          go-version-file: go.mod
           cache: true
 
       - name: Setup Bats
@@ -157,8 +174,22 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
-        run: go test -race ./...
+      - name: Tests (race, coverage and timings)
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -race -coverprofile=coverage.out -json ./... | tee go-test-results.json
+
+      - name: Preserve test results and coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: go-tests-${{ matrix.os }}
+          path: |
+            go-test-results.json
+            coverage.out
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Build
         run: go build -buildvcs=false -trimpath ./cmd/clai
@@ -167,7 +198,12 @@ jobs:
         if: runner.os == 'Linux'
         run: bats test
 
-      - name: Test Windows release installer
+      - name: Test Windows release installer (PowerShell 7)
         if: runner.os == 'Windows'
         shell: pwsh
+        run: ./test/install-release.ps1
+
+      - name: Test Windows release installer (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
         run: ./test/install-release.ps1
