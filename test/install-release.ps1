@@ -57,8 +57,10 @@ import sys
 
 os.chdir(sys.argv[1])
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
-with open(sys.argv[2], "w", encoding="ascii") as port_file:
+temporary_port_path = sys.argv[2] + ".tmp"
+with open(temporary_port_path, "w", encoding="ascii") as port_file:
     port_file.write(str(server.server_port))
+os.replace(temporary_port_path, sys.argv[2])
 server.serve_forever()
 '@
     $serverProcess = Start-Process -FilePath $python.Source -ArgumentList @($serverScript, $serverRoot, $portFile) -PassThru
@@ -66,7 +68,9 @@ server.serve_forever()
     for ($attempt = 0; $attempt -lt 300; $attempt++) {
         if ($serverProcess.HasExited) { throw "fixture HTTP server exited before reporting its port" }
         if (Test-Path -LiteralPath $portFile) {
-            $port = ([string](Get-Content -LiteralPath $portFile -Raw)).Trim()
+            # The server publishes this file atomically after closing its writer.
+            # Poll for numeric content without calling methods on an empty read.
+            $port = [string](Get-Content -LiteralPath $portFile -Raw)
             if ($port -match '^\d+$') { break }
         }
         Start-Sleep -Milliseconds 100
