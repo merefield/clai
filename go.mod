@@ -1,6 +1,6 @@
 module github.com/merefield/clai
 
-go 1.27.3
+go 1.27.4
 
 require (
 	charm.land/lipgloss/v2 v2.1.0
