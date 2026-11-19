@@ -60,6 +60,7 @@ func New(_ context.Context, in io.Reader, out, errOut io.Writer) (*Application, 
 		return nil, fmt.Errorf("initialize external tools: %w", err)
 	}
 	console := ui.New(in, out, errOut, cfg.HighContrast)
+	console.Markdown = cfg.Markdown
 	var systemOne systemone.Client
 	if strings.TrimSpace(cfg.SystemOneKey) != "" && strings.TrimSpace(cfg.SystemOneModel) != "" {
 		systemOne, err = systemone.New(cfg.SystemOneKey, cfg.SystemOneAPI, cfg.SystemOneModel, nil)

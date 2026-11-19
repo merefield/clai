@@ -26,8 +26,10 @@ type Console struct {
 	reader       *bufio.Reader
 	interactive  bool
 	highContrast bool
-	width        int
-	mu           sync.Mutex
+	// Markdown is enabled for response prose when stdout has a terminal width.
+	Markdown bool
+	width    int
+	mu       sync.Mutex
 }
 
 const (
@@ -40,7 +42,7 @@ func New(in io.Reader, out, errOut io.Writer, highContrast bool) *Console {
 	if f, ok := in.(*os.File); ok {
 		interactive = term.IsTerminal(int(f.Fd()))
 	}
-	return &Console{In: in, Out: out, Err: errOut, reader: bufio.NewReader(promptReader{in}), interactive: interactive, highContrast: highContrast}
+	return &Console{In: in, Out: out, Err: errOut, reader: bufio.NewReader(promptReader{in}), interactive: interactive, highContrast: highContrast, Markdown: true}
 }
 
 // Child commands inherit the same input file. Do not buffer past a prompt's
@@ -111,7 +113,7 @@ func (c *Console) Title(version string, tools []string) {
 
 func (c *Console) Reply(reply model.Reply) {
 	if reply.Command == "" {
-		c.Info(reply.Info)
+		c.explanation(reply.Info)
 		return
 	}
 	color := "10"
@@ -125,10 +127,9 @@ func (c *Console) Reply(reply model.Reply) {
 	c.section(commandStyle.Render(" " + safeTerminalText(reply.Command) + " "))
 	if reply.Risk == model.RiskDanger {
 		label := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true).Render("DANGER ZONE: ")
-		c.section(label + safeTerminalText(reply.Info))
-	} else {
-		c.Info(reply.Info)
+		c.section(label)
 	}
+	c.explanation(reply.Info)
 }
 
 func (c *Console) Prompt(label string) (string, error) {
@@ -166,7 +167,7 @@ func (c *Console) Choice(label string) (string, error) {
 
 func (c *Console) Spinner(ctx context.Context, title string) func() {
 	title = safeTerminalText(title)
-	if !c.interactive {
+	if !c.interactive || c.terminalWidth() == 0 || os.Getenv("TERM") == "dumb" {
 		fmt.Fprintf(c.Out, "\n  %s", title)
 		return func() { fmt.Fprintln(c.Out) }
 	}

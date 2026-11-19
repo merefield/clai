@@ -1,10 +1,23 @@
 package app
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/merefield/clai/internal/model"
 )
+
+func TestParseReplyPreservesMarkdownAndLiteralEscapes(t *testing.T) {
+	info := "    indented code\n\n# Summary\n\n- **First**\n- Second\n\n| Name | Value |\n| --- | --- |\n| example | 42 |\n\n```bash\n" + `printf '%s\n' 'a  b'` + "\n```\n"
+	raw, err := json.Marshal(model.Reply{Info: info, Risk: model.RiskNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := ParseReply(string(raw))
+	if err != nil || reply.Info != info {
+		t.Fatalf("Markdown whitespace or literal escapes changed: %q, %v", reply.Info, err)
+	}
+}
 
 func TestParseReplyNormalizesKeysRiskAndVariables(t *testing.T) {
 	reply, err := ParseReply(`{" cmd ":"echo {{message}}"," info ":" print {{message}} "," risk ":"reversible change","variables":[{"name":"message","prompt":"text"},{"name":"bad-name","prompt":"bad"}]}`)

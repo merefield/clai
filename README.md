@@ -174,6 +174,24 @@ A request containing `?` uses question mode and returns an explanation without p
 clai "how do I show hidden files?"
 ```
 
+### Markdown responses
+
+CLAI formats answers and command explanations as Markdown when standard output is a terminal. Headings, bold and italic text, lists, task lists, quotations, inline code, fenced code blocks, links, and tables become readable terminal output. For example:
+
+```sh
+clai --question "Compare git merge and git rebase in a short Markdown table"
+```
+
+Rendering follows the current terminal width and uses your terminal's foreground and background colors. `NO_COLOR=1` keeps the formatted layout without ANSI styling. Very narrow terminals, `TERM=dumb`, and redirected output show the original Markdown. Oversized or unusually large table layouts also fall back to the original text.
+
+To always show the original Markdown, set this in your CLAI configuration file (`~/.config/clai.cfg` on typical Linux systems):
+
+```ini
+markdown=false
+```
+
+Commands, approval prompts, live command output, and history remain literal. Only the explanatory response is rendered; code examples do not become executable commands. Links display their destinations without opening them or downloading content. Custom `exec_query`, `question_query`, and `error_query` prompts can request Markdown in the JSON `info` string, with escaped newlines, while keeping `cmd` as ordinary shell syntax.
+
 ### Built-in commands
 
 | Command | Purpose |
@@ -585,6 +603,7 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | --- | --- | --- |
 | `key` | empty | Provider credential. It must be non-empty before a request is made. |
 | `hi_contrast` | `false` | Render informational text without the muted italic style. |
+| `markdown` | `true` | Format response prose as Markdown on terminal output. Set `false` to show the original Markdown. |
 | `expose_current_dir` | `true` | Include the current working directory in model context. |
 | `max_history_turns` | `10` | Maximum number of user turns retained in persisted history. |
 | `api` | `https://api.openai.com/v1/chat/completions` | Provider endpoint used for requests and adapter detection. |
