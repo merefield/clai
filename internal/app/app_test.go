@@ -93,6 +93,43 @@ func (f *fakeRunner) Run(_ context.Context, command string, edited bool) model.C
 	return result
 }
 
+func TestMarkdownReplyPreservesExecutedCommandAndSavedHistory(t *testing.T) {
+	a, output, _ := contextFixture(t)
+	command := `printf '%s\n' '**literal**'`
+	info := "# Result\n\n**Bold**\n\n```bash\n" + command + "\n```"
+	raw, err := json.Marshal(model.Reply{Command: command, Info: info, Risk: model.RiskNone, Variables: []model.Variable{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Client = &fakeClient{responses: []provider.Response{{Text: string(raw)}}}
+	commandRunner := &fakeRunner{}
+	a.Runner = commandRunner
+	a.Config.Set("risk_appetite", "1")
+	if err := a.process(context.Background(), "show the example", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(commandRunner.calls) != 1 || commandRunner.calls[0] != command {
+		t.Fatalf("Markdown changed the executable command: %v", commandRunner.calls)
+	}
+	if !strings.Contains(output.String(), "# Result\n") || !strings.Contains(output.String(), "**Bold**") {
+		t.Fatalf("redirected output lost original Markdown: %q", output.String())
+	}
+	if err := a.History.Save(10); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := history.Load(a.History.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved model.Reply
+	if err := json.Unmarshal([]byte(reloaded.Messages[len(reloaded.Messages)-1].ContentText()), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Info != info || saved.Command != command {
+		t.Fatalf("saved history lost original Markdown or command: %+v", saved)
+	}
+}
+
 func TestCommandOutputHasBlankLineAfterExplanation(t *testing.T) {
 	var out bytes.Buffer
 	client := &fakeClient{responses: []provider.Response{{Text: `{"cmd":"printf result","info":"collects the requested information","risk":"none","variables":[]}`, FinishReason: "stop"}}}

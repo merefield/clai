@@ -14,6 +14,7 @@ import (
 const defaultText = `key=
 
 hi_contrast=false
+markdown=true
 expose_current_dir=true
 max_history_turns=10
 api=https://api.openai.com/v1/chat/completions
@@ -49,6 +50,7 @@ type Config struct {
 	Path                     string
 	Key                      string
 	HighContrast             bool
+	Markdown                 bool
 	ExposeCurrentDir         bool
 	MaxHistoryTurns          int
 	API                      string
@@ -151,6 +153,7 @@ func Load(path string) (*Config, error) {
 func (c *Config) refresh() {
 	c.Key = c.values["key"]
 	c.HighContrast = boolValue(c.values["hi_contrast"], false)
+	c.Markdown = boolValue(c.values["markdown"], true)
 	c.ExposeCurrentDir = boolValue(c.values["expose_current_dir"], true)
 	c.MaxHistoryTurns = intValue(c.values["max_history_turns"], 10, 1)
 	c.API = stringValue(c.values["api"], "https://api.openai.com/v1/chat/completions")

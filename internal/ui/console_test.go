@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -11,6 +12,25 @@ import (
 
 	"github.com/merefield/clai/internal/model"
 )
+
+func TestSpinnerKeepsRedirectedOutputAndDumbTerminalsPlain(t *testing.T) {
+	for _, dumb := range []bool{false, true} {
+		t.Run(map[bool]string{false: "redirected", true: "dumb"}[dumb], func(t *testing.T) {
+			var output bytes.Buffer
+			console := New(strings.NewReader(""), &output, &output, true)
+			console.interactive = true // stdin is a terminal, stdout may be redirected.
+			if dumb {
+				t.Setenv("TERM", "dumb")
+				console.width = 80
+			}
+			stop := console.Spinner(context.Background(), "Thinking...")
+			stop()
+			if got := output.String(); got != "\n  Thinking...\n" {
+				t.Fatalf("non-ANSI output contains spinner controls: %q", got)
+			}
+		})
+	}
+}
 
 func TestPromptDistinguishesAnAnswerFromEOF(t *testing.T) {
 	for _, input := range []string{"answer\n", "answer"} {

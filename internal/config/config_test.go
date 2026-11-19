@@ -20,6 +20,9 @@ func TestLoadCreatesCompatibleDefaults(t *testing.T) {
 	if cfg.Model != "gpt-4.1" || cfg.Tokens != 500 || cfg.MaxHistoryTurns != 10 {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
+	if !cfg.Markdown {
+		t.Fatal("Markdown must be enabled by default")
+	}
 	if cfg.UseTools {
 		t.Fatal("tools must be disabled by default")
 	}
@@ -42,6 +45,29 @@ func TestLoadCreatesCompatibleDefaults(t *testing.T) {
 	}
 	if !strings.Contains(string(contents), "use_tools=false\n") {
 		t.Fatalf("shipped config does not disable tools: %q", contents)
+	}
+}
+
+func TestMarkdownSettingSupportsExistingConfigsAndPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.cfg")
+	if err := os.WriteFile(path, []byte("key=test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil || !cfg.Markdown {
+		t.Fatalf("existing configuration did not enable Markdown: %+v, %v", cfg, err)
+	}
+	cfg.Set("markdown", "false")
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(path)
+	if err != nil || cfg.Markdown {
+		t.Fatalf("Markdown opt-out did not persist: %+v, %v", cfg, err)
+	}
+	cfg.Set("markdown", "invalid")
+	if !cfg.Markdown {
+		t.Fatal("invalid setting did not fall back to the default")
 	}
 }
 

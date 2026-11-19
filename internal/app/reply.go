@@ -40,7 +40,6 @@ func ParseReply(text string) (model.Reply, error) {
 		return model.Reply{}, err
 	}
 	reply.Command = strings.TrimSpace(reply.Command)
-	reply.Info = cleanText(reply.Info)
 	reply.Risk = NormalizeRisk(strings.TrimSpace(reply.Risk), reply.Command)
 	reply.Variables = normalizeVariables(reply.Variables, reply.Command, reply.Info)
 	return reply, nil
@@ -190,10 +189,4 @@ func normalizeVariables(variables []model.Variable, command, info string) []mode
 		result = append(result, byName[name])
 	}
 	return result
-}
-
-func cleanText(value string) string {
-	value = strings.ReplaceAll(value, `\n`, " ")
-	value = strings.Join(strings.Fields(value), " ")
-	return strings.Trim(value, `" `)
 }
