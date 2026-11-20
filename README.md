@@ -309,6 +309,8 @@ The provider returns a structured response containing:
 
 If a value is missing, CLAI prompts for it and shell-quotes it before replacing its `{{variable_name}}` placeholder. CLAI refuses to execute a response that still contains unresolved placeholders.
 
+Before showing a proposed command, CLAI checks its syntax locally with Bash in parse-only mode. If Bash rejects it, CLAI sends the command and diagnostic to the provider for one repair attempt. When CLAI has filled in local values, it sends the original template and checks that template for a diagnostic it can share. CLAI checks the repair before showing it and reports a diagnostic if the check still fails. It checks edited commands locally and reports errors directly. Syntax checking does not run commands or load shell startup hooks. It checks Bash grammar, so scripts that rely on runtime changes to parsing options may need rewriting. Tool flags, file paths, permissions, and intent are outside the check.
+
 Suggested commands are displayed by risk:
 
 | Risk | Colour | Meaning |

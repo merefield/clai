@@ -351,12 +351,18 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 			reply.Risk = model.RiskNone
 			reply.Variables = []model.Variable{}
 		}
+		template := reply.Command
 		if err := a.resolveVariables(&reply); err != nil {
 			a.UI.Cancel()
 			return nil
 		}
 		if HasPlaceholders(reply.Command) || HasPlaceholders(reply.Info) {
 			reply = model.Reply{Info: "CLAI returned unresolved placeholders. Rephrase the request or specify missing values.", Risk: model.RiskNone, Variables: []model.Variable{}}
+		}
+		if reply.Command != "" {
+			if err := a.checkGeneratedCommand(ctx, kind, template, &reply); err != nil {
+				return err
+			}
 		}
 		forceConfirm, err := a.auditRisk(ctx, query, &reply)
 		if err != nil {
@@ -598,6 +604,14 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 				return err
 			}
 			if value != "" {
+				diagnostic, err := a.Runner.CheckSyntax(ctx, value)
+				if err != nil {
+					return fmt.Errorf("check edited command syntax: %w", err)
+				}
+				if diagnostic != "" {
+					a.UI.Error(diagnostic)
+					return fmt.Errorf("edited command has invalid Bash syntax")
+				}
 				command = value
 			}
 			edited = true

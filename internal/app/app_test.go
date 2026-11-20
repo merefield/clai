@@ -59,6 +59,14 @@ type fakeRunner struct {
 	results []model.CommandResult
 	calls   []string
 	output  *bytes.Buffer
+	check   func(string) (string, error)
+}
+
+func (f *fakeRunner) CheckSyntax(_ context.Context, command string) (string, error) {
+	if f.check != nil {
+		return f.check(command)
+	}
+	return "", nil
 }
 
 type fakeTool struct{}
