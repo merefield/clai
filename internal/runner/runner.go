@@ -25,6 +25,7 @@ const (
 const truncationMarker = "[earlier output truncated]\n"
 
 type Runner interface {
+	CheckSyntax(context.Context, string) (diagnostic string, err error)
 	Run(context.Context, string, bool) model.CommandResult
 }
 
