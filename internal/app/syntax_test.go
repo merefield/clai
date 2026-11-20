@@ -53,8 +53,13 @@ func TestSyntaxRepairChecksAndAuditsRevisedCommandBeforeApproval(t *testing.T) {
 			t.Fatalf("repair request omitted %q", want)
 		}
 	}
-	if strings.Contains(out.String(), "bad proposal") || strings.Contains(a.History.Render(true), "unexpected end of file") {
-		t.Fatalf("rejected proposal or transient diagnostic was retained: %s", out)
+	for _, unwanted := range []string{"bad proposal", "Repairing command syntax", "unexpected end of file"} {
+		if strings.Contains(out.String(), unwanted) {
+			t.Fatalf("successful repair displayed %q: %s", unwanted, out)
+		}
+	}
+	if strings.Contains(a.History.Render(true), "unexpected end of file") {
+		t.Fatal("transient diagnostic was saved in history")
 	}
 }
 
