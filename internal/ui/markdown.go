@@ -14,11 +14,28 @@ func (c *Console) explanation(text string) {
 	if text == "" {
 		return
 	}
-	width := c.terminalWidth() - sectionLeftMargin - sectionRightMargin
-	if !c.Markdown || width < 12 || os.Getenv("TERM") == "dumb" || !boundedMarkdown(text) {
-		c.section(safeTerminalText(text))
+	terminalWidth := c.terminalWidth()
+	prose := safeTerminalText(text)
+	if terminalWidth == 0 || os.Getenv("TERM") == "dumb" {
+		c.section(prose)
 		return
 	}
+	width := terminalWidth - sectionLeftMargin - sectionRightMargin
+	if c.Markdown && width >= 12 && boundedMarkdown(text) {
+		prose = renderMarkdown(prose, width)
+	}
+	if os.Getenv("NO_COLOR") != "" {
+		prose = ansi.Strip(prose)
+	} else if !c.highContrast {
+		faint := ansi.Style{}.Faint()
+		// Markdown spans reset their styling after bold, italics, and code.
+		// Restore the prose intensity after each span and reset it at the end.
+		prose = faint.Styled(strings.ReplaceAll(prose, ansi.ResetStyle, ansi.ResetStyle+faint.String()))
+	}
+	c.section(prose)
+}
+
+func renderMarkdown(text string, width int) string {
 	// Use the terminal's own foreground/background so prose works with both
 	// light and dark themes, including high-contrast terminals. Do not query
 	// the terminal background: those replies could consume confirmation input.
@@ -32,19 +49,13 @@ func (c *Console) explanation(text string) {
 		glamour.WithChromaFormatter("noop"),
 	)
 	if err != nil {
-		c.section(safeTerminalText(text))
-		return
+		return text
 	}
-	rendered, err := renderer.Render(safeTerminalText(text))
+	rendered, err := renderer.Render(text)
 	if err != nil || strings.TrimSpace(ansi.Strip(rendered)) == "" {
-		c.section(safeTerminalText(text))
-		return
+		return text
 	}
-	rendered = safeMarkdownOutput(rendered)
-	if os.Getenv("NO_COLOR") != "" {
-		rendered = ansi.Strip(rendered)
-	}
-	c.section(strings.Trim(rendered, "\n"))
+	return strings.Trim(safeMarkdownOutput(rendered), "\n")
 }
 
 func markdownStyle() glamouransi.StyleConfig {

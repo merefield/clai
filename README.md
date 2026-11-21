@@ -182,7 +182,7 @@ CLAI formats answers and command explanations as Markdown when standard output i
 clai --question "Compare git merge and git rebase in a short Markdown table"
 ```
 
-Rendering follows the current terminal width and uses your terminal's foreground and background colors. `NO_COLOR=1` keeps the formatted layout without ANSI styling. Very narrow terminals, `TERM=dumb`, and redirected output show the original Markdown. Oversized or unusually large table layouts also fall back to the original text.
+Rendering follows the current terminal width and uses your terminal's colors. CLAI dims response prose slightly by default. Set `hi_contrast=true` to use normal text intensity while keeping Markdown formatting. `NO_COLOR=1` keeps the formatted layout without ANSI styling. Very narrow terminals, `TERM=dumb`, and redirected output show the original Markdown. Oversized or unusually large table layouts also fall back to the original text.
 
 To always show the original Markdown, set this in your CLAI configuration file (`~/.config/clai.cfg` on typical Linux systems):
 
@@ -604,7 +604,7 @@ CLAI creates `~/.config/clai.cfg` on first use. It uses the established CLAI `ke
 | Key | Default | Purpose |
 | --- | --- | --- |
 | `key` | empty | Provider credential. It must be non-empty before a request is made. |
-| `hi_contrast` | `false` | Render informational text without the muted italic style. |
+| `hi_contrast` | `false` | Use normal text intensity for response prose and disable the muted italic style for informational notices. |
 | `markdown` | `true` | Format response prose as Markdown on terminal output. Set `false` to show the original Markdown. |
 | `expose_current_dir` | `true` | Include the current working directory in model context. |
 | `max_history_turns` | `10` | Maximum number of user turns retained in persisted history. |
