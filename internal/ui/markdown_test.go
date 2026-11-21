@@ -39,6 +39,34 @@ func TestResponseMarkdownFormatsProseAndPreservesCode(t *testing.T) {
 	}
 }
 
+func TestResponseProseDimmingPreservesMarkdownStyles(t *testing.T) {
+	c, output := markdownConsole(t, 72)
+	reply := model.Reply{Info: "Before **bold** and *italic* then `code` after."}
+	c.Reply(reply)
+	normal := output.String()
+	output.Reset()
+	c.highContrast = false
+	c.Reply(reply)
+	dimmed := output.String()
+	faint := ansi.Style{}.Faint().String()
+	for _, span := range []string{
+		faint + "Before ",
+		ansi.Style{}.Bold().Styled("bold") + faint + " and ",
+		ansi.Style{}.Italic(true).Styled("italic") + faint + " then ",
+		ansi.Style{}.Reverse(true).Styled("code") + faint + " after.",
+	} {
+		if !strings.Contains(dimmed, span) {
+			t.Fatalf("missing styled span %q in %q", span, dimmed)
+		}
+	}
+	if !strings.HasSuffix(dimmed, ansi.ResetStyle+"\n") {
+		t.Fatalf("dimmed style leaked beyond the response: %q", dimmed)
+	}
+	if strings.Contains(normal, faint) || ansi.Strip(normal) != ansi.Strip(dimmed) {
+		t.Fatalf("expected identical text with normal intensity in high contrast mode: %q, %q", normal, dimmed)
+	}
+}
+
 func TestResponseMarkdownTablesRetainValuesAtNarrowWidths(t *testing.T) {
 	for _, width := range []int{72, 24} {
 		c, output := markdownConsole(t, width)
@@ -74,6 +102,7 @@ func TestResponseMarkdownFallsBackToOriginalText(t *testing.T) {
 	for _, scenario := range []string{"redirected", "disabled", "dumb", "tiny", "oversized", "large-table"} {
 		t.Run(scenario, func(t *testing.T) {
 			c, output := markdownConsole(t, 72)
+			c.highContrast = false
 			source := "# Summary\n\n**Literal Markdown**"
 			switch scenario {
 			case "redirected":
@@ -91,6 +120,9 @@ func TestResponseMarkdownFallsBackToOriginalText(t *testing.T) {
 			}
 			c.Reply(model.Reply{Info: source})
 			plain := ansi.Strip(output.String())
+			if (scenario == "redirected" || scenario == "dumb") && output.String() != plain {
+				t.Fatalf("non-styling output contains ANSI: %q", output.String())
+			}
 			compact := strings.Join(strings.Fields(plain), "")
 			if !strings.Contains(compact, "#Summary") || !strings.Contains(compact, "**LiteralMarkdown**") {
 				t.Fatalf("fallback reformatted the source: %q", plain)
@@ -104,6 +136,7 @@ func TestResponseMarkdownFallsBackToOriginalText(t *testing.T) {
 
 func TestResponseMarkdownNoColorKeepsReadableFormatting(t *testing.T) {
 	c, output := markdownConsole(t, 60)
+	c.highContrast = false
 	t.Setenv("NO_COLOR", "1")
 	c.Reply(model.Reply{Info: "## Result\n\n**Success** with `code`."})
 	got := output.String()
