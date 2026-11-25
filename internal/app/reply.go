@@ -45,6 +45,14 @@ func ParseReply(text string) (model.Reply, error) {
 	return reply, nil
 }
 
+func parseReplyOrText(text string) model.Reply {
+	reply, err := ParseReply(text)
+	if err != nil {
+		return model.Reply{Info: strings.TrimSpace(text), Risk: model.RiskNone, Variables: []model.Variable{}}
+	}
+	return reply
+}
+
 func NormalizeRisk(risk, command string) string {
 	switch risk {
 	case model.RiskNone, model.RiskReversible, model.RiskDanger:

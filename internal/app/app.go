@@ -288,20 +288,23 @@ func (a *Application) clearHistory() error {
 }
 
 func (a *Application) process(ctx context.Context, query, requestedKind string) error {
-	if err := a.ensureToolsLoaded(ctx); err != nil {
-		return err
-	}
-	if a.ToolManager != nil && a.Config.UseTools && a.Client.SupportsTools() && a.ToolManager.Dirty() {
-		if err := a.loadTools(ctx); err != nil {
-			return err
-		}
-	}
 	kind, err := a.routeIntent(ctx, query, requestedKind)
 	if err != nil {
 		return err
 	}
 	if kind == "clear_history" {
 		return a.clearHistory()
+	}
+	allowTools := kind != "how_to"
+	if allowTools {
+		if err := a.ensureToolsLoaded(ctx); err != nil {
+			return err
+		}
+		if a.ToolManager != nil && a.Config.UseTools && a.Client.SupportsTools() && a.ToolManager.Dirty() {
+			if err := a.loadTools(ctx); err != nil {
+				return err
+			}
+		}
 	}
 	snapshot, err := a.resolveContext(query)
 	if err != nil {
@@ -315,16 +318,23 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		a.requestContext = previousContext
 	}()
 	a.History.AppendText("user", query)
+	var definitions []model.ToolDefinition
+	if allowTools {
+		definitions = a.toolDefinitions()
+	}
 	previousResponseID := ""
 	for round := 0; round < 9; round++ {
 		messages := a.messages(kind)
 		stop := a.UI.Spinner(ctx, "Thinking...")
-		response, err := a.Client.Complete(ctx, provider.Request{Messages: messages, Tools: a.toolDefinitions(), PreviousResponseID: previousResponseID})
+		response, err := a.Client.Complete(ctx, provider.Request{Messages: messages, Tools: definitions, PreviousResponseID: previousResponseID})
 		stop()
 		if err != nil {
 			return err
 		}
 		if len(response.ToolCalls) > 0 || response.FinishReason == "tool_calls" {
+			if !allowTools {
+				return fmt.Errorf("provider requested a tool while preparing shell instructions")
+			}
 			if len(response.ToolCalls) == 0 {
 				return fmt.Errorf("API requested tools without supplying tool calls")
 			}
@@ -345,10 +355,7 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		if strings.TrimSpace(response.Text) == "" {
 			return fmt.Errorf("API returned an empty assistant message")
 		}
-		reply, err := ParseReply(response.Text)
-		if err != nil {
-			reply = model.Reply{Info: strings.TrimSpace(response.Text), Risk: model.RiskNone, Variables: []model.Variable{}}
-		}
+		reply := parseReplyOrText(response.Text)
 		if (kind == "execute" || kind == "how_to") && reply.Command == "" {
 			reply, err = a.retryMissingCommand(ctx, kind)
 			if err != nil {
@@ -507,6 +514,9 @@ func (a *Application) messages(kind string) []model.Message {
 	}
 	if kind == "result" {
 		capability = "External CLAI tools are unavailable during command-result interpretation."
+	}
+	if kind == "how_to" {
+		capability = "CLAI tools are unavailable while preparing shell instructions."
 	}
 	system := systemPrompt(a.Config.Path, a.History.Path, capability) + " " + queryGuidance(kind, configuredQuery(a.Config, kind))
 	local := a.requestContext.message(kind)
