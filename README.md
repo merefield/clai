@@ -199,6 +199,7 @@ Commands, approval prompts, live command output, and history remain literal. Onl
 | `clai setup` | Run the configuration wizard. |
 | `clai --setup` | Compatibility alias for `setup`. |
 | `clai --question <question>` | Answer-only mode using `question_query`, with or without System One; proposed shell commands are not executed. |
+| `clai --execute <request>` | Request a command directly, bypassing intent routing. Syntax checks, risk auditing, and approval still apply. |
 | `clai --show-history` | Render persisted conversation history. |
 | `clai --show-history --verbose` | Include full stored command stdout and stderr. |
 | `clai --clear-history` | Remove persisted conversation history. |
@@ -392,6 +393,8 @@ The integrated handoff uses a private temporary directory for each invocation, c
 If `system_one_key`, `system_one_api`, and `system_one_model` are configured, CLAI uses that System One-compatible API for typed intent routing and command-risk auditing. The main LLM still generates commands and explanations, but System One decides whether a request is a command task, question, or history-clear request, and independently audits proposed command risk before `risk_appetite` can auto-run it. A higher System One risk label overrides the LLM risk label; low-confidence risk audits force a confirmation prompt.
 
 Requests are interpreted by meaning rather than question marks. Questions needing live data, such as `what is the time?` or `how much disk space is free?`, should produce a command to obtain the answer and follow the usual risk and confirmation rules. General knowledge and how-to questions can be answered directly without execution. With `share_command_results=true`, CLAI also interprets the resulting command output. These decisions use System One when configured, or the main LLM otherwise.
+
+For an action routed by System One or selected with `--execute`, CLAI retries once if the provider returns no command. If it still gets no command, CLAI says so and shows any clarification or blocker. For example, `clai --execute "diagnose and resolve the missing libvips dependency for Discourse"` requests a checked command proposal under your normal risk policy.
 
 ## Providers
 

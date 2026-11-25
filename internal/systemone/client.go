@@ -127,10 +127,10 @@ func (c *HTTPClient) RouteIntent(ctx context.Context, input IntentRequest) (Inte
 		Questions: map[string]question{
 			"intent": {
 				"type":         "choice",
-				"instructions": "Which CLAI workflow should handle this user request? Decide from the information or action needed, not punctuation. Questions needing live system or external state require execution to obtain the answer.",
+				"instructions": "Which CLAI workflow should handle the request in `user_request`? Decide from the outcome the user asks for. A request to fix a concrete failure needs action or diagnosis even if the user has not specified the command.",
 				"criteria": map[string]string{
-					IntentExecute:      "The user wants a terminal task performed or an answer requiring current system or external state, such as the current time, free disk space, running processes, or git status. This includes requests phrased as questions.",
-					IntentQuestion:     "The user wants general knowledge, an explanation, or how-to instructions that can be answered without inspecting live system or external state. No shell command needs to run.",
+					IntentExecute:      "The user wants a terminal task performed, a command proposed for a concrete task, a local failure diagnosed or fixed, or information from live system or external state. Examples: resolve this LoadError, install a missing dependency, check available disk space, show git status.",
+					IntentQuestion:     "The user wants only general knowledge, an explanation, or how-to instructions they can follow themselves. Examples: what does LoadError mean, how do I normally install a dependency, explain git status. The answer requires no live inspection or changes.",
 					IntentClearHistory: "The user wants to clear, reset, forget, or flush CLAI conversation history.",
 				},
 			},

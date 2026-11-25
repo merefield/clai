@@ -105,6 +105,9 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		}
 	}
 	if requestedKind != "" && strings.TrimSpace(strings.Join(args, " ")) == "" {
+		if requestedKind == "execute" {
+			return fmt.Errorf("usage: clai --execute <request>")
+		}
 		return fmt.Errorf("usage: clai --question <question>")
 	}
 	if a.Config.Key == "" {
@@ -346,6 +349,12 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		if err != nil {
 			reply = model.Reply{Info: strings.TrimSpace(response.Text), Risk: model.RiskNone, Variables: []model.Variable{}}
 		}
+		if kind == "execute" && reply.Command == "" {
+			reply, err = a.retryMissingCommand(ctx, kind)
+			if err != nil {
+				return err
+			}
+		}
 		if kind == "question" {
 			reply.Command = ""
 			reply.Risk = model.RiskNone
@@ -403,7 +412,7 @@ func (a *Application) routeIntent(ctx context.Context, query, requestedKind stri
 			return "", fmt.Errorf("system one returned unknown intent %q", decision.Intent)
 		}
 	}
-	return "execute", nil
+	return "auto", nil
 }
 
 func (a *Application) auditRisk(ctx context.Context, query string, reply *model.Reply) (bool, error) {

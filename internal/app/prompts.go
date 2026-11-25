@@ -27,7 +27,11 @@ func CurrentVersion() string {
 	return strings.TrimSpace(sourceVersion)
 }
 
-const defaultExecQuery = "Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. Interpret the user's intent regardless of question marks. For requests needing current system or external state (such as the time, disk space, or git status), provide a command to obtain it; do not invent live facts or merely describe the command. For general knowledge, explanations, or how-to questions that need no live data, answer directly in info with empty cmd and variables and risk 'none'. Otherwise cmd must contain shell commands that perform the task. 'info' must be a concise answer or command explanation. 'risk' must be exactly 'none', 'reversible change', or 'danger zone'. Use 'none' only for read-only inspection. Use 'reversible change' for changes that are normally undoable. Use 'danger zone' for deletion, overwrite, reset, force, or hard-to-reverse changes. 'variables' must be an array. Represent missing user values as {{variable_name}} in cmd and info and include matching objects with name and prompt. Do not quote placeholders in cmd; CLAI shell-escapes substitutions."
+const autoRequestGuidance = "Interpret the user's intent regardless of question marks. Requests to fix a concrete failure, install a dependency, or perform a terminal task call for a command. For requests needing current system or external state, propose a command to obtain it and avoid inventing live facts. For general knowledge, explanations, or how-to questions that need no live data, answer directly in info with empty cmd and variables and risk 'none'."
+
+const actionRequestGuidance = "The user wants a shell action or live inspection. Put a runnable Bash command in cmd and its explanation in info. If more evidence is needed, propose a read-only diagnostic command. If no suitable command can be proposed, leave cmd empty and explain the blocker or ask for the missing detail. Avoid describing an action as if it were proposed when cmd is empty."
+
+const executionReplyContract = "Return only a single compact JSON object containing 'cmd', 'info', 'risk' and 'variables' fields. 'info' must be a concise answer or command explanation. 'risk' must be exactly 'none', 'reversible change', or 'danger zone'. Use 'none' only for read-only inspection. Use 'reversible change' for changes that are normally undoable. Use 'danger zone' for deletion, overwrite, reset, force, or hard-to-reverse changes. 'variables' must be an array. Represent missing user values as {{variable_name}} in cmd and info and include matching objects with name and prompt. Do not quote placeholders in cmd; CLAI shell-escapes substitutions."
 
 const defaultQuestionQuery = "Return only a single compact JSON object with cmd, info, risk and variables. For questions, cmd must be empty, risk must be 'none', variables must be empty, and info must be a concise terminal-related answer."
 
@@ -59,6 +63,9 @@ func ShellInit(shell string) (string, error) {
 
 func queryGuidance(kind, configured string) string {
 	if configured != "" {
+		if kind == "execute" {
+			return configured + " " + actionRequestGuidance
+		}
 		return configured
 	}
 	switch kind {
@@ -68,8 +75,10 @@ func queryGuidance(kind, configured string) string {
 		return defaultErrorQuery
 	case "result":
 		return defaultResultQuery
+	case "execute":
+		return actionRequestGuidance + " " + executionReplyContract
 	default:
-		return defaultExecQuery
+		return autoRequestGuidance + " " + executionReplyContract
 	}
 }
 
@@ -89,7 +98,9 @@ func templateMessages(kind, system string) []model.Message {
 		// without command-generation examples that could invite another action.
 	default:
 		add("what is the time?", `{ "cmd": "date", "info": "shows the current system date and time", "risk": "none", "variables": [] }`)
-		add("how do I list all files", `{ "cmd": "", "info": "Use ls -a to list all files, including hidden files.", "risk": "none", "variables": [] }`)
+		if kind != "execute" {
+			add("how do I list all files", `{ "cmd": "", "info": "Use ls -a to list all files, including hidden files.", "risk": "none", "variables": [] }`)
+		}
 		add("list all files", `{ "cmd": "ls -a", "info": "lists all files, including hidden ones", "risk": "none", "variables": [] }`)
 		add("remove the hello world folder", `{ "cmd": "rm -r \"hello world\"", "info": "recursively removes the folder and its contents", "risk": "danger zone", "variables": [] }`)
 		add("checkout a new branch", `{ "cmd": "git checkout -b {{branch_name}}", "info": "creates and switches to {{branch_name}}", "risk": "reversible change", "variables": [{"name":"branch_name","prompt":"new branch name"}] }`)

@@ -136,12 +136,21 @@ func parseRequestOptions(args []string) ([]string, []string, string, error) {
 		switch args[0] {
 		case "--skill":
 			if len(args) < 2 || strings.HasPrefix(args[1], "--") || len(selected) >= 8 {
-				return nil, nil, "", fmt.Errorf("usage: clai [--skill NAME] [--question] <request>; at most eight skills")
+				return nil, nil, "", fmt.Errorf("usage: clai [--skill NAME] [--question|--execute] <request>; at most eight skills")
 			}
 			selected = append(selected, args[1])
 			args = args[2:]
 		case "--question":
+			if kind == "execute" {
+				return nil, nil, "", fmt.Errorf("use either --question or --execute")
+			}
 			kind = "question"
+			args = args[1:]
+		case "--execute":
+			if kind == "question" {
+				return nil, nil, "", fmt.Errorf("use either --question or --execute")
+			}
+			kind = "execute"
 			args = args[1:]
 		case "--":
 			return args[1:], selected, kind, nil
