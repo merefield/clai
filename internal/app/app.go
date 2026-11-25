@@ -349,13 +349,18 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		if err != nil {
 			reply = model.Reply{Info: strings.TrimSpace(response.Text), Risk: model.RiskNone, Variables: []model.Variable{}}
 		}
-		if kind == "execute" && reply.Command == "" {
+		if (kind == "execute" || kind == "how_to") && reply.Command == "" {
 			reply, err = a.retryMissingCommand(ctx, kind)
 			if err != nil {
 				return err
 			}
 		}
-		if kind == "question" {
+		if kind == "how_to" && reply.Command != "" {
+			// Starting with an indented code block keeps the example literal,
+			// even if the command itself contains Markdown fences.
+			reply.Info = "    " + strings.ReplaceAll(reply.Command, "\n", "\n    ") + "\n\n" + reply.Info
+		}
+		if kind == "question" || kind == "how_to" {
 			reply.Command = ""
 			reply.Risk = model.RiskNone
 			reply.Variables = []model.Variable{}
@@ -365,7 +370,7 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 			a.UI.Cancel()
 			return nil
 		}
-		if HasPlaceholders(reply.Command) || HasPlaceholders(reply.Info) {
+		if kind != "how_to" && (HasPlaceholders(reply.Command) || HasPlaceholders(reply.Info)) {
 			reply = model.Reply{Info: "CLAI returned unresolved placeholders. Rephrase the request or specify missing values.", Risk: model.RiskNone, Variables: []model.Variable{}}
 		}
 		if reply.Command != "" {
@@ -401,6 +406,8 @@ func (a *Application) routeIntent(ctx context.Context, query, requestedKind stri
 		switch decision.Intent {
 		case systemone.IntentQuestion:
 			return "question", nil
+		case systemone.IntentHowTo:
+			return "how_to", nil
 		case systemone.IntentClearHistory:
 			if !systemone.ValidConfidence(decision.Confidence) || decision.Confidence < 0.65 {
 				return "", fmt.Errorf("system one history-clear intent is uncertain; use the explicit clear command to clear history")
@@ -521,7 +528,7 @@ func (a *Application) messages(kind string) []model.Message {
 
 func configuredQuery(cfg *config.Config, kind string) string {
 	switch kind {
-	case "question":
+	case "question", "how_to":
 		return cfg.QuestionQuery
 	case "error":
 		return cfg.ErrorQuery

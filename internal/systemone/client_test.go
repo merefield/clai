@@ -120,18 +120,18 @@ func TestRouteIntentUsesChoiceQuestion(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
 		}
-		body := `{"answers":{"intent":{"type":"choice","choice":"question","confidence":0.88,"probabilities":{"question":0.88,"execute":0.11,"clear_history":0.01}}}}`
+		body := `{"answers":{"intent":{"type":"choice","choice":"how_to","confidence":0.88,"probabilities":{"how_to":0.88,"question":0,"execute":0.11,"clear_history":0.01}}}}`
 		return jsonResponse(body), nil
 	})}
 	client, err := New("system-key", "https://system-one.example/v1/systemone", "jev-test", httpClient)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, err := client.RouteIntent(context.Background(), IntentRequest{UserRequest: "how much is 3*pi"})
+	decision, err := client.RouteIntent(context.Background(), IntentRequest{UserRequest: "how to uninstall this?"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Intent != IntentQuestion || decision.Confidence != 0.88 {
+	if decision.Intent != IntentHowTo || decision.Confidence != 0.88 {
 		t.Fatalf("decision = %#v", decision)
 	}
 	if request["model"] != "jev-test" {
@@ -141,6 +141,10 @@ func TestRouteIntentUsesChoiceQuestion(t *testing.T) {
 	intent := questions["intent"].(map[string]any)
 	if intent["type"] != "choice" {
 		t.Fatalf("intent question = %#v", intent)
+	}
+	criteria := intent["criteria"].(map[string]any)
+	if !strings.Contains(criteria[IntentHowTo].(string), "how to uninstall this") {
+		t.Fatalf("missing how-to routing guidance: %v", criteria)
 	}
 }
 
@@ -193,7 +197,7 @@ func TestResponseConfidenceRange(t *testing.T) {
 			t.Run(kind+"/"+confidence, func(t *testing.T) {
 				choice, probabilities := "none", `{"none":1,"reversible_change":0,"danger_zone":0}`
 				if kind == "intent" {
-					choice, probabilities = "execute", `{"execute":1,"question":0,"clear_history":0}`
+					choice, probabilities = "execute", `{"execute":1,"question":0,"how_to":0,"clear_history":0}`
 				}
 				httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 					return jsonResponse(fmt.Sprintf(`{"answers":{"%s":{"type":"choice","choice":%q,"confidence":%s,"probabilities":%s}}}`, kind, choice, confidence, probabilities)), nil
@@ -244,21 +248,25 @@ func TestChoiceResponseValidation(t *testing.T) {
 			{"rounding", "selected", "0", `{"selected":0.3333333,"other":0.3333333,"last":0.3333333}`, true},
 			{"two decimal sum below one", "selected", "0", `{"selected":0.33,"other":0.33,"last":0.33}`, true},
 			{"two decimal sum above one", "selected", "0", `{"selected":0.34,"other":0.34,"last":0.33}`, true},
-			{"two decimal sum too low", "selected", "0", `{"selected":0.34,"other":0.32,"last":0.32}`, false},
-			{"two decimal sum too high", "selected", "0", `{"selected":0.34,"other":0.34,"last":0.34}`, false},
+			{"two decimal sum too low", "selected", "0", `{"selected":0.34,"other":0.31,"last":0.32}`, false},
+			{"two decimal sum too high", "selected", "0", `{"selected":0.35,"other":0.34,"last":0.34}`, false},
 			{"higher precision stays strict", "selected", "0", `{"selected":0.333,"other":0.333,"last":0.333}`, false},
 		} {
 			t.Run(kind+"/"+tc.name, func(t *testing.T) {
 				replacer := strings.NewReplacer("selected", "none", "other", "reversible_change", "last", "danger_zone")
+				probabilities := tc.probabilities
 				if kind == "intent" {
 					replacer = strings.NewReplacer("selected", "execute", "other", "question", "last", "clear_history")
+					if strings.HasPrefix(probabilities, `{"selected":`) {
+						probabilities = `{"how_to":0,` + probabilities[1:]
+					}
 				}
 				body := fmt.Sprintf(`{"answers":{"%s":{"type":"choice","choice":%q`, kind, replacer.Replace(tc.choice))
 				if tc.confidence != "" {
 					body += `,"confidence":` + tc.confidence
 				}
-				if tc.probabilities != "" {
-					body += `,"probabilities":` + replacer.Replace(tc.probabilities)
+				if probabilities != "" {
+					body += `,"probabilities":` + replacer.Replace(probabilities)
 				}
 				body += `}}}`
 				client, err := New("key", "https://example.test", "model", &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
@@ -314,10 +322,12 @@ func TestHTTPErrorEscapesTerminalControls(t *testing.T) {
 func TestStrictResponseJSON(t *testing.T) {
 	for _, kind := range []string{"risk", "intent"} {
 		choice, other, last := "none", "reversible_change", "danger_zone"
+		extraProbability := ""
 		if kind == "intent" {
 			choice, other, last = "execute", "question", "clear_history"
+			extraProbability = `,"how_to":0`
 		}
-		validAnswer := fmt.Sprintf(`{"type":"choice","choice":%q,"confidence":1,"probabilities":{%q:1,%q:0,%q:0}}`, choice, choice, other, last)
+		validAnswer := fmt.Sprintf(`{"type":"choice","choice":%q,"confidence":1,"probabilities":{%q:1,%q:0,%q:0%s}}`, choice, choice, other, last, extraProbability)
 		validBody := fmt.Sprintf(`{"answers":{%q:%s}}`, kind, validAnswer)
 		for _, tc := range []struct {
 			name, body string

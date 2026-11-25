@@ -394,7 +394,7 @@ If `system_one_key`, `system_one_api`, and `system_one_model` are configured, CL
 
 Requests are interpreted by meaning rather than question marks. Questions needing live data, such as `what is the time?` or `how much disk space is free?`, should produce a command to obtain the answer and follow the usual risk and confirmation rules. General knowledge and how-to questions can be answered directly without execution. With `share_command_results=true`, CLAI also interprets the resulting command output. These decisions use System One when configured, or the main LLM otherwise.
 
-For an action routed by System One or selected with `--execute`, CLAI retries once if the provider returns no command. If it still gets no command, CLAI says so and shows any clarification or blocker. For example, `clai --execute "diagnose and resolve the missing libvips dependency for Discourse"` requests a checked command proposal under your normal risk policy.
+For an action routed by System One or selected with `--execute`, CLAI retries once if the provider returns no command. If it still gets no command, CLAI says so and shows any clarification or blocker. For example, `clai --execute "diagnose and resolve the missing libvips dependency for Discourse"` requests a checked command proposal under your normal risk policy. When System One routes a shell how-to question, CLAI shows a command example as instructions and retries once if the example is missing. For example, `clai "how do I uninstall ImageMagick?"` asks for instructions you can review and run yourself.
 
 ## Providers
 
