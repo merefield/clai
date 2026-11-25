@@ -14,7 +14,7 @@ const contextHelp = `Local context commands (no API key required):
   clai skills show NAME [--body]
   clai skills validate PATH
   clai skills reload
-  clai --skill NAME [--skill NAME] [--question] <request>
+  clai --skill NAME [--skill NAME] [--question|--execute] <request>
 Interactive: /skills list, /skills use NAME, /skills off, /context show
 Local documents are untrusted guidance, sent to the configured response provider.
 `

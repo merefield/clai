@@ -105,6 +105,9 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		}
 	}
 	if requestedKind != "" && strings.TrimSpace(strings.Join(args, " ")) == "" {
+		if requestedKind == "execute" {
+			return fmt.Errorf("usage: clai --execute <request>")
+		}
 		return fmt.Errorf("usage: clai --question <question>")
 	}
 	if a.Config.Key == "" {
@@ -285,20 +288,23 @@ func (a *Application) clearHistory() error {
 }
 
 func (a *Application) process(ctx context.Context, query, requestedKind string) error {
-	if err := a.ensureToolsLoaded(ctx); err != nil {
-		return err
-	}
-	if a.ToolManager != nil && a.Config.UseTools && a.Client.SupportsTools() && a.ToolManager.Dirty() {
-		if err := a.loadTools(ctx); err != nil {
-			return err
-		}
-	}
 	kind, err := a.routeIntent(ctx, query, requestedKind)
 	if err != nil {
 		return err
 	}
 	if kind == "clear_history" {
 		return a.clearHistory()
+	}
+	allowTools := kind != "how_to"
+	if allowTools {
+		if err := a.ensureToolsLoaded(ctx); err != nil {
+			return err
+		}
+		if a.ToolManager != nil && a.Config.UseTools && a.Client.SupportsTools() && a.ToolManager.Dirty() {
+			if err := a.loadTools(ctx); err != nil {
+				return err
+			}
+		}
 	}
 	snapshot, err := a.resolveContext(query)
 	if err != nil {
@@ -312,16 +318,23 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		a.requestContext = previousContext
 	}()
 	a.History.AppendText("user", query)
+	var definitions []model.ToolDefinition
+	if allowTools {
+		definitions = a.toolDefinitions()
+	}
 	previousResponseID := ""
 	for round := 0; round < 9; round++ {
 		messages := a.messages(kind)
 		stop := a.UI.Spinner(ctx, "Thinking...")
-		response, err := a.Client.Complete(ctx, provider.Request{Messages: messages, Tools: a.toolDefinitions(), PreviousResponseID: previousResponseID})
+		response, err := a.Client.Complete(ctx, provider.Request{Messages: messages, Tools: definitions, PreviousResponseID: previousResponseID})
 		stop()
 		if err != nil {
 			return err
 		}
 		if len(response.ToolCalls) > 0 || response.FinishReason == "tool_calls" {
+			if !allowTools {
+				return fmt.Errorf("provider requested a tool while preparing shell instructions")
+			}
 			if len(response.ToolCalls) == 0 {
 				return fmt.Errorf("API requested tools without supplying tool calls")
 			}
@@ -342,11 +355,19 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		if strings.TrimSpace(response.Text) == "" {
 			return fmt.Errorf("API returned an empty assistant message")
 		}
-		reply, err := ParseReply(response.Text)
-		if err != nil {
-			reply = model.Reply{Info: strings.TrimSpace(response.Text), Risk: model.RiskNone, Variables: []model.Variable{}}
+		reply := parseReplyOrText(response.Text)
+		if (kind == "execute" || kind == "how_to") && reply.Command == "" {
+			reply, err = a.retryMissingCommand(ctx, kind)
+			if err != nil {
+				return err
+			}
 		}
-		if kind == "question" {
+		if kind == "how_to" && reply.Command != "" {
+			// Starting with an indented code block keeps the example literal,
+			// even if the command itself contains Markdown fences.
+			reply.Info = "    " + strings.ReplaceAll(reply.Command, "\n", "\n    ") + "\n\n" + reply.Info
+		}
+		if kind == "question" || kind == "how_to" {
 			reply.Command = ""
 			reply.Risk = model.RiskNone
 			reply.Variables = []model.Variable{}
@@ -356,7 +377,7 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 			a.UI.Cancel()
 			return nil
 		}
-		if HasPlaceholders(reply.Command) || HasPlaceholders(reply.Info) {
+		if kind != "how_to" && (HasPlaceholders(reply.Command) || HasPlaceholders(reply.Info)) {
 			reply = model.Reply{Info: "CLAI returned unresolved placeholders. Rephrase the request or specify missing values.", Risk: model.RiskNone, Variables: []model.Variable{}}
 		}
 		if reply.Command != "" {
@@ -392,6 +413,8 @@ func (a *Application) routeIntent(ctx context.Context, query, requestedKind stri
 		switch decision.Intent {
 		case systemone.IntentQuestion:
 			return "question", nil
+		case systemone.IntentHowTo:
+			return "how_to", nil
 		case systemone.IntentClearHistory:
 			if !systemone.ValidConfidence(decision.Confidence) || decision.Confidence < 0.65 {
 				return "", fmt.Errorf("system one history-clear intent is uncertain; use the explicit clear command to clear history")
@@ -403,7 +426,7 @@ func (a *Application) routeIntent(ctx context.Context, query, requestedKind stri
 			return "", fmt.Errorf("system one returned unknown intent %q", decision.Intent)
 		}
 	}
-	return "execute", nil
+	return "auto", nil
 }
 
 func (a *Application) auditRisk(ctx context.Context, query string, reply *model.Reply) (bool, error) {
@@ -492,6 +515,9 @@ func (a *Application) messages(kind string) []model.Message {
 	if kind == "result" {
 		capability = "External CLAI tools are unavailable during command-result interpretation."
 	}
+	if kind == "how_to" {
+		capability = "CLAI tools are unavailable while preparing shell instructions."
+	}
 	system := systemPrompt(a.Config.Path, a.History.Path, capability) + " " + queryGuidance(kind, configuredQuery(a.Config, kind))
 	local := a.requestContext.message(kind)
 	if local != "" {
@@ -512,7 +538,7 @@ func (a *Application) messages(kind string) []model.Message {
 
 func configuredQuery(cfg *config.Config, kind string) string {
 	switch kind {
-	case "question":
+	case "question", "how_to":
 		return cfg.QuestionQuery
 	case "error":
 		return cfg.ErrorQuery
