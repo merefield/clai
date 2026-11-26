@@ -35,6 +35,7 @@ type HTTPClient struct {
 
 type IntentRequest struct {
 	UserRequest string `json:"user_request"`
+	HasHistory  bool   `json:"has_history"`
 }
 
 type IntentDecision struct {
@@ -128,11 +129,11 @@ func (c *HTTPClient) RouteIntent(ctx context.Context, input IntentRequest) (Inte
 		Questions: map[string]question{
 			"intent": {
 				"type":         "choice",
-				"instructions": "Which CLAI workflow should handle the request in `user_request`? Decide from the outcome the user asks for. A request to fix a concrete failure needs action or diagnosis even if the user has not specified the command.",
+				"instructions": "Which CLAI workflow should handle the request in `user_request`? Decide from the outcome the user asks for. A request to fix a concrete failure needs action or diagnosis even if the user has not specified the command. When `has_history` is true, the response model can resolve references to earlier turns. A short follow-up asking for a variation on a previous command's target or options can request an example even if it omits the command verb and tool name. Such a follow-up alone does not authorize execution.",
 				"criteria": map[string]string{
 					IntentExecute:      "The user wants CLAI to perform a terminal task, diagnose or fix a local failure, or look up live system or external state. Examples: resolve this LoadError, install a missing dependency, check available disk space, show git status.",
-					IntentHowTo:        "The user wants shell instructions or a command example to run themselves. Examples: how to uninstall this, how do I normally install a dependency, what command would list hidden files. The request is about the steps, with no need for CLAI to run the command.",
-					IntentQuestion:     "The user wants general knowledge or an explanation without live inspection, changes, or a shell command example. Examples: what does LoadError mean, explain git status, how do I autocomplete a filename using the keyboard.",
+					IntentHowTo:        "The user wants shell instructions or a command example to run themselves. Examples: how to uninstall this, how do I normally install a dependency, what command would list hidden files. With history, examples of implied variations include 'what about last session?', 'what about including hidden files?' and 'what if I want to use a different branch?'.",
+					IntentQuestion:     "The user wants general knowledge or an explanation without live inspection, changes, or a shell command example. Examples: what does LoadError mean, explain git status, how do I autocomplete a filename using the keyboard, what is the -t for?",
 					IntentClearHistory: "The user wants to clear, reset, forget, or flush CLAI conversation history.",
 				},
 			},

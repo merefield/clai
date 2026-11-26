@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/merefield/clai/internal/history"
 	"github.com/merefield/clai/internal/mcptools"
 	"github.com/merefield/clai/internal/model"
 	"github.com/merefield/clai/internal/provider"
@@ -135,6 +136,54 @@ func TestHowToRejectsUnexpectedToolCallsBeforeDispatch(t *testing.T) {
 	}
 	if a.toolsLoaded || len(client.requests) != 1 || len(a.History.Messages) != 1 || len(a.History.Messages[0].ToolCalls) != 0 {
 		t.Fatalf("how-to request entered the tool workflow: loaded=%v requests=%d history=%+v", a.toolsLoaded, len(client.requests), a.History.Messages)
+	}
+}
+
+func TestFollowUpCommandExampleUsesSavedConversation(t *testing.T) {
+	a, out, _ := contextFixture(t)
+	a.Config.Set("risk_appetite", "2")
+	a.History.AppendText("user", "attach to tmux session builder")
+	if err := a.History.AppendReply(model.Reply{Command: "tmux attach-session -t builder", Info: "Attaches to builder.", Risk: model.RiskNone}); err != nil {
+		t.Fatal(err)
+	}
+	router := &fakeSystemOne{intent: systemone.IntentDecision{Intent: systemone.IntentQuestion, Confidence: 1}}
+	a.SystemOne = router
+	client := &fakeClient{responses: []provider.Response{
+		{Text: `{"cmd":"","info":"The -t option specifies the target session.","risk":"none","variables":[]}`},
+		{Text: `{"cmd":"","info":"Attaches to the last tmux session.","risk":"none","variables":[]}`},
+		{Text: `{"cmd":"tmux attach-session","info":"From outside tmux, attaches with no explicit target. tmux prefers the most recently used unattached session.","risk":"none","variables":[]}`},
+	}}
+	a.Client = client
+	if err := a.Run(t.Context(), []string{"what is the -t for?"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 1 || !strings.Contains(out.String(), "specifies the target session") {
+		t.Fatalf("option explanation should need only one response: %s", out)
+	}
+	if err := a.History.Save(a.Config.MaxHistoryTurns); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := history.Load(a.History.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.History = saved
+	out.Reset()
+
+	const followUp = "what about last session?"
+	router.intent.Intent = systemone.IntentHowTo
+	if err := a.Run(t.Context(), []string{followUp}); err != nil {
+		t.Fatal(err)
+	}
+	if len(router.intentRequests) != 2 || router.intentRequests[1] != (systemone.IntentRequest{UserRequest: followUp, HasHistory: true}) {
+		t.Fatalf("follow-up routing input = %#v", router.intentRequests)
+	}
+	if len(client.requests) != 3 || !strings.Contains(requestText(client.requests[2]), "tmux attach-session -t builder") || !strings.Contains(requestText(client.requests[2]), "specifies the target session") {
+		t.Fatal("expected one retry with the tmux proposal and the option explanation in context")
+	}
+	reply, err := ParseReply(saved.Messages[len(saved.Messages)-1].ContentText())
+	if err != nil || reply.Command != "" || !strings.Contains(out.String(), "tmux attach-session") || len(router.riskRequests) != 0 || len(a.Runner.(*fakeRunner).calls) != 0 {
+		t.Fatalf("expected a display-only example, got reply=%+v, error=%v, output=%s", reply, err, out)
 	}
 }
 
