@@ -112,7 +112,7 @@ func TestInteractiveSessionExitsAfterHandoff(t *testing.T) {
 
 func TestHandoffEOFDisplaysCommandWithoutQueuing(t *testing.T) {
 	app, runner, output, path := handoffFixture(t, "")
-	if err := app.offerTerminal("tmux attach -t work", true); err != nil {
+	if err := app.offerTerminal(t.Context(), "tmux attach -t work", true); err != nil {
 		t.Fatal(err)
 	}
 	if !app.exitToShell || len(runner.calls) != 0 || !strings.Contains(output.String(), "\ntmux attach -t work\n") {
@@ -125,7 +125,7 @@ func TestHandoffEOFDisplaysCommandWithoutQueuing(t *testing.T) {
 
 func TestHandoffChoiceWithoutTrailingNewline(t *testing.T) {
 	app, _, _, path := handoffFixture(t, "t")
-	if err := app.offerTerminal("tmux attach", false); !errors.Is(err, ErrShellHandoff) {
+	if err := app.offerTerminal(t.Context(), "tmux attach", false); !errors.Is(err, ErrShellHandoff) {
 		t.Fatalf("explicit choice at EOF was ignored: %v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -138,7 +138,7 @@ func TestExistingHandoffFileNeverSignalsSuccess(t *testing.T) {
 	if err := os.WriteFile(path, []byte("stale command"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.offerTerminal("tmux attach", false); err != nil {
+	if err := app.offerTerminal(t.Context(), "tmux attach", false); err != nil {
 		t.Fatalf("failed exclusive write must use copy fallback, not a handoff status: %v", err)
 	}
 	data, err := os.ReadFile(path)

@@ -35,6 +35,7 @@ type Application struct {
 	selectedSkills []string
 	skillsOff      bool
 	exitToShell    bool
+	copyClipboard  func(context.Context, string, io.Writer) (bool, error)
 }
 
 func New(_ context.Context, in io.Reader, out, errOut io.Writer) (*Application, error) {
@@ -139,6 +140,12 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 		if query == "" {
 			continue
 		}
+		if query == "/copy" {
+			if err := a.copyLastCommand(ctx); err != nil {
+				a.UI.Error(err.Error())
+			}
+			continue
+		}
 		if strings.HasPrefix(query, "/tools") || strings.HasPrefix(query, "/skills") || strings.HasPrefix(query, "/context") {
 			arguments := strings.Fields(strings.TrimPrefix(query, "/"))
 			if handled, err := a.handleBuiltIn(ctx, arguments); handled {
@@ -167,6 +174,9 @@ func (a *Application) Run(ctx context.Context, args []string) error {
 }
 
 func (a *Application) handleBuiltIn(ctx context.Context, args []string) (bool, error) {
+	if len(args) == 1 && args[0] == "copy" {
+		return true, a.copyLastCommand(ctx)
+	}
 	if len(args) > 0 && (args[0] == "skills" || args[0] == "context") {
 		return true, a.handleContextCommand(args)
 	}
@@ -362,7 +372,9 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 				return err
 			}
 		}
+		var example string
 		if kind == "how_to" && reply.Command != "" {
+			example = reply.Command
 			// Starting with an indented code block keeps the example literal,
 			// even if the command itself contains Markdown fences.
 			reply.Info = "    " + strings.ReplaceAll(reply.Command, "\n", "\n    ") + "\n\n" + reply.Info
@@ -392,8 +404,12 @@ func (a *Application) process(ctx context.Context, query, requestedKind string) 
 		if err := a.History.AppendReply(reply); err != nil {
 			return err
 		}
+		a.History.RecordCommand(example)
 		a.UI.Reply(reply)
 		if reply.Command == "" {
+			if a.UI.Interactive() && a.History.LatestCommand() != "" {
+				a.UI.Info("Copy with clai copy after CLAI exits, or /copy at the CLAI prompt.")
+			}
 			return nil
 		}
 		return a.confirmAndRun(ctx, query, reply, forceConfirm)
@@ -609,10 +625,10 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 	command := reply.Command
 	edited := false
 	if runner.TerminalCommand(command) {
-		return a.offerTerminal(command, false)
+		return a.offerTerminal(ctx, command, false)
 	}
 	if forceConfirm || RequiresConfirmation(reply.Risk, a.Config.RiskAppetite) {
-		choice, err := a.UI.Choice("execute command? [y/e/t/N] (t: return to shell): ")
+		choice, err := a.commandChoice(ctx, "execute command? [y/e/c/t/N] (c: copy, t: return to shell): ", command)
 		if errors.Is(err, io.EOF) {
 			a.UI.Cancel()
 			return nil
@@ -642,6 +658,9 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 					return fmt.Errorf("edited command has invalid Bash syntax")
 				}
 				command = value
+				if a.History != nil {
+					a.History.RecordCommand(command)
+				}
 			}
 			edited = true
 		case "y":
@@ -650,7 +669,7 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 			return nil
 		}
 		if (reply.Risk == model.RiskDanger || (forceConfirm && edited)) && a.Config.ConfirmDangerousCommands {
-			confirm, err := a.UI.Choice("danger zone command, are you sure? [y/N]: ")
+			confirm, err := a.commandChoice(ctx, "danger zone command, are you sure? [y/c/N] (c: copy): ", command)
 			if errors.Is(err, io.EOF) {
 				a.UI.Cancel()
 				return nil
@@ -665,7 +684,7 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 		}
 	}
 	if runner.TerminalCommand(command) {
-		return a.offerTerminal(command, false)
+		return a.offerTerminal(ctx, command, false)
 	}
 	a.UI.BlankLine()
 	result := a.Runner.Run(ctx, command, edited)
@@ -689,7 +708,7 @@ func (a *Application) confirmAndRun(ctx context.Context, originalQuery string, r
 		}
 	}
 	if terminalFailure {
-		return a.offerTerminal(command, true)
+		return a.offerTerminal(ctx, command, true)
 	}
 	if result.ExitCode == 0 {
 		return nil
