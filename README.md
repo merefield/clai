@@ -396,6 +396,8 @@ Requests are interpreted by meaning rather than question marks. Questions needin
 
 For an action routed by System One or selected with `--execute`, CLAI retries once if the provider returns no command. If it still gets no command, CLAI says so and shows any clarification or blocker. For example, `clai --execute "diagnose and resolve the missing libvips dependency for Discourse"` requests a checked command proposal under your normal risk policy. When System One routes a shell how-to question, CLAI prepares the example without tool calls, shows it as instructions, and retries once if the example is missing. For example, `clai "how do I uninstall ImageMagick?"` asks for instructions you can review and run yourself.
 
+Follow-up questions can refer to a command discussed earlier. After discussing `ls`, ask `clai "what about including hidden files?"` to get a complete command example such as `ls -a`. For intent routing, System One receives the current request and whether history is available. The main response model uses that history to resolve the reference.
+
 ## Providers
 
 CLAI selects its native adapter from the configured `api` URL:

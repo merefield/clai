@@ -406,7 +406,10 @@ func (a *Application) routeIntent(ctx context.Context, query, requestedKind stri
 		return requestedKind, nil
 	}
 	if a.SystemOne != nil {
-		decision, err := a.SystemOne.RouteIntent(ctx, systemone.IntentRequest{UserRequest: query})
+		decision, err := a.SystemOne.RouteIntent(ctx, systemone.IntentRequest{
+			UserRequest: query,
+			HasHistory:  len(a.History.Messages) > 0,
+		})
 		if err != nil {
 			return "", fmt.Errorf("route intent with system one: %w", err)
 		}

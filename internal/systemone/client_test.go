@@ -127,7 +127,7 @@ func TestRouteIntentUsesChoiceQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, err := client.RouteIntent(context.Background(), IntentRequest{UserRequest: "how to uninstall this?"})
+	decision, err := client.RouteIntent(context.Background(), IntentRequest{UserRequest: "what about last session?", HasHistory: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +136,10 @@ func TestRouteIntentUsesChoiceQuestion(t *testing.T) {
 	}
 	if request["model"] != "jev-test" {
 		t.Fatalf("request = %#v", request)
+	}
+	state := request["state"].(map[string]any)
+	if len(state) != 2 || state["user_request"] != "what about last session?" || state["has_history"] != true {
+		t.Fatalf("intent state = %#v", state)
 	}
 	questions := request["questions"].(map[string]any)
 	intent := questions["intent"].(map[string]any)

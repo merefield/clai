@@ -476,7 +476,7 @@ func TestSystemOneRoutesQuestionWithoutQuestionMark(t *testing.T) {
 	if err := application.process(context.Background(), "how much is 3 times pi", ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(router.intentRequests) != 1 || router.intentRequests[0].UserRequest != "how much is 3 times pi" {
+	if len(router.intentRequests) != 1 || router.intentRequests[0] != (systemone.IntentRequest{UserRequest: "how much is 3 times pi"}) {
 		t.Fatalf("intent requests = %#v", router.intentRequests)
 	}
 	if len(commandRunner.calls) != 0 {
