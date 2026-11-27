@@ -200,6 +200,7 @@ Commands, approval prompts, live command output, and history remain literal. Onl
 | `clai --setup` | Compatibility alias for `setup`. |
 | `clai --question <question>` | Answer-only mode using `question_query`, with or without System One; proposed shell commands are not executed. |
 | `clai --execute <request>` | Request a command directly, bypassing intent routing. Syntax checks, risk auditing, and approval still apply. |
+| `clai copy` | Copy the command or shell example from the latest recorded request. |
 | `clai --show-history` | Render persisted conversation history. |
 | `clai --show-history --verbose` | Include full stored command stdout and stderr. |
 | `clai --clear-history` | Remove persisted conversation history. |
@@ -320,10 +321,11 @@ Suggested commands are displayed by risk:
 | `reversible change` | Amber | A change that is normally undoable. |
 | `danger zone` | Red | Deletion, overwrite, reset, force, or another hard-to-reverse action. |
 
-When confirmation is required, CLAI prompts with `execute command? [y/e/t/N]`:
+When confirmation is required, CLAI offers `execute command? [y/e/c/t/N]`.
 
 - `y` runs the command.
 - `e` lets you replace the proposed command before it runs.
+- `c` copies the command to the clipboard and shows the same prompt again.
 - `t` exits CLAI and prepares the command for review in your shell, without executing it.
 - Enter or any other answer cancels.
 
@@ -335,13 +337,21 @@ When confirmation is required, CLAI prompts with `execute command? [y/e/t/N]`:
 | `1` | Automatically run green commands; confirm amber and red commands. |
 | `2` | Automatically run green and amber commands; confirm red commands. |
 
-Danger-zone commands always receive the normal confirmation. When `confirm_dangerous_commands=true`, accepting one produces a second `danger zone command, are you sure? [y/N]:` prompt.
+Danger-zone commands always receive the normal confirmation. When `confirm_dangerous_commands=true`, accepting one produces a second `danger zone command, are you sure? [y/c/N]` prompt.
 
 Approved commands run through `bash -o errexit -o pipefail -c`. Stdout and stderr stream to the terminal without truncation, while CLAI retains only the most recent 256 KiB of each stream. Cancellation terminates the command's process group, and detached descendants cannot keep CLAI blocked on inherited output pipes. After a failed command in an interactive terminal, CLAI can send the command and its stderr back to the provider to request an explanation and possible repair.
 
 Approved commands inherit terminal input, so prompts from tools such as `apt-get` can be answered normally after CLAI's own confirmations. On Unix, CLAI hands foreground terminal ownership to the command and restores it and the terminal settings afterward, including on cancellation. Redirected file input is also passed through; when no input file is available, commands receive EOF. Output still streams and is captured as described above; this is not a full pseudo-terminal wrapper for screen-oriented applications.
 
 Risk is model-generated guidance, not a security boundary. Read every proposed or edited command before approving it.
+
+### Copying commands
+
+Use `c` at an execution or shell-handoff prompt. After a one-shot request, run `clai copy`. In an interactive CLAI session, enter `/copy`. Copying works locally without an API key.
+
+Copy uses the latest recorded request, including an edited command, a command that ran with result sharing off, a declined proposal, or a shell example from an advice-only reply. For Markdown advice with several tagged shell code blocks, it uses the last shell block. A prose-only request leaves nothing to copy.
+
+CLAI uses the local clipboard when available through `pbcopy` on macOS, PowerShell on Windows or WSL, `wl-copy` on Wayland, and `xclip` or `xsel` on X11. Over SSH, or when a local helper is unavailable, it can send an OSC 52 clipboard request to the visible terminal. Terminal and tmux settings determine whether that request reaches your clipboard.
 
 ### Commands that need a full terminal
 
@@ -354,6 +364,7 @@ Recognized interactive command ────────────────�
                                                ▼
 Other command → run once → terminal error → offer shell handoff
                                                │
+                                  c: copy and offer handoff again
                                   t: exit CLAI with the command
                                   N: cancel handoff
 ```

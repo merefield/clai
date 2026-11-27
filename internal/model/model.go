@@ -36,6 +36,8 @@ type Message struct {
 	Content    json.RawMessage `json:"content"`
 	ToolCallID string          `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
+	// CopyCommand is local history metadata, never part of a provider message.
+	CopyCommand string `json:"-"`
 }
 
 func TextMessage(role, content string) Message {

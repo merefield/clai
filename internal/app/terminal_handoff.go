@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -12,14 +13,14 @@ import (
 // successfully written handoff to its parent wrapper instead of normal success.
 var ErrShellHandoff = errors.New("shell handoff prepared")
 
-func (a *Application) offerTerminal(command string, failed bool) error {
+func (a *Application) offerTerminal(ctx context.Context, command string, failed bool) error {
 	a.UI.Info("This command appears to need a full terminal. CLAI captures output through pipes and cannot provide that interface.")
 	if failed {
 		a.UI.Info("The command may have partially completed. Review it before running it again; CLAI will not retry it automatically.")
 	}
-	choice, err := a.UI.Choice("return to your shell with this command? [t/N]: ")
+	choice, err := a.commandChoice(ctx, "return to your shell with this command? [c/t/N] (c: copy): ", command)
 	if errors.Is(err, io.EOF) && choice == "" {
-		return a.copyTerminalCommand(command)
+		return a.displayTerminalCommand(command)
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
@@ -44,10 +45,10 @@ func (a *Application) handoffCommand(command string) error {
 			a.UI.Error("Could not prepare shell handoff: " + err.Error())
 		}
 	}
-	return a.copyTerminalCommand(command)
+	return a.displayTerminalCommand(command)
 }
 
-func (a *Application) copyTerminalCommand(command string) error {
+func (a *Application) displayTerminalCommand(command string) error {
 	a.UI.Info("Without Bash/zsh handoff integration, copy this command and run it directly in Bash after CLAI exits.")
 	a.UI.Plain(command + "\n")
 	a.exitToShell = true

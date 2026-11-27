@@ -17,6 +17,11 @@ type Store struct {
 	dirty    bool
 }
 
+type storedMessage struct {
+	model.Message
+	CopyCommand string `json:"copy_command,omitempty"`
+}
+
 func DefaultPath() (string, error) {
 	if path := os.Getenv("CLAI_HISTORY"); path != "" {
 		return path, nil
@@ -41,8 +46,13 @@ func Load(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(b, &s.Messages); err != nil {
+	var records []storedMessage
+	if err := json.Unmarshal(b, &records); err != nil {
 		return s, fmt.Errorf("parse history: %w", err)
+	}
+	for _, record := range records {
+		record.Message.CopyCommand = record.CopyCommand
+		s.Messages = append(s.Messages, record.Message)
 	}
 	s.dropSystemMessages()
 	return s, nil
@@ -122,7 +132,11 @@ func (s *Store) Save(maxTurns int) error {
 		start = len(s.Messages) - maxTurns
 	}
 	s.Messages = append([]model.Message(nil), s.Messages[start:]...)
-	b, err := json.Marshal(s.Messages)
+	records := make([]storedMessage, 0, len(s.Messages))
+	for _, message := range s.Messages {
+		records = append(records, storedMessage{Message: message, CopyCommand: message.CopyCommand})
+	}
+	b, err := json.Marshal(records)
 	if err != nil {
 		return err
 	}
